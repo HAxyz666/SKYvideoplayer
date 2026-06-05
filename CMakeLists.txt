@@ -23,6 +23,7 @@ set(CORE_SOURCES
     src/core/AudioOutput.cpp
     src/core/VideoRenderItem.cpp
     src/core/PacketQueue.cpp
+    src/core/FrameQueue.cpp
 )
 
 set(CORE_HEADERS
@@ -31,6 +32,7 @@ set(CORE_HEADERS
     src/core/AudioOutput.h
     src/core/VideoRenderItem.h
     src/core/PacketQueue.h
+    src/core/FrameQueue.h
 )
 
 qt6_add_executable(SKYvideoplayer
@@ -48,7 +50,6 @@ qt6_add_qml_module(SKYvideoplayer
     VERSION 1.0
     QML_FILES
         qml/Main.qml
-        SOURCES
 )
 
 target_include_directories(SKYvideoplayer PRIVATE
