@@ -1,9 +1,10 @@
 #include "FrameQueue.h"
-#include <QMutexLocker>
+#include <QDebug>
 
 FrameQueue::FrameQueue(int maxSize)
     : m_maxSize(maxSize)
     , m_finished(false)
+    , m_serial(0)
 {
 }
 
@@ -14,104 +15,114 @@ FrameQueue::~FrameQueue()
 
 void FrameQueue::push(AVFrame *frame)
 {
-    QMutexLocker locker(&m_mutex);
-    while (m_queue.size() >= m_maxSize && !m_finished) {
-        m_notFull.wait(&m_mutex);
-    }
+    AVFrame *newFrame = av_frame_clone(frame);
+
+    std::unique_lock lock(m_mutex);
+    m_notFull.wait(lock, [this]() { return m_queue.size() < m_maxSize || m_finished; });
+
     if (m_finished) {
-        av_frame_free(&frame);
+        av_frame_free(&newFrame);
         return;
     }
-    m_queue.enqueue(av_frame_clone(frame));
-    m_notEmpty.wakeAll();
+
+    m_queue.enqueue(newFrame);
+    m_notEmpty.notify_one();
 }
 
 AVFrame *FrameQueue::pop()
 {
-    QMutexLocker locker(&m_mutex);
-    while (m_queue.isEmpty() && !m_finished) {
-        m_notEmpty.wait(&m_mutex);
-    }
-    if (m_finished && m_queue.isEmpty()) {
+    std::unique_lock lock(m_mutex);
+    m_notEmpty.wait(lock, [this]() { return !m_queue.isEmpty() || m_finished; });
+
+    if (m_queue.isEmpty())
         return nullptr;
-    }
+
     AVFrame *frame = m_queue.dequeue();
-    m_notFull.wakeAll();
+    m_notFull.notify_one();
     return frame;
 }
 
 AVFrame *FrameQueue::tryPop(int timeoutMs)
 {
-    QMutexLocker locker(&m_mutex);
-    if (m_queue.isEmpty() && !m_finished) {
-        m_notEmpty.wait(&m_mutex, timeoutMs);
-    }
-    if (m_finished || m_queue.isEmpty()) {
+    std::unique_lock lock(m_mutex);
+    if (!m_notEmpty.wait_for(lock, std::chrono::milliseconds(timeoutMs),
+                             [this]() { return !m_queue.isEmpty() || m_finished; }))
         return nullptr;
-    }
+
+    if (m_queue.isEmpty())
+        return nullptr;
+
     AVFrame *frame = m_queue.dequeue();
-    m_notFull.wakeAll();
+    m_notFull.notify_one();
     return frame;
 }
 
 AVFrame *FrameQueue::peek()
 {
-    QMutexLocker locker(&m_mutex);
-    if (m_queue.isEmpty()) {
+    std::lock_guard lock(m_mutex);
+    if (m_queue.isEmpty())
         return nullptr;
-    }
     return m_queue.head();
 }
 
 int FrameQueue::size() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_queue.size();
 }
 
 bool FrameQueue::isFull() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_queue.size() >= m_maxSize;
 }
 
 bool FrameQueue::isEmpty() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_queue.isEmpty();
 }
 
 void FrameQueue::clear()
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     while (!m_queue.isEmpty()) {
         AVFrame *frame = m_queue.dequeue();
         av_frame_free(&frame);
     }
     m_finished = false;
+    m_serial = 0;
+    m_notFull.notify_all();
 }
 
 void FrameQueue::setFinished(bool finished)
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     m_finished = finished;
-    m_notEmpty.wakeAll();
-    m_notFull.wakeAll();
+    m_notEmpty.notify_all();
+    m_notFull.notify_all();
 }
 
 bool FrameQueue::isFinished() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_finished;
 }
 
 void FrameQueue::flush()
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     while (!m_queue.isEmpty()) {
         AVFrame *frame = m_queue.dequeue();
         av_frame_free(&frame);
     }
-    m_notEmpty.wakeAll();
-    m_notFull.wakeAll();
+    m_serial++;
+    m_notEmpty.notify_all();
+    m_notFull.notify_all();
+}
+
+int FrameQueue::serial() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_serial;
 }

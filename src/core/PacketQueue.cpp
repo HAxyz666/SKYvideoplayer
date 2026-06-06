@@ -1,5 +1,5 @@
 #include "PacketQueue.h"
-#include <QMutexLocker>
+#include <QDebug>
 
 PacketQueue::PacketQueue(int maxSize)
     : m_maxSize(maxSize)
@@ -15,109 +15,112 @@ PacketQueue::~PacketQueue()
 
 void PacketQueue::push(AVPacket *pkt)
 {
-    QMutexLocker locker(&m_mutex);
-    while (m_queue.size() >= m_maxSize && !m_finished) {
-        m_notFull.wait(&m_mutex);
-    }
+    AVPacket *newPkt = av_packet_clone(pkt);
+
+    std::unique_lock lock(m_mutex);
+    m_notFull.wait(lock, [this]() { return m_queue.size() < m_maxSize || m_finished; });
+
     if (m_finished) {
-        av_packet_free(&pkt);
+        av_packet_free(&newPkt);
         return;
     }
-    m_queue.enqueue(av_packet_clone(pkt));
-    m_notEmpty.wakeAll();
+
+    m_queue.enqueue(newPkt);
+    m_notEmpty.notify_one();
 }
 
 AVPacket *PacketQueue::pop()
 {
-    QMutexLocker locker(&m_mutex);
-    while (m_queue.isEmpty() && !m_finished) {
-        m_notEmpty.wait(&m_mutex);
-    }
-    if (m_finished && m_queue.isEmpty()) {
+    std::unique_lock lock(m_mutex);
+    m_notEmpty.wait(lock, [this]() { return !m_queue.isEmpty() || m_finished; });
+
+    if (m_queue.isEmpty())
         return nullptr;
-    }
+
     AVPacket *pkt = m_queue.dequeue();
-    m_notFull.wakeAll();
+    m_notFull.notify_one();
     return pkt;
 }
 
 AVPacket *PacketQueue::tryPop(int timeoutMs)
 {
-    QMutexLocker locker(&m_mutex);
-    if (m_queue.isEmpty() && !m_finished) {
-        m_notEmpty.wait(&m_mutex, timeoutMs);
-    }
-    if (m_finished || m_queue.isEmpty()) {
+    std::unique_lock lock(m_mutex);
+    if (!m_notEmpty.wait_for(lock, std::chrono::milliseconds(timeoutMs),
+                             [this]() { return !m_queue.isEmpty() || m_finished; }))
         return nullptr;
-    }
+
+    if (m_queue.isEmpty())
+        return nullptr;
+
     AVPacket *pkt = m_queue.dequeue();
-    m_notFull.wakeAll();
+    m_notFull.notify_one();
     return pkt;
 }
 
 int PacketQueue::size() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_queue.size();
 }
 
 bool PacketQueue::isFull() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_queue.size() >= m_maxSize;
 }
 
 bool PacketQueue::isEmpty() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_queue.isEmpty();
 }
 
 void PacketQueue::clear()
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     while (!m_queue.isEmpty()) {
         AVPacket *pkt = m_queue.dequeue();
         av_packet_free(&pkt);
     }
     m_finished = false;
     m_serial = 0;
+    m_notFull.notify_all();
 }
 
 void PacketQueue::setFinished(bool finished)
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     m_finished = finished;
-    m_notEmpty.wakeAll();
-    m_notFull.wakeAll();
+    m_notEmpty.notify_all();
+    m_notFull.notify_all();
 }
 
 bool PacketQueue::isFinished() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_finished;
 }
 
 void PacketQueue::flush()
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     while (!m_queue.isEmpty()) {
         AVPacket *pkt = m_queue.dequeue();
         av_packet_free(&pkt);
     }
     m_serial++;
-    m_notEmpty.wakeAll();
-    m_notFull.wakeAll();
+    m_notEmpty.notify_all();
+    m_notFull.notify_all();
 }
 
 int PacketQueue::serial() const
 {
-    QMutexLocker locker(&m_mutex);
+    std::lock_guard lock(m_mutex);
     return m_serial;
 }
 
 void PacketQueue::incrementSerial()
 {
-    QMutexLocker locker(&m_mutex);
-    m_serial++;
+    std::lock_guard lock(m_mutex);
+    ++m_serial;
 }

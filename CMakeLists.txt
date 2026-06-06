@@ -24,6 +24,9 @@ set(CORE_SOURCES
     src/core/VideoRenderItem.cpp
     src/core/PacketQueue.cpp
     src/core/FrameQueue.cpp
+    src/core/DemuxThread.cpp
+    src/core/VideoDecodeThread.cpp
+    src/core/AudioDecodeThread.cpp
 )
 
 set(CORE_HEADERS
@@ -33,6 +36,9 @@ set(CORE_HEADERS
     src/core/VideoRenderItem.h
     src/core/PacketQueue.h
     src/core/FrameQueue.h
+    src/core/DemuxThread.h
+    src/core/VideoDecodeThread.h
+    src/core/AudioDecodeThread.h
 )
 
 qt6_add_executable(SKYvideoplayer
