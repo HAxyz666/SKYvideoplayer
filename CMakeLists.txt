@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 4.1.1)
 project(SKYvideoplayer VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -56,6 +56,11 @@ qt6_add_qml_module(SKYvideoplayer
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/AppLayout.qml
+        qml/AppSidebar.qml
+        qml/PlayerController.qml
+    SOURCES
+        src/core/VideoRenderItem.cpp
 )
 
 target_include_directories(SKYvideoplayer PRIVATE

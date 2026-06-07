@@ -16,9 +16,8 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-MediaEngine::MediaEngine(const QString &filename, QObject *parent)
+MediaEngine::MediaEngine(QObject *parent)
     : QObject(parent)
-    , m_filename(filename)
     , m_fmtCtx(nullptr)
     , m_videoStreamIndex(-1)
     , m_audioStreamIndex(-1)
@@ -126,6 +125,16 @@ void MediaEngine::stop()
 {
     stopThreads();
     cleanup();
+}
+
+void MediaEngine::open(const QString &url)
+{
+    stop();
+    QString path = url;
+    if (path.startsWith("file://"))
+        path = path.mid(7);
+    m_filename = path;
+    start();
 }
 
 void MediaEngine::startThreads()

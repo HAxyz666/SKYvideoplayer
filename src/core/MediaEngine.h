@@ -22,11 +22,12 @@ class MediaEngine : public QObject
     Q_OBJECT
 
 public:
-    explicit MediaEngine(const QString &filename, QObject *parent = nullptr);
+    explicit MediaEngine(QObject *parent = nullptr);
     ~MediaEngine();
 
     void start();
-    void stop();
+    Q_INVOKABLE void stop();
+    Q_INVOKABLE void open(const QString &url);
 
 signals:
     void frameReady(const QImage &image);
