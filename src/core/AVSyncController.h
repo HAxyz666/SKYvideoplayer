@@ -2,10 +2,14 @@
 
 #include <QObject>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-}
+struct AVFrame;
+struct AVFormatContext;
+
+enum class SyncMode {
+    AudioMaster,
+    VideoMaster,
+    ExternalClock
+};
 
 class AVSyncController : public QObject
 {
@@ -14,11 +18,33 @@ class AVSyncController : public QObject
 public:
     explicit AVSyncController(QObject *parent = nullptr);
 
-    double synchronizeVideo(AVFrame *frame, double pts, AVFormatContext *fmtCtx, int streamIndex);
-    void reset();
+    double computeFrameDelay(double videoPts);
+    void updateAudioClock(double pts);
+    void updateVideoClock(double pts);
 
-    double videoClock() const;
+    double getAudioClock() const;
+    double getVideoClock() const;
+
+    void setSpeed(double speed);
+    void reset();
+    void setSyncMode(SyncMode mode);
 
 private:
+    int synchronizeAudio();
+    double synchronizeVideo();
+
+    SyncMode m_syncMode;
+
+    double m_audioClock;
     double m_videoClock;
+    double m_frameTimer;
+    double m_frameLastPts;
+    double m_frameLastDelay;
+
+    double m_speed;
+
+    double m_audioDiffThreshold;
+    double m_audioDiffAvgCoef;
+    int m_audioDiffAvgCount;
 };
+
