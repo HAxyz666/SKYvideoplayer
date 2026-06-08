@@ -20,7 +20,7 @@ Item {
         AppSidebar {
             Layout.fillHeight: true
             Layout.preferredWidth: 200
-            onOpenFileTriggered: fileDialog.open()
+            onOpenFileTriggered: appController.openFile()
         }
 
         // 中间：历史列表功能区 (预留，尚未实现)
@@ -68,6 +68,11 @@ Item {
                 }
             }
         }
+    }
+
+    Connections {
+        target: appController
+        function onRequestOpenFile() { fileDialog.open() }
     }
 
     FileDialog {

@@ -1,3 +1,4 @@
+#include "Applicationcontroller.h"
 #include "MediaEngine.h"
 #include "VideoRenderItem.h"
 
@@ -11,8 +12,8 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
 
-    MediaEngine player;
-    engine.rootContext()->setContextProperty("mediaEngine", &player);
+    ApplicationController controller;
+    engine.rootContext()->setContextProperty("appController", &controller);
 
     engine.loadFromModule("SKYvideoplayer", "Main");
 
@@ -20,7 +21,8 @@ int main(int argc, char *argv[])
     if (!rootObjects.isEmpty()) {
         VideoRenderItem *display = rootObjects.first()->findChild<VideoRenderItem *>("videoRenderItem");
         if (display)
-            QObject::connect(&player, &MediaEngine::frameReady, display, &VideoRenderItem::setImage);
+            QObject::connect(controller.mediaEngine(), &MediaEngine::frameReady,
+                             display, &VideoRenderItem::setImage);
     }
 
     return app.exec();

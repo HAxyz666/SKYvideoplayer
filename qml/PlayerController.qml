@@ -3,11 +3,9 @@ import QtQuick
 QtObject {
     id: playerController
 
-    // 核心状态：当前是否加载了媒体
     property bool hasMedia: false
-
-    property string mediaSource: ""
     property bool isPlaying: false
+    property string mediaSource: ""
     property real playbackPosition: 0.0
     property real duration: 0.0
 
@@ -15,14 +13,14 @@ QtObject {
         mediaSource = url;
         hasMedia = true;
         isPlaying = true;
-        mediaEngine.open(url);
+        appController.loadFile(url);
     }
 
     function closeFile() {
         mediaSource = "";
         hasMedia = false;
         isPlaying = false;
-        mediaEngine.stop();
+        appController.stop();
     }
 
     function togglePlay() { isPlaying = !isPlaying; }

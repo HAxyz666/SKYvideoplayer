@@ -41,10 +41,20 @@ set(CORE_HEADERS
     src/core/AudioDecodeThread.h
 )
 
+set(LOGIC_SOURCES
+    src/logic/Applicationcontroller.cpp
+)
+
+set(LOGIC_HEADERS
+    src/logic/Applicationcontroller.h
+)
+
 qt6_add_executable(SKYvideoplayer
     main.cpp
     ${CORE_SOURCES}
     ${CORE_HEADERS}
+    ${LOGIC_SOURCES}
+    ${LOGIC_HEADERS}
 )
 
 set_target_properties(SKYvideoplayer PROPERTIES
@@ -67,6 +77,9 @@ target_include_directories(SKYvideoplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
 )
 
+target_include_directories(SKYvideoplayer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/logic
+)
 target_link_libraries(SKYvideoplayer PRIVATE
     Qt6::Core
     Qt6::Quick
