@@ -15,6 +15,7 @@ AudioDecodeThread::AudioDecodeThread(QObject *parent)
     , m_audioOutput(nullptr)
     , m_swrCtx(nullptr)
     , m_quit(false)
+    , m_paused(nullptr)
 {
 }
 
@@ -104,6 +105,11 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
     return outFrame;
 }
 
+void AudioDecodeThread::setPausedRef(const std::atomic<bool> &paused)
+{
+    m_paused = &paused;
+}
+
 void AudioDecodeThread::run()
 {
     if (!m_codecCtx || !m_packetQueue || !m_audioOutput)
@@ -119,6 +125,13 @@ void AudioDecodeThread::run()
         return;
 
     while (!m_quit) {
+        if (m_paused && m_paused->load()) {
+            while (!m_quit && m_paused->load())
+                msleep(10);
+            if (m_quit) break;
+            continue;
+        }
+
         AVPacket *pkt = m_packetQueue->pop();
         if (!pkt)
             break;

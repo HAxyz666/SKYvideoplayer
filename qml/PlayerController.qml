@@ -23,5 +23,5 @@ QtObject {
         appController.stop();
     }
 
-    function togglePlay() { isPlaying = !isPlaying; }
+    function togglePlay() { appController.togglePlayback(); }
 }

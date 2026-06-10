@@ -21,6 +21,7 @@ public:
     void setStreamIndices(int videoIdx, int audioIdx);
     void setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQueue);
     void stopRead();
+    void setPausedRef(const std::atomic<bool> &paused);
 
 protected:
     void run() override;
@@ -37,4 +38,5 @@ private:
     PacketQueue *m_audioQueue;
 
     std::atomic<bool> m_quit;
+    const std::atomic<bool> *m_paused;
 };

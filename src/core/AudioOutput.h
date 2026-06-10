@@ -21,6 +21,8 @@ public:
 
     bool init(AVCodecContext *audioCodecCtx);
     void enqueue(uint8_t *data, int size);
+    void pause();
+    void resume();
     void stop();
     bool isInited() const;
 

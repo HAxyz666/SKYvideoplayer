@@ -23,6 +23,7 @@ public:
     void setPacketQueue(PacketQueue *queue);
     void setAudioOutput(AudioOutput *output);
     void stopDecode();
+    void setPausedRef(const std::atomic<bool> &paused);
 
 protected:
     void run() override;
@@ -36,4 +37,5 @@ private:
     AudioOutput *m_audioOutput;
     SwrContext *m_swrCtx;
     std::atomic<bool> m_quit;
+    const std::atomic<bool> *m_paused;
 };

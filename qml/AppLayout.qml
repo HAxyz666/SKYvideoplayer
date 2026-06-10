@@ -73,6 +73,7 @@ Item {
     Connections {
         target: appController
         function onRequestOpenFile() { fileDialog.open() }
+        function onPlaybackStateChanged(isPlaying) { controller.isPlaying = isPlaying }
     }
 
     FileDialog {

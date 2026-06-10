@@ -14,11 +14,13 @@ public:
 
     Q_INVOKABLE bool openFile();
     Q_INVOKABLE bool loadFile(const QString &path);
+    Q_INVOKABLE void togglePlayback();
 
     MediaEngine *mediaEngine() const;
 
 signals:
     void requestOpenFile();
+    void playbackStateChanged(bool isPlaying);
 
 private:
     MediaEngine *m_mediaEngine;

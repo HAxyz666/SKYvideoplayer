@@ -60,6 +60,18 @@ void AudioOutput::enqueue(uint8_t *data, int size)
     m_audioCond.wakeAll();
 }
 
+void AudioOutput::pause()
+{
+    if (m_sdlInited)
+        SDL_PauseAudio(1);
+}
+
+void AudioOutput::resume()
+{
+    if (m_sdlInited)
+        SDL_PauseAudio(0);
+}
+
 void AudioOutput::stop()
 {
     {

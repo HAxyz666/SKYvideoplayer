@@ -32,6 +32,7 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_syncController(new AVSyncController(this))
     , m_audioOutput(new AudioOutput(this))
     , m_frameQueueDrainTimer(new QTimer(this))
+    , m_paused(false)
 {
     connect(m_frameQueueDrainTimer, &QTimer::timeout, this, [this]() {
         if (!m_videoFrameQueue) return;
@@ -137,6 +138,37 @@ void MediaEngine::open(const QString &url)
     start();
 }
 
+void MediaEngine::pause()
+{
+    if (m_paused.exchange(true))
+        return;
+    m_audioOutput->pause();
+    emit pausedChanged(true);
+}
+
+void MediaEngine::resume()
+{
+    if (!m_paused.exchange(false))
+        return;
+    m_audioOutput->resume();
+    if (m_videoThread)
+        m_videoThread->adjustStartTime();
+    emit pausedChanged(false);
+}
+
+void MediaEngine::togglePause()
+{
+    if (m_paused)
+        resume();
+    else
+        pause();
+}
+
+bool MediaEngine::isPaused() const
+{
+    return m_paused;
+}
+
 void MediaEngine::startThreads()
 {
     m_videoPacketQueue = new PacketQueue(64);
@@ -147,6 +179,7 @@ void MediaEngine::startThreads()
     m_demuxThread->setFormatContext(m_fmtCtx);
     m_demuxThread->setStreamIndices(m_videoStreamIndex, m_audioStreamIndex);
     m_demuxThread->setPacketQueues(m_videoPacketQueue, m_audioPacketQueue);
+    m_demuxThread->setPausedRef(m_paused);
     connect(m_demuxThread, &DemuxThread::eofReached, this, [this]() {
         emit playbackFinished();
     });
@@ -159,6 +192,7 @@ void MediaEngine::startThreads()
     m_videoThread->setPacketQueue(m_videoPacketQueue);
     m_videoThread->setFrameQueue(m_videoFrameQueue);
     m_videoThread->setTimeBase(m_fmtCtx->streams[m_videoStreamIndex]->time_base);
+    m_videoThread->setPausedRef(m_paused);
     connect(m_videoThread, &VideoDecodeThread::frameReady, this, &MediaEngine::frameReady);
 
     if (m_audioCodecCtx) {
@@ -166,6 +200,7 @@ void MediaEngine::startThreads()
         m_audioThread->setCodecContext(m_audioCodecCtx);
         m_audioThread->setPacketQueue(m_audioPacketQueue);
         m_audioThread->setAudioOutput(m_audioOutput);
+        m_audioThread->setPausedRef(m_paused);
     }
 
     m_frameQueueDrainTimer->start(100);

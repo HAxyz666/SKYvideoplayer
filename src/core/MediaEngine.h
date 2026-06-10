@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QImage>
+#include <atomic>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -28,10 +29,15 @@ public:
     void start();
     Q_INVOKABLE void stop();
     Q_INVOKABLE void open(const QString &url);
+    Q_INVOKABLE void pause();
+    Q_INVOKABLE void resume();
+    Q_INVOKABLE void togglePause();
+    bool isPaused() const;
 
 signals:
     void frameReady(const QImage &image);
     void playbackFinished();
+    void pausedChanged(bool paused);
 
 private:
     bool initFFmpeg(const QString &filename);
@@ -59,4 +65,6 @@ private:
     AVSyncController *m_syncController;
     AudioOutput *m_audioOutput;
     QTimer *m_frameQueueDrainTimer;
+
+    std::atomic<bool> m_paused;
 };

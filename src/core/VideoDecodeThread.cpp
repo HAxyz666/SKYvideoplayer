@@ -16,7 +16,9 @@ VideoDecodeThread::VideoDecodeThread(QObject *parent)
     , m_frameQueue(nullptr)
     , m_timeBase{1, 90000}
     , m_startTime(0)
+    , m_pauseStartTime(0)
     , m_quit(false)
+    , m_paused(nullptr)
 {
 }
 
@@ -53,6 +55,18 @@ void VideoDecodeThread::stopDecode()
     if (m_frameQueue) m_frameQueue->flush();
 }
 
+void VideoDecodeThread::setPausedRef(const std::atomic<bool> &paused)
+{
+    m_paused = &paused;
+}
+
+void VideoDecodeThread::adjustStartTime(int64_t offset)
+{
+    if (offset < 0)
+        offset = av_gettime() - m_pauseStartTime;
+    m_startTime += offset;
+}
+
 void VideoDecodeThread::run()
 {
     if (!m_codecCtx || !m_packetQueue)
@@ -79,6 +93,17 @@ void VideoDecodeThread::run()
     m_startTime = av_gettime();
 
     while (!m_quit) {
+        if (m_paused && m_paused->load()) {
+            if (m_pauseStartTime == 0)
+                m_pauseStartTime = av_gettime();
+            while (!m_quit && m_paused->load())
+                msleep(10);
+            if (m_quit) break;
+            adjustStartTime();
+            m_pauseStartTime = 0;
+            continue;
+        }
+
         AVPacket *pkt = m_packetQueue->pop();
         if (!pkt)
             break;
@@ -112,7 +137,7 @@ void VideoDecodeThread::run()
                 int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
                 int64_t now = av_gettime();
                 int64_t delay = ptsUs - (now - m_startTime);
-                while (delay > 0 && !m_quit) {
+                while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
                     int64_t sleepUs = qMin(delay, (int64_t)10000);
                     av_usleep(sleepUs);
                     delay = ptsUs - (av_gettime() - m_startTime);

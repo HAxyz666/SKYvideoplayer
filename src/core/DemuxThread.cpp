@@ -10,6 +10,7 @@ DemuxThread::DemuxThread(QObject *parent)
     , m_videoQueue(nullptr)
     , m_audioQueue(nullptr)
     , m_quit(false)
+    , m_paused(nullptr)
 {
 }
 
@@ -43,6 +44,11 @@ void DemuxThread::stopRead()
     if (m_audioQueue) m_audioQueue->flush();
 }
 
+void DemuxThread::setPausedRef(const std::atomic<bool> &paused)
+{
+    m_paused = &paused;
+}
+
 void DemuxThread::run()
 {
     if (!m_fmtCtx)
@@ -55,6 +61,13 @@ void DemuxThread::run()
     }
 
     while (!m_quit) {
+        if (m_paused && m_paused->load()) {
+            while (!m_quit && m_paused->load())
+                msleep(10);
+            if (m_quit) break;
+            continue;
+        }
+
         int ret = av_read_frame(m_fmtCtx, pkt);
         if (ret < 0) {
             if (ret == AVERROR_EOF) {

@@ -26,6 +26,8 @@ public:
     void setFrameQueue(FrameQueue *queue);
     void setTimeBase(AVRational tb);
     void stopDecode();
+    void setPausedRef(const std::atomic<bool> &paused);
+    void adjustStartTime(int64_t offset = -1);
 
 protected:
     void run() override;
@@ -39,5 +41,7 @@ private:
     FrameQueue *m_frameQueue;
     AVRational m_timeBase;
     int64_t m_startTime;
+    int64_t m_pauseStartTime;
     std::atomic<bool> m_quit;
+    const std::atomic<bool> *m_paused;
 };
