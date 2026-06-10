@@ -69,6 +69,7 @@ qt6_add_qml_module(SKYvideoplayer
         qml/AppLayout.qml
         qml/AppSidebar.qml
         qml/PlayerController.qml
+        qml/ProgressBar.qml
     SOURCES
         src/core/VideoRenderItem.cpp
 )

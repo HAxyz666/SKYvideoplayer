@@ -10,6 +10,8 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::pausedChanged, this, [this](bool paused) {
         emit playbackStateChanged(!paused);
     });
+    connect(m_mediaEngine, &MediaEngine::positionChanged, this, &ApplicationController::positionChanged);
+    connect(m_mediaEngine, &MediaEngine::durationChanged, this, &ApplicationController::durationChanged);
 }
 
 bool ApplicationController::openFile()
@@ -32,6 +34,21 @@ bool ApplicationController::loadFile(const QString &path)
 void ApplicationController::togglePlayback()
 {
     m_mediaEngine->togglePause();
+}
+
+void ApplicationController::seekTo(double seconds)
+{
+    m_mediaEngine->seek(seconds);
+}
+
+double ApplicationController::position() const
+{
+    return m_mediaEngine->position();
+}
+
+double ApplicationController::duration() const
+{
+    return m_mediaEngine->duration();
 }
 
 MediaEngine *ApplicationController::mediaEngine() const

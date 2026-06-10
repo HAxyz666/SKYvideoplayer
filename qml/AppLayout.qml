@@ -50,21 +50,38 @@ Item {
             id: controlBar
             anchors.bottom: parent.bottom
             width: parent.width
-            height: 60
+            height: 80
             color: "#80000000"
 
-            RowLayout {
+            ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 10
+                spacing: 4
 
-                Button {
-                    text: controller.isPlaying ? "pause" : "play"
-                    onClicked: controller.togglePlay()
+                ProgressBar {
+                    Layout.fillWidth: true
+                    position: appController.position
+                    duration: appController.duration
+                    onSeekRequested: function(pos) {
+                        appController.seekTo(pos)
+                    }
                 }
 
-                Button {
-                    text: qsTr("Back to list")
-                    onClicked: controller.closeFile()
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Button {
+                        text: controller.isPlaying ? "pause" : "play"
+                        onClicked: controller.togglePlay()
+                    }
+
+                    Button {
+                        text: qsTr("Back to list")
+                        onClicked: controller.closeFile()
+                    }
+
+                    Item { Layout.fillWidth: true }
                 }
             }
         }

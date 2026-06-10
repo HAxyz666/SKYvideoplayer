@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QImage>
+#include <QElapsedTimer>
 #include <atomic>
 
 extern "C" {
@@ -21,6 +22,8 @@ class AudioOutput;
 class MediaEngine : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(double position READ position NOTIFY positionChanged)
+    Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -32,18 +35,25 @@ public:
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
+    Q_INVOKABLE void seek(double seconds);
     bool isPaused() const;
+
+    double position() const;
+    double duration() const;
 
 signals:
     void frameReady(const QImage &image);
     void playbackFinished();
     void pausedChanged(bool paused);
+    void positionChanged(double pos);
+    void durationChanged(double dur);
 
 private:
     bool initFFmpeg(const QString &filename);
     void cleanup();
     void startThreads();
     void stopThreads();
+    void updatePosition();
 
     QString m_filename;
 
@@ -67,4 +77,11 @@ private:
     QTimer *m_frameQueueDrainTimer;
 
     std::atomic<bool> m_paused;
+
+    double m_position;
+    double m_duration;
+    qint64 m_startTimeUs;
+    qint64 m_pausedDurationUs;
+    qint64 m_pauseStartUs;
+    QTimer *m_positionTimer;
 };

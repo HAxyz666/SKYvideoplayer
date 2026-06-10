@@ -14,6 +14,7 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/time.h>
 }
 
 MediaEngine::MediaEngine(QObject *parent)
@@ -33,6 +34,12 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_audioOutput(new AudioOutput(this))
     , m_frameQueueDrainTimer(new QTimer(this))
     , m_paused(false)
+    , m_position(0.0)
+    , m_duration(0.0)
+    , m_startTimeUs(0)
+    , m_pausedDurationUs(0)
+    , m_pauseStartUs(0)
+    , m_positionTimer(new QTimer(this))
 {
     connect(m_frameQueueDrainTimer, &QTimer::timeout, this, [this]() {
         if (!m_videoFrameQueue) return;
@@ -42,6 +49,9 @@ MediaEngine::MediaEngine(QObject *parent)
             else break;
         }
     });
+
+    m_positionTimer->setInterval(250);
+    connect(m_positionTimer, &QTimer::timeout, this, &MediaEngine::updatePosition);
 }
 
 MediaEngine::~MediaEngine()
@@ -107,6 +117,11 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 
     av_dump_format(m_fmtCtx, 0, filename.toUtf8().constData(), 0);
 
+    m_duration = m_fmtCtx->duration != AV_NOPTS_VALUE
+        ? m_fmtCtx->duration / (double)AV_TIME_BASE
+        : 0.0;
+    emit durationChanged(m_duration);
+
     return true;
 }
 
@@ -119,13 +134,23 @@ void MediaEngine::start()
 
     m_syncController->reset();
 
+    m_position = 0.0;
+    m_startTimeUs = av_gettime();
+    m_pausedDurationUs = 0;
+    m_pauseStartUs = 0;
+
     startThreads();
+
+    m_positionTimer->start();
 }
 
 void MediaEngine::stop()
 {
+    m_positionTimer->stop();
     stopThreads();
     cleanup();
+    m_position = 0.0;
+    emit positionChanged(0.0);
 }
 
 void MediaEngine::open(const QString &url)
@@ -143,6 +168,7 @@ void MediaEngine::pause()
     if (m_paused.exchange(true))
         return;
     m_audioOutput->pause();
+    m_pauseStartUs = av_gettime();
     emit pausedChanged(true);
 }
 
@@ -153,6 +179,8 @@ void MediaEngine::resume()
     m_audioOutput->resume();
     if (m_videoThread)
         m_videoThread->adjustStartTime();
+    m_pausedDurationUs += av_gettime() - m_pauseStartUs;
+    m_pauseStartUs = 0;
     emit pausedChanged(false);
 }
 
@@ -167,6 +195,70 @@ void MediaEngine::togglePause()
 bool MediaEngine::isPaused() const
 {
     return m_paused;
+}
+
+void MediaEngine::seek(double seconds)
+{
+    if (!m_fmtCtx)
+        return;
+
+    m_positionTimer->stop();
+
+    bool wasPaused = m_paused;
+    if (!wasPaused)
+        pause();
+
+    stopThreads();
+
+    int64_t targetUs = static_cast<int64_t>(seconds * AV_TIME_BASE);
+    if (targetUs < 0) targetUs = 0;
+    if (m_duration > 0 && targetUs > static_cast<int64_t>(m_duration * AV_TIME_BASE))
+        targetUs = static_cast<int64_t>(m_duration * AV_TIME_BASE);
+
+    int ret = av_seek_frame(m_fmtCtx, -1, targetUs, AVSEEK_FLAG_BACKWARD);
+    if (ret < 0)
+        qWarning() << "Seek failed:" << ret;
+
+    avcodec_flush_buffers(m_videoCodecCtx);
+    if (m_audioCodecCtx)
+        avcodec_flush_buffers(m_audioCodecCtx);
+
+    m_startTimeUs = av_gettime();
+    m_pausedDurationUs = 0;
+    m_position = seconds;
+    emit positionChanged(m_position);
+
+    startThreads();
+
+    if (!wasPaused)
+        resume();
+
+    m_positionTimer->start();
+}
+
+double MediaEngine::position() const
+{
+    return m_position;
+}
+
+double MediaEngine::duration() const
+{
+    return m_duration;
+}
+
+void MediaEngine::updatePosition()
+{
+    if (m_paused || m_startTimeUs == 0)
+        return;
+
+    double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs) / 1000000.0;
+    if (pos < 0) pos = 0;
+    if (m_duration > 0 && pos > m_duration) pos = m_duration;
+
+    if (qAbs(pos - m_position) > 0.01) {
+        m_position = pos;
+        emit positionChanged(m_position);
+    }
 }
 
 void MediaEngine::startThreads()
