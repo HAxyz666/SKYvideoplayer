@@ -1,6 +1,6 @@
 #include "AudioDecodeThread.h"
 #include "PacketQueue.h"
-#include "AudioOutput.h"
+#include "FrameQueue.h"
 #include <QDebug>
 
 extern "C" {
@@ -12,7 +12,7 @@ AudioDecodeThread::AudioDecodeThread(QObject *parent)
     : QThread(parent)
     , m_codecCtx(nullptr)
     , m_packetQueue(nullptr)
-    , m_audioOutput(nullptr)
+    , m_frameQueue(nullptr)
     , m_swrCtx(nullptr)
     , m_quit(false)
     , m_paused(nullptr)
@@ -38,15 +38,22 @@ void AudioDecodeThread::setPacketQueue(PacketQueue *queue)
     m_packetQueue = queue;
 }
 
-void AudioDecodeThread::setAudioOutput(AudioOutput *output)
+void AudioDecodeThread::setFrameQueue(FrameQueue *queue)
 {
-    m_audioOutput = output;
+    m_frameQueue = queue;
 }
 
 void AudioDecodeThread::stopDecode()
 {
     m_quit = true;
-    if (m_packetQueue) m_packetQueue->flush();
+    if (m_packetQueue) {
+        m_packetQueue->flush();
+        m_packetQueue->setFinished(true);
+    }
+    if (m_frameQueue) {
+        m_frameQueue->flush();
+        m_frameQueue->setFinished(true);
+    }
 }
 
 bool AudioDecodeThread::initSwrContext()
@@ -112,7 +119,7 @@ void AudioDecodeThread::setPausedRef(const std::atomic<bool> &paused)
 
 void AudioDecodeThread::run()
 {
-    if (!m_codecCtx || !m_packetQueue || !m_audioOutput)
+    if (!m_codecCtx || !m_packetQueue || !m_frameQueue)
         return;
 
     if (!initSwrContext()) {
@@ -150,15 +157,8 @@ void AudioDecodeThread::run()
                 break;
 
             AVFrame *resampled = resampleFrame(frame);
-            if (resampled) {
-                int dataSize = resampled->nb_samples * resampled->ch_layout.nb_channels * sizeof(int16_t);
-                uint8_t *pcmData = (uint8_t *)av_malloc(dataSize);
-                if (pcmData) {
-                    memcpy(pcmData, resampled->data[0], dataSize);
-                    m_audioOutput->enqueue(pcmData, dataSize);
-                }
-                av_frame_free(&resampled);
-            }
+            if (resampled)
+                m_frameQueue->push(resampled);
 
             av_frame_unref(frame);
         }

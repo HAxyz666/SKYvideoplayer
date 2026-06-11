@@ -40,8 +40,14 @@ void DemuxThread::setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQue
 void DemuxThread::stopRead()
 {
     m_quit = true;
-    if (m_videoQueue) m_videoQueue->flush();
-    if (m_audioQueue) m_audioQueue->flush();
+    if (m_videoQueue) {
+        m_videoQueue->flush();
+        m_videoQueue->setFinished(true);
+    }
+    if (m_audioQueue) {
+        m_audioQueue->flush();
+        m_audioQueue->setFinished(true);
+    }
 }
 
 void DemuxThread::setPausedRef(const std::atomic<bool> &paused)

@@ -130,7 +130,20 @@ void MediaEngine::start()
     if (!initFFmpeg(m_filename))
         return;
 
-    bool audioInited = m_audioOutput->init(m_audioCodecCtx);
+    if (m_audioCodecCtx) {
+        m_audioFrameQueue = new FrameQueue(24);
+
+        SDL_AudioSpec spec;
+        std::memset(&spec, 0, sizeof(spec));
+        spec.freq = 44100;
+        spec.format = AUDIO_S16SYS;
+        spec.channels = 2;
+        spec.samples = 1024;
+
+        m_audioOutput->initialize(spec);
+        m_audioOutput->setFrameQueue(m_audioFrameQueue);
+        m_audioOutput->setSyncController(m_syncController);
+    }
 
     m_syncController->reset();
 
@@ -291,7 +304,7 @@ void MediaEngine::startThreads()
         m_audioThread = new AudioDecodeThread(this);
         m_audioThread->setCodecContext(m_audioCodecCtx);
         m_audioThread->setPacketQueue(m_audioPacketQueue);
-        m_audioThread->setAudioOutput(m_audioOutput);
+        m_audioThread->setFrameQueue(m_audioFrameQueue);
         m_audioThread->setPausedRef(m_paused);
     }
 
@@ -329,6 +342,7 @@ void MediaEngine::stopThreads()
     delete m_videoPacketQueue; m_videoPacketQueue = nullptr;
     delete m_audioPacketQueue; m_audioPacketQueue = nullptr;
     delete m_videoFrameQueue; m_videoFrameQueue = nullptr;
+    delete m_audioFrameQueue; m_audioFrameQueue = nullptr;
 }
 
 void MediaEngine::cleanup()

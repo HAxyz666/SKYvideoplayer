@@ -9,7 +9,7 @@ extern "C" {
 }
 
 class PacketQueue;
-class AudioOutput;
+class FrameQueue;
 
 class AudioDecodeThread : public QThread
 {
@@ -21,7 +21,7 @@ public:
 
     void setCodecContext(AVCodecContext *ctx);
     void setPacketQueue(PacketQueue *queue);
-    void setAudioOutput(AudioOutput *output);
+    void setFrameQueue(FrameQueue *queue);
     void stopDecode();
     void setPausedRef(const std::atomic<bool> &paused);
 
@@ -34,7 +34,7 @@ private:
 
     AVCodecContext *m_codecCtx;
     PacketQueue *m_packetQueue;
-    AudioOutput *m_audioOutput;
+    FrameQueue *m_frameQueue;
     SwrContext *m_swrCtx;
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;

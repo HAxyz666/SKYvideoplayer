@@ -51,8 +51,14 @@ void VideoDecodeThread::setTimeBase(AVRational tb)
 void VideoDecodeThread::stopDecode()
 {
     m_quit = true;
-    if (m_packetQueue) m_packetQueue->flush();
-    if (m_frameQueue) m_frameQueue->flush();
+    if (m_packetQueue) {
+        m_packetQueue->flush();
+        m_packetQueue->setFinished(true);
+    }
+    if (m_frameQueue) {
+        m_frameQueue->flush();
+        m_frameQueue->setFinished(true);
+    }
 }
 
 void VideoDecodeThread::setPausedRef(const std::atomic<bool> &paused)

@@ -71,6 +71,7 @@ private:
     PacketQueue *m_videoPacketQueue;
     PacketQueue *m_audioPacketQueue;
     FrameQueue *m_videoFrameQueue;
+    FrameQueue *m_audioFrameQueue{nullptr};
 
     AVSyncController *m_syncController;
     AudioOutput *m_audioOutput;
