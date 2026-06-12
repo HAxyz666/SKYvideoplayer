@@ -131,8 +131,6 @@ void MediaEngine::start()
         return;
 
     if (m_audioCodecCtx) {
-        m_audioFrameQueue = new FrameQueue(24);
-
         SDL_AudioSpec spec;
         std::memset(&spec, 0, sizeof(spec));
         spec.freq = 44100;
@@ -141,7 +139,6 @@ void MediaEngine::start()
         spec.samples = 1024;
 
         m_audioOutput->initialize(spec);
-        m_audioOutput->setFrameQueue(m_audioFrameQueue);
         m_audioOutput->setSyncController(m_syncController);
     }
 
@@ -221,6 +218,7 @@ void MediaEngine::seek(double seconds)
     if (!wasPaused)
         pause();
 
+    m_audioOutput->reset();
     stopThreads();
 
     int64_t targetUs = static_cast<int64_t>(seconds * AV_TIME_BASE);
@@ -285,6 +283,11 @@ void MediaEngine::startThreads()
     m_audioPacketQueue = new PacketQueue(64);
     m_videoFrameQueue = new FrameQueue(24);
 
+    if (m_audioCodecCtx) {
+        m_audioFrameQueue = new FrameQueue(24);
+        m_audioOutput->setFrameQueue(m_audioFrameQueue);
+    }
+
     m_demuxThread = new DemuxThread(this);
     m_demuxThread->setFormatContext(m_fmtCtx);
     m_demuxThread->setStreamIndices(m_videoStreamIndex, m_audioStreamIndex);
@@ -343,6 +346,8 @@ void MediaEngine::stopThreads()
         delete m_audioThread;
         m_audioThread = nullptr;
     }
+
+    m_audioOutput->setFrameQueue(nullptr);
 
     delete m_videoPacketQueue; m_videoPacketQueue = nullptr;
     delete m_audioPacketQueue; m_audioPacketQueue = nullptr;

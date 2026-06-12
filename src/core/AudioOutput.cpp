@@ -106,6 +106,16 @@ void AudioOutput::stop()
     m_audioBufIndex = 0;
 }
 
+void AudioOutput::reset()
+{
+    if (m_currentFrame) {
+        av_frame_free(&m_currentFrame);
+        m_audioBuf = nullptr;
+    }
+    m_audioBufSize = 0;
+    m_audioBufIndex = 0;
+}
+
 double AudioOutput::volume() const
 {
     return m_volume;

@@ -27,6 +27,7 @@ public:
     void pause();
     void resume();
     void stop();
+    void reset();
 
     double volume() const;
     bool muted() const;

@@ -7,6 +7,7 @@ Item {
     property real duration: 0.0
     property real progress: duration > 0 ? position / duration : 0.0
     property bool dragging: false
+    property real dragPosition: 0.0
 
     signal seekRequested(real pos)
 
@@ -29,7 +30,7 @@ Item {
         anchors.left: parent.left
         anchors.bottom: track.top
         anchors.bottomMargin: 2
-        text: formatTime(root.position) + " / " + formatTime(root.duration)
+        text: formatTime(root.dragging ? root.dragPosition : root.position) + " / " + formatTime(root.duration)
         color: "#cccccc"
         font.pixelSize: 11
     }
@@ -50,24 +51,28 @@ Item {
             height: parent.height
             radius: 3
             color: "#0078d7"
-            width: parent.width * root.progress
+            width: parent.width * (root.dragging
+                ? (root.duration > 0 ? root.dragPosition / root.duration : 0.0)
+                : root.progress)
         }
     }
 
-    // 拖拽进度
+    // 拖拽进度：仅本地更新显示位置，释放时才发起 seek
     DragHandler {
         id: dragHandler
         target: null
         cursorShape: Qt.PointingHandCursor
         onActiveChanged: {
-            root.dragging = active
             if (active) {
-                root.seekRequested(Math.max(0, centroid.position.x / root.width * root.duration))
+                root.dragPosition = Math.max(0, centroid.position.x / root.width * root.duration)
+                root.dragging = true
+            } else {
+                root.dragging = false
+                root.seekRequested(root.dragPosition)
             }
         }
-        // translationChanged 是原生信号，比属性绑定更及时
         onTranslationChanged: {
-            root.seekRequested(Math.max(0, centroid.position.x / root.width * root.duration))
+            root.dragPosition = Math.max(0, centroid.position.x / root.width * root.duration)
         }
     }
 
