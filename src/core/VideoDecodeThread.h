@@ -44,4 +44,5 @@ private:
     int64_t m_pauseStartTime;
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;
+    bool m_firstFrame;
 };

@@ -54,26 +54,28 @@ Item {
         }
     }
 
-    // 鼠标交互
-    MouseArea {
-        anchors.fill: parent
+    // 拖拽进度
+    DragHandler {
+        id: dragHandler
+        target: null
         cursorShape: Qt.PointingHandCursor
-
-        onPressed: function(mouse) {
-            root.dragging = true
-            var pos = mouse.x / width * root.duration
-            root.seekRequested(Math.max(0, pos))
-        }
-
-        onPositionChanged: function(mouse) {
-            if (root.dragging) {
-                var pos = mouse.x / width * root.duration
-                root.seekRequested(Math.max(0, pos))
+        onActiveChanged: {
+            root.dragging = active
+            if (active) {
+                root.seekRequested(Math.max(0, centroid.position.x / root.width * root.duration))
             }
         }
+        // translationChanged 是原生信号，比属性绑定更及时
+        onTranslationChanged: {
+            root.seekRequested(Math.max(0, centroid.position.x / root.width * root.duration))
+        }
+    }
 
-        onReleased: {
-            root.dragging = false
+    // 点击跳转
+    TapHandler {
+        cursorShape: Qt.PointingHandCursor
+        onTapped: {
+            root.seekRequested(Math.max(0, point.position.x / root.width * root.duration))
         }
     }
 }

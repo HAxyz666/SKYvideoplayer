@@ -19,6 +19,7 @@ VideoDecodeThread::VideoDecodeThread(QObject *parent)
     , m_pauseStartTime(0)
     , m_quit(false)
     , m_paused(nullptr)
+    , m_firstFrame(true)
 {
 }
 
@@ -141,6 +142,12 @@ void VideoDecodeThread::run()
             if (frame->pts != AV_NOPTS_VALUE) {
                 double pts = frame->pts * av_q2d(m_timeBase);
                 int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
+
+                if (m_firstFrame) {
+                    m_startTime = av_gettime() - ptsUs;
+                    m_firstFrame = false;
+                }
+
                 int64_t now = av_gettime();
                 int64_t delay = ptsUs - (now - m_startTime);
                 while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {

@@ -228,7 +228,10 @@ void MediaEngine::seek(double seconds)
     if (m_duration > 0 && targetUs > static_cast<int64_t>(m_duration * AV_TIME_BASE))
         targetUs = static_cast<int64_t>(m_duration * AV_TIME_BASE);
 
-    int ret = av_seek_frame(m_fmtCtx, -1, targetUs, AVSEEK_FLAG_BACKWARD);
+    int64_t targetStreamTs = av_rescale_q(targetUs, AV_TIME_BASE_Q,
+                                          m_fmtCtx->streams[m_videoStreamIndex]->time_base);
+    int ret = avformat_seek_file(m_fmtCtx, m_videoStreamIndex,
+                                 INT64_MIN, targetStreamTs, targetStreamTs, 0);
     if (ret < 0)
         qWarning() << "Seek failed:" << ret;
 
@@ -236,11 +239,13 @@ void MediaEngine::seek(double seconds)
     if (m_audioCodecCtx)
         avcodec_flush_buffers(m_audioCodecCtx);
 
-    m_startTimeUs = av_gettime();
+    qint64 now = av_gettime();
+    m_startTimeUs = now - static_cast<qint64>(seconds * 1000000);
     m_pausedDurationUs = 0;
     m_position = seconds;
     emit positionChanged(m_position);
 
+    m_pauseStartUs = now;
     startThreads();
 
     if (!wasPaused)
