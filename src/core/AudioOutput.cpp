@@ -25,7 +25,9 @@ AudioOutput::AudioOutput(QObject *parent)
 
 AudioOutput::~AudioOutput()
 {
-    stop();
+    closeDevice();
+    if (SDL_WasInit(SDL_INIT_AUDIO))
+        SDL_Quit();
 }
 
 bool AudioOutput::initialize(const SDL_AudioSpec &spec)
@@ -88,14 +90,19 @@ void AudioOutput::resume()
 
 void AudioOutput::stop()
 {
-    // Signal the frame queue to unblock any waiting SDL audio callback
+    closeDevice();
+    if (SDL_WasInit(SDL_INIT_AUDIO))
+        SDL_Quit();
+}
+
+void AudioOutput::closeDevice()
+{
     if (m_frameQueue)
         m_frameQueue->setFinished(true);
 
     if (m_audioDeviceID != 0) {
         SDL_CloseAudioDevice(m_audioDeviceID);
         m_audioDeviceID = 0;
-        SDL_Quit();
     }
 
     if (m_currentFrame) {

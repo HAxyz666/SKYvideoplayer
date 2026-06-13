@@ -31,3 +31,12 @@ void VideoRenderItem::setImage(const QImage &image)
     emit imageChanged();
     update();
 }
+
+void VideoRenderItem::clearImage()
+{
+    if (m_image.isNull())
+        return;
+    m_image = QImage();
+    emit imageChanged();
+    update();
+}

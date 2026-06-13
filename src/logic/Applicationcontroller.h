@@ -18,6 +18,7 @@ public:
     Q_INVOKABLE bool loadFile(const QString &path);
     Q_INVOKABLE void togglePlayback();
     Q_INVOKABLE void seekTo(double seconds);
+    Q_INVOKABLE void stop();
 
     MediaEngine *mediaEngine() const;
 

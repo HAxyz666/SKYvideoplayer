@@ -51,6 +51,11 @@ double ApplicationController::duration() const
     return m_mediaEngine->duration();
 }
 
+void ApplicationController::stop()
+{
+    m_mediaEngine->stop();
+}
+
 MediaEngine *ApplicationController::mediaEngine() const
 {
     return m_mediaEngine;

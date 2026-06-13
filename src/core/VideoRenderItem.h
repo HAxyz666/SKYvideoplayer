@@ -17,6 +17,7 @@ public:
 
     QImage image() const;
     void setImage(const QImage &image);
+    Q_INVOKABLE void clearImage();
 
 signals:
     void imageChanged();

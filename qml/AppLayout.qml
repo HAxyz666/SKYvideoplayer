@@ -38,11 +38,26 @@ Item {
         color: "black"
         visible: controller.hasMedia
 
-        // 视频渲染区 (铺满整个窗口)
         VideoRenderItem {
             id: videoRenderItem
             objectName: "videoRenderItem"
             anchors.fill: parent
+        }
+
+        // 左上角：返回按钮
+        Button {
+            id: backBtn
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.margins: 12
+            icon.name: "go-previous"
+            icon.width: 24
+            icon.height: 24
+            text: qsTr("Back to list")
+            onClicked: {
+                videoRenderItem.clearImage()
+                controller.closeFile()
+            }
         }
 
         // 底部悬浮控制区
@@ -72,16 +87,22 @@ Item {
                     spacing: 8
 
                     Button {
-                        text: controller.isPlaying ? "pause" : "play"
+                        icon.name: controller.isPlaying ? "media-playback-pause" : "media-playback-start"
+                        icon.width: 24
+                        icon.height: 24
+                        text: controller.isPlaying ? qsTr("Pause") : qsTr("Play")
                         onClicked: controller.togglePlay()
                     }
 
-                    Button {
-                        text: qsTr("Back to list")
-                        onClicked: controller.closeFile()
-                    }
-
                     Item { Layout.fillWidth: true }
+
+                    Button {
+                        icon.name: window.isFullscreen ? "view-restore" : "view-fullscreen"
+                        icon.width: 24
+                        icon.height: 24
+                        text: window.isFullscreen ? qsTr("Exit Fullscreen") : qsTr("Fullscreen")
+                        onClicked: window.toggleMaximize()
+                    }
                 }
             }
         }
