@@ -43,10 +43,13 @@ set(CORE_HEADERS
 
 set(LOGIC_SOURCES
     src/logic/Applicationcontroller.cpp
+    src/logic/PlaylistModel.cpp
 )
 
 set(LOGIC_HEADERS
     src/logic/Applicationcontroller.h
+    src/logic/PlaylistItem.h
+    src/logic/PlaylistModel.h
 )
 
 qt6_add_executable(SKYvideoplayer
@@ -70,6 +73,7 @@ qt6_add_qml_module(SKYvideoplayer
         qml/AppSidebar.qml
         qml/PlayerController.qml
         qml/ProgressBar.qml
+        qml/PlaylistPanel.qml
     SOURCES
         src/core/VideoRenderItem.cpp
 )

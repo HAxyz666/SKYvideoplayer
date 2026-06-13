@@ -348,7 +348,8 @@ void MediaEngine::stopThreads()
         m_audioThread = nullptr;
     }
 
-    m_audioOutput->closeDevice();
+    m_audioOutput->pause();
+    m_audioOutput->reset();
     m_audioOutput->setFrameQueue(nullptr);
 
     delete m_videoPacketQueue; m_videoPacketQueue = nullptr;

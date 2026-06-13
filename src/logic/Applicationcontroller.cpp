@@ -1,11 +1,13 @@
 #include "Applicationcontroller.h"
 #include "MediaEngine.h"
+#include "PlaylistModel.h"
 
 #include <QDebug>
 
 ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
     , m_mediaEngine(new MediaEngine(this))
+    , m_playlistModel(new PlaylistModel(this))
 {
     connect(m_mediaEngine, &MediaEngine::pausedChanged, this, [this](bool paused) {
         emit playbackStateChanged(!paused);
@@ -26,6 +28,7 @@ bool ApplicationController::loadFile(const QString &path)
     if (filePath.startsWith("file://"))
         filePath = filePath.mid(7);
 
+    m_playlistModel->addFile(filePath);
     m_mediaEngine->open(filePath);
     emit playbackStateChanged(true);
     return true;
@@ -59,4 +62,9 @@ void ApplicationController::stop()
 MediaEngine *ApplicationController::mediaEngine() const
 {
     return m_mediaEngine;
+}
+
+PlaylistModel *ApplicationController::playlistModel() const
+{
+    return m_playlistModel;
 }

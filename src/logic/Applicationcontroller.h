@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 
+#include "PlaylistModel.h"
+
 class MediaEngine;
 
 class ApplicationController : public QObject
@@ -10,6 +12,7 @@ class ApplicationController : public QObject
     Q_OBJECT
     Q_PROPERTY(double position READ position NOTIFY positionChanged)
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
+    Q_PROPERTY(PlaylistModel *playlistModel READ playlistModel CONSTANT)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -21,6 +24,7 @@ public:
     Q_INVOKABLE void stop();
 
     MediaEngine *mediaEngine() const;
+    PlaylistModel *playlistModel() const;
 
     double position() const;
     double duration() const;
@@ -33,4 +37,5 @@ signals:
 
 private:
     MediaEngine *m_mediaEngine;
+    PlaylistModel *m_playlistModel;
 };
