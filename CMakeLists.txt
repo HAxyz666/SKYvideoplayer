@@ -50,6 +50,7 @@ set(LOGIC_HEADERS
     src/logic/Applicationcontroller.h
     src/logic/PlaylistItem.h
     src/logic/PlaylistModel.h
+    src/logic/PlaybackMode.h
 )
 
 qt6_add_executable(SKYvideoplayer

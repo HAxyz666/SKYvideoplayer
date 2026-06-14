@@ -1,5 +1,6 @@
 #include "PlaylistModel.h"
 #include <QFileInfo>
+#include <QRandomGenerator>
 
 PlaylistModel::PlaylistModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -138,6 +139,98 @@ PlaylistItem PlaylistModel::itemAt(int index) const
 int PlaylistModel::count() const
 {
     return m_items.size();
+}
+
+// 是否有上一首
+bool PlaylistModel::hasPrev() const
+{
+    if (m_items.isEmpty())
+        return false;
+    switch (m_playbackMode) {
+    case PlaybackMode::Loop:
+    case PlaybackMode::LoopOne:
+        return true;
+    case PlaybackMode::Shuffle:
+        return m_items.size() > 1;
+    case PlaybackMode::Sequential:
+    default:
+        return m_currentIndex > 0;
+    }
+}
+
+// 是否有下一首
+bool PlaylistModel::hasNext() const
+{
+    if (m_items.isEmpty())
+        return false;
+    switch (m_playbackMode) {
+    case PlaybackMode::Loop:
+    case PlaybackMode::LoopOne:
+        return true;
+    case PlaybackMode::Shuffle:
+        return m_items.size() > 1;
+    case PlaybackMode::Sequential:
+    default:
+        return m_currentIndex >= 0 && m_currentIndex < m_items.size() - 1;
+    }
+}
+
+// 获取上一首文件路径（根据播放模式）
+QString PlaylistModel::prevFilePath() const
+{
+    if (m_items.isEmpty())
+        return {};
+
+    switch (m_playbackMode) {
+    case PlaybackMode::Loop:
+        return m_items.at((m_currentIndex - 1 + m_items.size()) % m_items.size()).filePath;
+    case PlaybackMode::Shuffle:
+        return m_items.at(QRandomGenerator::global()->bounded(m_items.size())).filePath;
+    case PlaybackMode::LoopOne:
+        return m_items.at(m_currentIndex).filePath;
+    case PlaybackMode::Sequential:
+    default:
+        if (m_currentIndex > 0)
+            return m_items.at(m_currentIndex - 1).filePath;
+        return {};
+    }
+}
+
+// 获取下一首文件路径（根据播放模式）
+QString PlaylistModel::nextFilePath() const
+{
+    if (m_items.isEmpty())
+        return {};
+
+    switch (m_playbackMode) {
+    case PlaybackMode::Loop:
+        return m_items.at((m_currentIndex + 1) % m_items.size()).filePath;
+    case PlaybackMode::Shuffle:
+        return m_items.at(QRandomGenerator::global()->bounded(m_items.size())).filePath;
+    case PlaybackMode::LoopOne:
+        return m_items.at(m_currentIndex).filePath;
+    case PlaybackMode::Sequential:
+    default:
+        if (m_currentIndex >= 0 && m_currentIndex < m_items.size() - 1)
+            return m_items.at(m_currentIndex + 1).filePath;
+        return {};
+    }
+}
+
+// 设置播放模式
+void PlaylistModel::setPlaybackMode(PlaybackMode mode)
+{
+    if (m_playbackMode == mode)
+        return;
+    m_playbackMode = mode;
+    emit playbackModeChanged();
+    emit currentIndexChanged();  // hasPrev/hasNext 可能变化
+}
+
+// 获取当前播放模式
+PlaybackMode PlaylistModel::playbackMode() const
+{
+    return m_playbackMode;
 }
 
 // 从文件路径中提取文件名作为标题

@@ -75,13 +75,30 @@ void ApplicationController::playItem(int index)
 {
     if (index < 0 || index >= m_playlistModel->count())
         return;
+    m_playlistModel->setCurrentIndex(index);
     loadFile(m_playlistModel->itemAt(index).filePath);
 }
 
 void ApplicationController::playNext()
 {
-    int next = m_playlistModel->currentIndex() + 1;
-    if (next >= m_playlistModel->count())
+    QString nextPath = m_playlistModel->nextFilePath();
+    if (nextPath.isEmpty())
         return;
-    loadFile(m_playlistModel->itemAt(next).filePath);
+    int nextIdx = m_playlistModel->indexOf(nextPath);
+    if (nextIdx >= 0) {
+        m_playlistModel->setCurrentIndex(nextIdx);
+        loadFile(nextPath);
+    }
+}
+
+void ApplicationController::playPrev()
+{
+    QString prevPath = m_playlistModel->prevFilePath();
+    if (prevPath.isEmpty())
+        return;
+    int prevIdx = m_playlistModel->indexOf(prevPath);
+    if (prevIdx >= 0) {
+        m_playlistModel->setCurrentIndex(prevIdx);
+        loadFile(prevPath);
+    }
 }

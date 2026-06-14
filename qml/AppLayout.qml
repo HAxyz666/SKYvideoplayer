@@ -157,11 +157,29 @@ Item {
                     spacing: 8
 
                     Button {
+                        icon.name: "media-skip-backward"
+                        icon.width: 24
+                        icon.height: 24
+                        text: qsTr("Prev")
+                        enabled: appController.playlistModel.hasPrev
+                        onClicked: appController.playPrev()
+                    }
+
+                    Button {
                         icon.name: controller.isPlaying ? "media-playback-pause" : "media-playback-start"
                         icon.width: 24
                         icon.height: 24
                         text: controller.isPlaying ? qsTr("Pause") : qsTr("Play")
                         onClicked: controller.togglePlay()
+                    }
+
+                    Button {
+                        icon.name: "media-skip-forward"
+                        icon.width: 24
+                        icon.height: 24
+                        text: qsTr("Next")
+                        enabled: appController.playlistModel.hasNext
+                        onClicked: appController.playNext()
                     }
 
                     Item { Layout.fillWidth: true }

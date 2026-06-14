@@ -1,6 +1,7 @@
 #include "Applicationcontroller.h"
 #include "MediaEngine.h"
 #include "VideoRenderItem.h"
+#include "PlaybackMode.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -9,6 +10,8 @@
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+
+    qRegisterMetaType<PlaybackMode>("PlaybackMode");
 
     ApplicationController controller;
     QQmlApplicationEngine engine;
