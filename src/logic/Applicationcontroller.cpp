@@ -14,6 +14,7 @@ ApplicationController::ApplicationController(QObject *parent)
     });
     connect(m_mediaEngine, &MediaEngine::positionChanged, this, &ApplicationController::positionChanged);
     connect(m_mediaEngine, &MediaEngine::durationChanged, this, &ApplicationController::durationChanged);
+    connect(m_mediaEngine, &MediaEngine::playbackFinished, this, &ApplicationController::playNext);
 }
 
 bool ApplicationController::openFile()
@@ -29,6 +30,7 @@ bool ApplicationController::loadFile(const QString &path)
         filePath = filePath.mid(7);
 
     m_playlistModel->addFile(filePath);
+    m_playlistModel->setCurrentIndex(m_playlistModel->indexOf(filePath));
     m_mediaEngine->open(filePath);
     emit playbackStateChanged(true);
     return true;
@@ -67,4 +69,19 @@ MediaEngine *ApplicationController::mediaEngine() const
 PlaylistModel *ApplicationController::playlistModel() const
 {
     return m_playlistModel;
+}
+
+void ApplicationController::playItem(int index)
+{
+    if (index < 0 || index >= m_playlistModel->count())
+        return;
+    loadFile(m_playlistModel->itemAt(index).filePath);
+}
+
+void ApplicationController::playNext()
+{
+    int next = m_playlistModel->currentIndex() + 1;
+    if (next >= m_playlistModel->count())
+        return;
+    loadFile(m_playlistModel->itemAt(next).filePath);
 }

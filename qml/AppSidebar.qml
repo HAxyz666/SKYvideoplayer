@@ -56,6 +56,26 @@ Rectangle {
                 onClicked: openFileTriggered()
             }
             // ...
+
+            component ExitButton: Button {
+                text: "exit"
+                width: parent.width
+                height: 40
+                flat: true
+                font.pixelSize: 14
+                contentItem: Label {
+                    text: parent.text
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 20
+                    color: parent.hovered ? "#A93226" : "#C0392B"
+                }
+                background: Rectangle {
+                    color: parent.hovered ? "#d0d0d0" : "transparent"
+                }
+            }
+            ExitButton{
+                onClicked: Qt.quit()
+            }
         }
 
         // 底部弹簧

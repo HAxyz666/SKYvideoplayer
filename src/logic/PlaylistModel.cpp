@@ -116,6 +116,24 @@ QString PlaylistModel::currentFilePath() const
     return m_items.at(m_currentIndex).filePath;
 }
 
+// 按文件路径查找索引，不存在返回 -1
+int PlaylistModel::indexOf(const QString &filePath) const
+{
+    for (int i = 0; i < m_items.size(); ++i) {
+        if (m_items.at(i).filePath == filePath)
+            return i;
+    }
+    return -1;
+}
+
+// 获取指定索引的项
+PlaylistItem PlaylistModel::itemAt(int index) const
+{
+    if (index < 0 || index >= m_items.size())
+        return {};
+    return m_items.at(index);
+}
+
 // 返回列表总数
 int PlaylistModel::count() const
 {

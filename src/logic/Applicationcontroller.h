@@ -22,6 +22,8 @@ public:
     Q_INVOKABLE void togglePlayback();
     Q_INVOKABLE void seekTo(double seconds);
     Q_INVOKABLE void stop();
+    Q_INVOKABLE void playItem(int index);
+    Q_INVOKABLE void playNext();
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;

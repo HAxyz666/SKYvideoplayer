@@ -36,6 +36,10 @@ public:
     int currentIndex() const;                    // 获取当前播放索引
     QString currentFilePath() const;             // 获取当前播放文件路径
 
+    // --- 查询 ---
+    int indexOf(const QString &filePath) const;  // 按路径查找索引
+    PlaylistItem itemAt(int index) const;        // 获取指定索引的项
+
     // --- 属性 ---
     int count() const;
 

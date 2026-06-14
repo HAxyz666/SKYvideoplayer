@@ -10,9 +10,8 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
 
-    QQmlApplicationEngine engine;
-
     ApplicationController controller;
+    QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("appController", &controller);
 
     engine.loadFromModule("SKYvideoplayer", "Main");

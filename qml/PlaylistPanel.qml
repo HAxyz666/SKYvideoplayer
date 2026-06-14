@@ -47,6 +47,7 @@ Drawer {
                 width: ListView.view.width
                 text: model.title
                 highlighted: model.isPlaying
+                onDoubleClicked: appController.playItem(index)
             }
 
             Label {
