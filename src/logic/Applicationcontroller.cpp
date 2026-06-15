@@ -1,6 +1,7 @@
 #include "Applicationcontroller.h"
 #include "MediaEngine.h"
 #include "PlaylistModel.h"
+#include "RecentFilesModel.h"
 
 #include <QDebug>
 #include <QDir>
@@ -11,6 +12,7 @@ ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
     , m_mediaEngine(new MediaEngine(this))
     , m_playlistModel(new PlaylistModel(this))
+    , m_recentFiles(new RecentFilesModel(this))
 {
     connect(m_mediaEngine, &MediaEngine::pausedChanged, this, [this](bool paused) {
         emit playbackStateChanged(!paused);
@@ -47,6 +49,7 @@ bool ApplicationController::loadFile(const QString &path)
         filePath = filePath.mid(7);
 
     QFileInfo fi(filePath);
+    m_recentFiles->addFile(filePath);
     m_playlistModel->clear();
     scanDirectoryFiles(m_playlistModel, fi.absolutePath());
     m_playlistModel->setCurrentIndex(m_playlistModel->indexOf(filePath));
@@ -88,6 +91,11 @@ MediaEngine *ApplicationController::mediaEngine() const
 PlaylistModel *ApplicationController::playlistModel() const
 {
     return m_playlistModel;
+}
+
+RecentFilesModel *ApplicationController::recentFilesModel() const
+{
+    return m_recentFiles;
 }
 
 void ApplicationController::playItem(int index)

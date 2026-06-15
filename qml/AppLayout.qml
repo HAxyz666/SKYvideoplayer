@@ -23,14 +23,15 @@ Item {
             onOpenFileTriggered: appController.openFile()
         }
 
-        // 中间：欢迎界面
+        // 中间：欢迎界面 + 最近播放记录
         Rectangle {
             Layout.fillHeight: true
             Layout.fillWidth: true
             color: "#f0f0f0"
 
             ColumnLayout {
-                anchors.centerIn: parent
+                anchors.fill: parent
+                anchors.margins: 40
                 spacing: 16
 
                 Label {
@@ -48,6 +49,75 @@ Item {
                     color: "#888888"
                     horizontalAlignment: Qt.AlignHCenter
                     Layout.fillWidth: true
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: "#cccccc"
+                    Layout.topMargin: 8
+                    Layout.bottomMargin: 8
+                }
+
+                Label {
+                    text: qsTr("最近播放")
+                    font.bold: true
+                    font.pixelSize: 16
+                    color: "#333333"
+                }
+
+                ListView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    model: appController.recentFilesModel
+                    clip: true
+
+                    delegate: Rectangle {
+                        width: ListView.view.width
+                        height: 40
+                        color: mouseArea.containsMouse ? "#d0d0d0" : "transparent"
+
+                        property var entryModel: model
+
+                        MouseArea {
+                            id: mouseArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onDoubleClicked: {
+                                controller.openFile(model.filePath)
+                            }
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            spacing: 8
+
+                            Label {
+                                text: model.fileName
+                                font.pixelSize: 14
+                                color: "#333333"
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+
+                            Label {
+                                text: model.lastPlayed instanceof Date
+                                    ? Qt.formatDateTime(model.lastPlayed, "yyyy-MM-dd hh:mm")
+                                    : ""
+                                font.pixelSize: 11
+                                color: "#888888"
+                            }
+                        }
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: qsTr("暂无播放记录")
+                        opacity: 0.5
+                        visible: parent.count === 0
+                    }
                 }
             }
         }

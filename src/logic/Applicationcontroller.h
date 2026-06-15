@@ -4,6 +4,7 @@
 #include <QString>
 
 #include "PlaylistModel.h"
+#include "RecentFilesModel.h"
 
 class MediaEngine;
 
@@ -13,6 +14,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(double position READ position NOTIFY positionChanged)
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(PlaylistModel *playlistModel READ playlistModel CONSTANT)
+    Q_PROPERTY(RecentFilesModel *recentFilesModel READ recentFilesModel CONSTANT)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -28,6 +30,7 @@ public:
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;
+    RecentFilesModel *recentFilesModel() const;
 
     double position() const;
     double duration() const;
@@ -41,4 +44,5 @@ signals:
 private:
     MediaEngine *m_mediaEngine;
     PlaylistModel *m_playlistModel;
+    RecentFilesModel *m_recentFiles;
 };
