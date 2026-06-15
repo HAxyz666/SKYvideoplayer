@@ -23,78 +23,30 @@ Item {
             onOpenFileTriggered: appController.openFile()
         }
 
-        // 中间：播放列表
+        // 中间：欢迎界面
         Rectangle {
             Layout.fillHeight: true
             Layout.fillWidth: true
             color: "#f0f0f0"
 
             ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 16
-                spacing: 8
+                anchors.centerIn: parent
+                spacing: 16
 
                 Label {
-                    text: qsTr("播放列表")
+                    text: qsTr("SKYPlayer")
                     font.bold: true
-                    font.pixelSize: 18
+                    font.pixelSize: 36
                     color: "#333333"
-                }
-
-                ListView {
-                    id: mainPagePlaylist
+                    horizontalAlignment: Qt.AlignHCenter
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    model: appController.playlistModel
-                    clip: true
-
-                    delegate: Rectangle {
-                        width: ListView.view.width
-                        height: 48
-                        color: model.isPlaying ? "#d0e8f0" : "transparent"
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            spacing: 8
-
-                            Label {
-                                text: model.title
-                                font.bold: model.isPlaying
-                                color: model.isPlaying ? "#0078d7" : "#333333"
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-
-                            Label {
-                                text: model.isPlaying ? qsTr("▶ 播放中") : ""
-                                color: "#0078d7"
-                                font.pixelSize: 12
-                                visible: model.isPlaying
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                controller.openFile(model.filePath)
-                            }
-                        }
-                    }
-
-                    Label {
-                        anchors.centerIn: parent
-                        text: qsTr("暂无文件，点击左侧「打开文件」开始")
-                        opacity: 0.5
-                        visible: mainPagePlaylist.count === 0
-                    }
                 }
 
                 Label {
-                    text: appController.playlistModel.count + qsTr(" 个文件")
-                    font.pixelSize: 12
-                    opacity: 0.6
-                    horizontalAlignment: Qt.AlignRight
+                    text: qsTr("点击左侧「打开文件」选择视频开始播放")
+                    font.pixelSize: 14
+                    color: "#888888"
+                    horizontalAlignment: Qt.AlignHCenter
                     Layout.fillWidth: true
                 }
             }

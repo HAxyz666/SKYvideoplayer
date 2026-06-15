@@ -31,9 +31,9 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     // --- 列表操作 ---
-    void addFile(const QString &filePath);       // 添加文件（已存在则跳过）
-    void removeItem(int index);                  // 移除指定项
-    void clear();                                // 清空全部
+    Q_INVOKABLE void addFile(const QString &filePath);       // 添加文件（已存在则跳过）
+    Q_INVOKABLE void removeItem(int index);                  // 移除指定项
+    Q_INVOKABLE void clear();                                // 清空全部
 
     // --- 当前播放项 ---
     void setCurrentIndex(int index);             // 设置当前播放项，更新高亮

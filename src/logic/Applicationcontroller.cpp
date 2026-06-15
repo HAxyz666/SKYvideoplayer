@@ -3,6 +3,9 @@
 #include "PlaylistModel.h"
 
 #include <QDebug>
+#include <QDir>
+#include <QFileInfo>
+#include <QUrl>
 
 ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
@@ -23,13 +26,29 @@ bool ApplicationController::openFile()
     return true;
 }
 
+static QStringList videoFileFilters()
+{
+    return { "*.mp4", "*.mkv", "*.avi", "*.mov", "*.flv", "*.wmv" };
+}
+
+static void scanDirectoryFiles(PlaylistModel *model, const QString &dirPath)
+{
+    QDir dir(dirPath);
+    QFileInfoList entries = dir.entryInfoList(videoFileFilters(), QDir::Files);
+    for (const auto &entry : entries) {
+        model->addFile(entry.absoluteFilePath());
+    }
+}
+
 bool ApplicationController::loadFile(const QString &path)
 {
     QString filePath = path;
     if (filePath.startsWith("file://"))
         filePath = filePath.mid(7);
 
-    m_playlistModel->addFile(filePath);
+    QFileInfo fi(filePath);
+    m_playlistModel->clear();
+    scanDirectoryFiles(m_playlistModel, fi.absolutePath());
     m_playlistModel->setCurrentIndex(m_playlistModel->indexOf(filePath));
     m_mediaEngine->open(filePath);
     emit playbackStateChanged(true);
@@ -76,7 +95,9 @@ void ApplicationController::playItem(int index)
     if (index < 0 || index >= m_playlistModel->count())
         return;
     m_playlistModel->setCurrentIndex(index);
-    loadFile(m_playlistModel->itemAt(index).filePath);
+    QString filePath = m_playlistModel->itemAt(index).filePath;
+    m_mediaEngine->open(filePath);
+    emit playbackStateChanged(true);
 }
 
 void ApplicationController::playNext()
@@ -87,7 +108,8 @@ void ApplicationController::playNext()
     int nextIdx = m_playlistModel->indexOf(nextPath);
     if (nextIdx >= 0) {
         m_playlistModel->setCurrentIndex(nextIdx);
-        loadFile(nextPath);
+        m_mediaEngine->open(nextPath);
+        emit playbackStateChanged(true);
     }
 }
 
@@ -99,6 +121,7 @@ void ApplicationController::playPrev()
     int prevIdx = m_playlistModel->indexOf(prevPath);
     if (prevIdx >= 0) {
         m_playlistModel->setCurrentIndex(prevIdx);
-        loadFile(prevPath);
+        m_mediaEngine->open(prevPath);
+        emit playbackStateChanged(true);
     }
 }

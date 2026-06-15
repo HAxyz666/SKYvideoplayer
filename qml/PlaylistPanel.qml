@@ -30,6 +30,14 @@ Drawer {
                 }
 
                 ToolButton {
+                    icon.name: "edit-delete"
+                    text: qsTr("清空")
+                    display: AbstractButton.TextBesideIcon
+                    font.pixelSize: 11
+                    onClicked: appController.playlistModel.clear()
+                }
+
+                ToolButton {
                     icon.name: "window-close"
                     onClicked: playlistDrawer.close()
                 }
@@ -44,10 +52,36 @@ Drawer {
             clip: true
 
             delegate: ItemDelegate {
+                id: delegateRoot
                 width: ListView.view.width
                 text: model.title
                 highlighted: model.isPlaying
                 onDoubleClicked: appController.playItem(index)
+
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: {
+                        contextMenu.itemIndex = index
+                        contextMenu.popup()
+                    }
+                }
+
+                Menu {
+                    id: contextMenu
+                    property int itemIndex: -1
+                    MenuItem {
+                        text: qsTr("移除")
+                        onTriggered: appController.playlistModel.removeItem(contextMenu.itemIndex)
+                    }
+                }
+            }
+
+            removeDisplaced: Transition {
+                NumberAnimation { property: "y"; duration: 200 }
+            }
+
+            addDisplaced: Transition {
+                NumberAnimation { property: "y"; duration: 200 }
             }
 
             Label {
@@ -75,7 +109,7 @@ Drawer {
                 spacing: 2
 
                 ToolButton {
-                    text: qsTr("顺序")
+                    text: qsTr("顺序播放")
                     checkable: true
                     checked: appController.playlistModel.playbackMode === 0
                     font.pixelSize: 11
@@ -83,7 +117,7 @@ Drawer {
                 }
 
                 ToolButton {
-                    text: qsTr("循环")
+                    text: qsTr("列表循环")
                     checkable: true
                     checked: appController.playlistModel.playbackMode === 1
                     font.pixelSize: 11
@@ -91,19 +125,11 @@ Drawer {
                 }
 
                 ToolButton {
-                    text: qsTr("随机")
+                    text: qsTr("单集循环")
                     checkable: true
                     checked: appController.playlistModel.playbackMode === 2
                     font.pixelSize: 11
                     onClicked: appController.playlistModel.playbackMode = 2
-                }
-
-                ToolButton {
-                    text: qsTr("单曲")
-                    checkable: true
-                    checked: appController.playlistModel.playbackMode === 3
-                    font.pixelSize: 11
-                    onClicked: appController.playlistModel.playbackMode = 3
                 }
             }
         }

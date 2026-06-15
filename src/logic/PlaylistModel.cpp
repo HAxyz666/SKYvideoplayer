@@ -1,6 +1,5 @@
 #include "PlaylistModel.h"
 #include <QFileInfo>
-#include <QRandomGenerator>
 
 PlaylistModel::PlaylistModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -150,8 +149,6 @@ bool PlaylistModel::hasPrev() const
     case PlaybackMode::Loop:
     case PlaybackMode::LoopOne:
         return true;
-    case PlaybackMode::Shuffle:
-        return m_items.size() > 1;
     case PlaybackMode::Sequential:
     default:
         return m_currentIndex > 0;
@@ -167,8 +164,6 @@ bool PlaylistModel::hasNext() const
     case PlaybackMode::Loop:
     case PlaybackMode::LoopOne:
         return true;
-    case PlaybackMode::Shuffle:
-        return m_items.size() > 1;
     case PlaybackMode::Sequential:
     default:
         return m_currentIndex >= 0 && m_currentIndex < m_items.size() - 1;
@@ -184,8 +179,6 @@ QString PlaylistModel::prevFilePath() const
     switch (m_playbackMode) {
     case PlaybackMode::Loop:
         return m_items.at((m_currentIndex - 1 + m_items.size()) % m_items.size()).filePath;
-    case PlaybackMode::Shuffle:
-        return m_items.at(QRandomGenerator::global()->bounded(m_items.size())).filePath;
     case PlaybackMode::LoopOne:
         return m_items.at(m_currentIndex).filePath;
     case PlaybackMode::Sequential:
@@ -205,8 +198,6 @@ QString PlaylistModel::nextFilePath() const
     switch (m_playbackMode) {
     case PlaybackMode::Loop:
         return m_items.at((m_currentIndex + 1) % m_items.size()).filePath;
-    case PlaybackMode::Shuffle:
-        return m_items.at(QRandomGenerator::global()->bounded(m_items.size())).filePath;
     case PlaybackMode::LoopOne:
         return m_items.at(m_currentIndex).filePath;
     case PlaybackMode::Sequential:
