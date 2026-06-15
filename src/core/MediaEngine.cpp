@@ -61,6 +61,9 @@ MediaEngine::~MediaEngine()
 
 bool MediaEngine::initFFmpeg(const QString &filename)
 {
+    m_videoStreamIndex = -1;
+    m_audioStreamIndex = -1;
+
     if (avformat_open_input(&m_fmtCtx, filename.toUtf8().constData(), nullptr, nullptr) != 0) {
         qCritical() << "Could not open file:" << filename;
         return false;
@@ -68,6 +71,7 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
         qCritical() << "Could not find stream info";
+        avformat_close_input(&m_fmtCtx);
         return false;
     }
 
@@ -81,6 +85,7 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 
     if (m_videoStreamIndex == -1) {
         qCritical() << "No video stream found";
+        avformat_close_input(&m_fmtCtx);
         return false;
     }
 
@@ -88,6 +93,7 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     const AVCodec *videoCodec = avcodec_find_decoder(videoPar->codec_id);
     if (!videoCodec) {
         qCritical() << "Video codec not found";
+        avformat_close_input(&m_fmtCtx);
         return false;
     }
 
@@ -96,6 +102,8 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 
     if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
         qCritical() << "Could not open video codec";
+        avcodec_free_context(&m_videoCodecCtx);
+        avformat_close_input(&m_fmtCtx);
         return false;
     }
 
@@ -114,6 +122,9 @@ bool MediaEngine::initFFmpeg(const QString &filename)
             }
         }
     }
+
+    if (!m_audioCodecCtx)
+        m_audioStreamIndex = -1;
 
     av_dump_format(m_fmtCtx, 0, filename.toUtf8().constData(), 0);
 
@@ -360,8 +371,6 @@ void MediaEngine::stopThreads()
 
 void MediaEngine::cleanup()
 {
-    m_audioOutput->stop();
-
     if (m_videoCodecCtx) {
         avcodec_free_context(&m_videoCodecCtx);
         m_videoCodecCtx = nullptr;

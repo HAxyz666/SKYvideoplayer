@@ -92,10 +92,20 @@ void VideoDecodeThread::run()
     }
 
     AVFrame *rgbFrame = av_frame_alloc();
-    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, videoWidth, videoHeight, 1);
-    uint8_t *buffer = (uint8_t *)av_malloc(numBytes * sizeof(uint8_t));
+    int rgbWidth = (videoWidth + 15) & ~15;
+    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, rgbWidth, videoHeight, 32);
+    if (numBytes <= 0) {
+        sws_freeContext(swsCtx);
+        return;
+    }
+    uint8_t *buffer = (uint8_t *)av_malloc(numBytes);
+    if (!buffer) {
+        av_frame_free(&rgbFrame);
+        sws_freeContext(swsCtx);
+        return;
+    }
     av_image_fill_arrays(rgbFrame->data, rgbFrame->linesize, buffer, AV_PIX_FMT_RGB24,
-                         videoWidth, videoHeight, 1);
+                         rgbWidth, videoHeight, 32);
 
     m_startTime = av_gettime();
 
@@ -137,7 +147,7 @@ void VideoDecodeThread::run()
                 m_frameQueue->push(frame);
 
             sws_scale(swsCtx, frame->data, frame->linesize, 0,
-                      videoHeight, rgbFrame->data, rgbFrame->linesize);
+                      frame->height, rgbFrame->data, rgbFrame->linesize);
 
             if (frame->pts != AV_NOPTS_VALUE) {
                 double pts = frame->pts * av_q2d(m_timeBase);
@@ -162,9 +172,10 @@ void VideoDecodeThread::run()
                 break;
             }
 
-            QImage image(rgbFrame->data[0], videoWidth, videoHeight,
+            QImage image(rgbFrame->data[0], rgbWidth, videoHeight,
                          rgbFrame->linesize[0], QImage::Format_RGB888);
-            emit frameReady(image.copy());
+            QImage cropped = image.copy(0, 0, videoWidth, videoHeight);
+            emit frameReady(cropped);
 
             av_frame_unref(frame);
             av_frame_free(&frame);

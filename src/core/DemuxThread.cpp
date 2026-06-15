@@ -76,6 +76,7 @@ void DemuxThread::run()
 
         int ret = av_read_frame(m_fmtCtx, pkt);
         if (ret < 0) {
+            av_packet_unref(pkt);
             if (ret == AVERROR_EOF) {
                 emit eofReached();
                 break;

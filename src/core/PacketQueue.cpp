@@ -16,6 +16,8 @@ PacketQueue::~PacketQueue()
 void PacketQueue::push(AVPacket *pkt)
 {
     AVPacket *newPkt = av_packet_clone(pkt);
+    if (!newPkt)
+        return;
 
     std::unique_lock lock(m_mutex);
     m_notFull.wait(lock, [this]() { return m_queue.size() < m_maxSize || m_finished; });
@@ -82,8 +84,6 @@ void PacketQueue::clear()
         AVPacket *pkt = m_queue.dequeue();
         av_packet_free(&pkt);
     }
-    m_finished = false;
-    m_serial = 0;
     m_notFull.notify_all();
 }
 

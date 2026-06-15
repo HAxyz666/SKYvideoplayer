@@ -16,6 +16,8 @@ FrameQueue::~FrameQueue()
 void FrameQueue::push(AVFrame *frame)
 {
     AVFrame *newFrame = av_frame_clone(frame);
+    if (!newFrame)
+        return;
 
     std::unique_lock lock(m_mutex);
     m_notFull.wait(lock, [this]() { return m_queue.size() < m_maxSize || m_finished; });
@@ -90,8 +92,6 @@ void FrameQueue::clear()
         AVFrame *frame = m_queue.dequeue();
         av_frame_free(&frame);
     }
-    m_finished = false;
-    m_serial = 0;
     m_notFull.notify_all();
 }
 

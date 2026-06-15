@@ -91,36 +91,38 @@ void AudioOutput::resume()
 void AudioOutput::stop()
 {
     closeDevice();
-    if (SDL_WasInit(SDL_INIT_AUDIO))
-        SDL_Quit();
 }
 
 void AudioOutput::closeDevice()
 {
-    if (m_frameQueue)
-        m_frameQueue->setFinished(true);
-
+    // 先关设备 — SDL_CloseAudioDevice 阻塞直到回调退出
     if (m_audioDeviceID != 0) {
         SDL_CloseAudioDevice(m_audioDeviceID);
         m_audioDeviceID = 0;
     }
 
+    // 回调已退出，安全释放资源
     if (m_currentFrame) {
         av_frame_free(&m_currentFrame);
         m_audioBuf = nullptr;
     }
     m_audioBufSize = 0;
     m_audioBufIndex = 0;
+    m_frameQueue = nullptr;
 }
 
 void AudioOutput::reset()
 {
+    if (m_audioDeviceID != 0)
+        SDL_LockAudioDevice(m_audioDeviceID);
     if (m_currentFrame) {
         av_frame_free(&m_currentFrame);
         m_audioBuf = nullptr;
     }
     m_audioBufSize = 0;
     m_audioBufIndex = 0;
+    if (m_audioDeviceID != 0)
+        SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 double AudioOutput::volume() const
@@ -146,7 +148,8 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
 
     SDL_memset(stream, 0, len);
 
-    if (output->m_muted || !output->m_frameQueue)
+    FrameQueue *fq = output->m_frameQueue;
+    if (output->m_muted || !fq)
         return;
 
     int volume = static_cast<int>(output->m_volume / 100.0 * SDL_MIX_MAXVOLUME);
@@ -158,9 +161,9 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
                 output->m_audioBuf = nullptr;
             }
 
-            AVFrame *frame = output->m_frameQueue->tryPop(0);
+            AVFrame *frame = fq->tryPop(0);
             if (!frame)
-                return;
+                break;
 
             output->m_currentFrame = frame;
             output->m_audioBuf = frame->data[0];

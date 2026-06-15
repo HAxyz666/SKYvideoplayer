@@ -6,6 +6,7 @@
 extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/samplefmt.h>
 }
 
 AudioDecodeThread::AudioDecodeThread(QObject *parent)
@@ -84,6 +85,11 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
         return nullptr;
 
     int outSamples = swr_get_out_samples(m_swrCtx, frame->nb_samples);
+    if (outSamples <= 0)
+        return nullptr;
+
+    outSamples += 256;
+
     AVFrame *outFrame = av_frame_alloc();
     if (!outFrame)
         return nullptr;
@@ -103,12 +109,16 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
                                 outFrame->data, outSamples,
                                 (const uint8_t **)frame->data, frame->nb_samples);
 
-    if (converted < 0) {
+    if (converted <= 0 || converted > outSamples) {
+        qWarning() << "AudioDecodeThread: swr_convert returned" << converted
+                   << "outSamples was" << outSamples
+                   << "in_samples was" << frame->nb_samples;
         av_frame_free(&outFrame);
         return nullptr;
     }
 
     outFrame->nb_samples = converted;
+    outFrame->linesize[0] = converted * av_get_bytes_per_sample(AV_SAMPLE_FMT_S16) * outFrame->ch_layout.nb_channels;
     return outFrame;
 }
 
@@ -157,8 +167,10 @@ void AudioDecodeThread::run()
                 break;
 
             AVFrame *resampled = resampleFrame(frame);
-            if (resampled)
+            if (resampled) {
                 m_frameQueue->push(resampled);
+                av_frame_free(&resampled);
+            }
 
             av_frame_unref(frame);
         }
