@@ -68,12 +68,13 @@ void AudioOutput::setSyncController(AVSyncController *ctrl)
 
 void AudioOutput::setVolume(double vol)
 {
-    m_volume = qBound(0.0, vol, 100.0);
+    // 使用 memory_order_relaxed 仅需原子性，无需顺序一致性屏障
+    m_volume.store(qBound(0.0, vol, 100.0), std::memory_order_relaxed);
 }
 
 void AudioOutput::setMuted(bool muted)
 {
-    m_muted = muted;
+    m_muted.store(muted, std::memory_order_relaxed);
 }
 
 void AudioOutput::pause()
@@ -127,12 +128,12 @@ void AudioOutput::reset()
 
 double AudioOutput::volume() const
 {
-    return m_volume;
+    return m_volume.load(std::memory_order_relaxed);
 }
 
 bool AudioOutput::muted() const
 {
-    return m_muted;
+    return m_muted.load(std::memory_order_relaxed);
 }
 
 double AudioOutput::getAudioClock() const
@@ -146,13 +147,19 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
 {
     auto *output = static_cast<AudioOutput *>(userdata);
 
+    // 先静默输出（输出静音 PCM），这样即使下方 break 也能保证静音不爆音
     SDL_memset(stream, 0, len);
 
     FrameQueue *fq = output->m_frameQueue;
-    if (output->m_muted || !fq)
+    if (!fq)
         return;
 
-    int volume = static_cast<int>(output->m_volume / 100.0 * SDL_MIX_MAXVOLUME);
+    // 静音时音量强制为 0，但仍然消费帧，避免 FrameQueue 堆积 → 阻塞解码管线 → 视频卡死
+    // 显式 load() 避免隐式 operator T() 的潜在问题
+    double vol = output->m_volume.load(std::memory_order_relaxed);
+    bool muted = output->m_muted.load(std::memory_order_relaxed);
+    int volume = muted ? 0
+        : static_cast<int>(vol / 100.0 * SDL_MIX_MAXVOLUME);
 
     while (len > 0) {
         if (output->m_audioBufIndex >= output->m_audioBufSize) {

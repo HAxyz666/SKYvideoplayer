@@ -206,6 +206,12 @@ Item {
 
                     Item { Layout.fillWidth: true }
 
+                    // 音量控制：点击图标上下拖拽调节
+                    VolumeControl {
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                    }
+
                     Button {
                         icon.name: "view-list-details"
                         icon.width: 24

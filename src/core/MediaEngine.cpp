@@ -40,6 +40,8 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_pausedDurationUs(0)
     , m_pauseStartUs(0)
     , m_positionTimer(new QTimer(this))
+    , m_volume(100.0)       // 默认音量 100%
+    , m_muted(false)        // 默认非静音
 {
     connect(m_frameQueueDrainTimer, &QTimer::timeout, this, [this]() {
         if (!m_videoFrameQueue) return;
@@ -272,6 +274,37 @@ double MediaEngine::position() const
 double MediaEngine::duration() const
 {
     return m_duration;
+}
+
+// --- 音量控制实现，转发到 AudioOutput ---
+
+void MediaEngine::setVolume(double vol)
+{
+    vol = qBound(0.0, vol, 100.0);
+    if (qFuzzyCompare(m_volume, vol))
+        return;
+    m_volume = vol;
+    m_audioOutput->setVolume(vol);          // 应用到 SDL 混音
+    emit volumeChanged(m_volume);
+}
+
+void MediaEngine::setMuted(bool muted)
+{
+    if (m_muted == muted)
+        return;
+    m_muted = muted;
+    m_audioOutput->setMuted(muted);         // 应用到 SDL 回调
+    emit mutedChanged(m_muted);
+}
+
+double MediaEngine::volume() const
+{
+    return m_volume;
+}
+
+bool MediaEngine::muted() const
+{
+    return m_muted;
 }
 
 void MediaEngine::updatePosition()

@@ -24,6 +24,8 @@ class MediaEngine : public QObject
     Q_OBJECT
     Q_PROPERTY(double position READ position NOTIFY positionChanged)
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
+    Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -41,12 +43,20 @@ public:
     double position() const;
     double duration() const;
 
+    // --- 音量控制 ---
+    void setVolume(double vol);     // 设置音量 0~100
+    void setMuted(bool muted);      // 设置静音
+    double volume() const;          // 获取当前音量
+    bool muted() const;             // 是否静音
+
 signals:
     void frameReady(const QImage &image);
     void playbackFinished();
     void pausedChanged(bool paused);
     void positionChanged(double pos);
     void durationChanged(double dur);
+    void volumeChanged(double vol);     // 音量变化信号
+    void mutedChanged(bool muted);      // 静音状态变化信号
 
 private:
     bool initFFmpeg(const QString &filename);
@@ -85,4 +95,7 @@ private:
     qint64 m_pausedDurationUs;
     qint64 m_pauseStartUs;
     QTimer *m_positionTimer;
+
+    double m_volume;        // 音量 0~100，通过 AudioOutput 应用
+    bool m_muted;           // 静音标志
 };

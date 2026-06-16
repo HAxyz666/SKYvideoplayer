@@ -60,6 +60,12 @@ ApplicationWindow {
         }
     }
 
+    // 音量 / 静音快捷键（对应 UML §3.3.1）
+    // ApplicationShortcut 在焦点系统之前处理，避免被焦点导航拦截
+    Shortcut { sequence: "Up";   context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume + 5 }
+    Shortcut { sequence: "Down"; context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume - 5 }
+    Shortcut { sequence: "M";    onActivated: appController.toggleMute() }
+
     Shortcut { sequence: "F11"; onActivated: window.toggleMaximize() }
     Shortcut { sequence: "Escape"; onActivated: {
         if (window.isFullscreen) window.toggleMaximize()

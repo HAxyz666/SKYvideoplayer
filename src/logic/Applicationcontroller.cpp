@@ -20,6 +20,9 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::positionChanged, this, &ApplicationController::positionChanged);
     connect(m_mediaEngine, &MediaEngine::durationChanged, this, &ApplicationController::durationChanged);
     connect(m_mediaEngine, &MediaEngine::playbackFinished, this, &ApplicationController::playNext);
+    // 转发 MediaEngine 音量/静音信号到 QML 层
+    connect(m_mediaEngine, &MediaEngine::volumeChanged, this, &ApplicationController::volumeChanged);
+    connect(m_mediaEngine, &MediaEngine::mutedChanged, this, &ApplicationController::mutedChanged);
 }
 
 bool ApplicationController::openFile()
@@ -132,4 +135,26 @@ void ApplicationController::playPrev()
         m_mediaEngine->open(prevPath);
         emit playbackStateChanged(true);
     }
+}
+
+// --- 音量控制，代理到 MediaEngine ---
+
+void ApplicationController::toggleMute()
+{
+    m_mediaEngine->setMuted(!m_mediaEngine->muted());
+}
+
+void ApplicationController::setVolume(double vol)
+{
+    m_mediaEngine->setVolume(vol);
+}
+
+double ApplicationController::volume() const
+{
+    return m_mediaEngine->volume();
+}
+
+bool ApplicationController::muted() const
+{
+    return m_mediaEngine->muted();
 }

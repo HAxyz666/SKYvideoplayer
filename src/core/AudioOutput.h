@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <atomic>
 #include <cstdint>
 
 extern "C" {
@@ -40,8 +41,8 @@ private:
     SDL_AudioDeviceID m_audioDeviceID;
     SDL_AudioSpec m_audioSpec;
     FrameQueue *m_frameQueue;
-    double m_volume;
-    bool m_muted;
+    std::atomic<double> m_volume;   // 音量 0~100，原子类型，主线程写入、SDL 回调线程读取
+    std::atomic<bool> m_muted;      // 静音标志，原子类型，跨线程安全
     uint8_t *m_audioBuf;
     uint32_t m_audioBufSize;
     uint32_t m_audioBufIndex;
