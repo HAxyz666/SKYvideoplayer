@@ -45,7 +45,15 @@ double AVSyncController::getVideoClock() const
 
 void AVSyncController::setSpeed(double speed)
 {
+    if (qFuzzyCompare(m_speed, speed))
+        return;
     m_speed = speed;
+    emit speedChanged(m_speed);
+}
+
+double AVSyncController::speed() const
+{
+    return m_speed;
 }
 
 void AVSyncController::reset()
@@ -89,6 +97,9 @@ double AVSyncController::synchronizeVideo()
 
     if (frameDelay < 0.0)
         frameDelay = 0.0;
+
+    if (m_speed > 0.0)
+        frameDelay /= m_speed;
 
     return frameDelay;
 }

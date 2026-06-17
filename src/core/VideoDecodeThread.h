@@ -28,6 +28,7 @@ public:
     void stopDecode();
     void setPausedRef(const std::atomic<bool> &paused);
     void adjustStartTime(int64_t offset = -1);
+    void setSpeed(double speed);
 
 protected:
     void run() override;
@@ -40,9 +41,10 @@ private:
     PacketQueue *m_packetQueue;
     FrameQueue *m_frameQueue;
     AVRational m_timeBase;
-    int64_t m_startTime;
-    int64_t m_pauseStartTime;
+    std::atomic<int64_t> m_startTime;
+    std::atomic<int64_t> m_pauseStartTime{0};
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;
-    bool m_firstFrame;
+    std::atomic<bool> m_firstFrame;
+    std::atomic<double> m_speed{1.0};
 };

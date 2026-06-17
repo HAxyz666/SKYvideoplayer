@@ -20,9 +20,10 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::positionChanged, this, &ApplicationController::positionChanged);
     connect(m_mediaEngine, &MediaEngine::durationChanged, this, &ApplicationController::durationChanged);
     connect(m_mediaEngine, &MediaEngine::playbackFinished, this, &ApplicationController::playNext);
-    // 转发 MediaEngine 音量/静音信号到 QML 层
+    // 转发 MediaEngine 音量/静音/速度信号到 QML 层
     connect(m_mediaEngine, &MediaEngine::volumeChanged, this, &ApplicationController::volumeChanged);
     connect(m_mediaEngine, &MediaEngine::mutedChanged, this, &ApplicationController::mutedChanged);
+    connect(m_mediaEngine, &MediaEngine::speedChanged, this, &ApplicationController::speedChanged);
 }
 
 bool ApplicationController::openFile()
@@ -157,4 +158,14 @@ double ApplicationController::volume() const
 bool ApplicationController::muted() const
 {
     return m_mediaEngine->muted();
+}
+
+void ApplicationController::setSpeed(double speed)
+{
+    m_mediaEngine->setSpeed(speed);
+}
+
+double ApplicationController::speed() const
+{
+    return m_mediaEngine->speed();
 }

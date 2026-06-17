@@ -16,7 +16,6 @@ VideoDecodeThread::VideoDecodeThread(QObject *parent)
     , m_frameQueue(nullptr)
     , m_timeBase{1, 90000}
     , m_startTime(0)
-    , m_pauseStartTime(0)
     , m_quit(false)
     , m_paused(nullptr)
     , m_firstFrame(true)
@@ -71,7 +70,24 @@ void VideoDecodeThread::adjustStartTime(int64_t offset)
 {
     if (offset < 0)
         offset = av_gettime() - m_pauseStartTime;
-    m_startTime += offset;
+    m_startTime.store(m_startTime.load(std::memory_order_relaxed) + offset,
+                      std::memory_order_relaxed);
+}
+
+void VideoDecodeThread::setSpeed(double speed)
+{
+    speed = qBound(0.1, speed, 5.0);
+    double oldSpeed = m_speed.load(std::memory_order_relaxed);
+    if (qFuzzyCompare(oldSpeed, speed))
+        return;
+    m_speed.store(speed, std::memory_order_relaxed);
+
+    if (!m_firstFrame.load(std::memory_order_relaxed) && !m_paused->load() && oldSpeed > 0.0) {
+        int64_t now = av_gettime();
+        int64_t elapsed = now - m_startTime.load(std::memory_order_relaxed);
+        int64_t newElapsed = static_cast<int64_t>(elapsed * oldSpeed / speed);
+        m_startTime.store(now - newElapsed, std::memory_order_relaxed);
+    }
 }
 
 void VideoDecodeThread::run()
@@ -107,7 +123,7 @@ void VideoDecodeThread::run()
     av_image_fill_arrays(rgbFrame->data, rgbFrame->linesize, buffer, AV_PIX_FMT_RGB24,
                          rgbWidth, videoHeight, 32);
 
-    m_startTime = av_gettime();
+    m_startTime.store(av_gettime(), std::memory_order_relaxed);
 
     while (!m_quit) {
         if (m_paused && m_paused->load()) {
@@ -153,17 +169,27 @@ void VideoDecodeThread::run()
                 double pts = frame->pts * av_q2d(m_timeBase);
                 int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
 
-                if (m_firstFrame) {
-                    m_startTime = av_gettime() - ptsUs;
-                    m_firstFrame = false;
+                if (m_firstFrame.load(std::memory_order_relaxed)) {
+                    m_startTime.store(av_gettime() - ptsUs, std::memory_order_relaxed);
+                    m_firstFrame.store(false, std::memory_order_relaxed);
                 }
 
-                int64_t now = av_gettime();
-                int64_t delay = ptsUs - (now - m_startTime);
-                while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
-                    int64_t sleepUs = qMin(delay, (int64_t)10000);
-                    av_usleep(sleepUs);
-                    delay = ptsUs - (av_gettime() - m_startTime);
+                {
+                    int64_t now = av_gettime();
+                    double speed = m_speed.load(std::memory_order_relaxed);
+                    double effectiveSpeed = (speed > 0.0) ? speed : 1.0;
+                    int64_t baseStart = m_startTime.load(std::memory_order_relaxed);
+                    int64_t targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
+                    int64_t delay = targetDisplayUs - now;
+                    while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
+                        int64_t sleepUs = qMin(delay, (int64_t)10000);
+                        av_usleep(sleepUs);
+                        speed = m_speed.load(std::memory_order_relaxed);
+                        effectiveSpeed = (speed > 0.0) ? speed : 1.0;
+                        baseStart = m_startTime.load(std::memory_order_relaxed);
+                        targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
+                        delay = targetDisplayUs - av_gettime();
+                    }
                 }
             }
             if (m_quit) {

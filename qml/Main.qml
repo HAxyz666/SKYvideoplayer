@@ -65,8 +65,10 @@ ApplicationWindow {
     Shortcut { sequence: "Up";   context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume + 5 }
     Shortcut { sequence: "Down"; context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume - 5 }
     Shortcut { sequence: "M";    onActivated: appController.toggleMute() }
+    Shortcut { sequence: "Space"; onActivated: appController.togglePlayback() }
 
     Shortcut { sequence: "F11"; onActivated: window.toggleMaximize() }
+
     Shortcut { sequence: "Escape"; onActivated: {
         if (window.isFullscreen) window.toggleMaximize()
     }}

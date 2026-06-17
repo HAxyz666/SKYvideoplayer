@@ -168,7 +168,11 @@ void AudioDecodeThread::run()
 
             AVFrame *resampled = resampleFrame(frame);
             if (resampled) {
-                m_frameQueue->push(resampled);
+                // Non-blocking push: if queue is full, drop the frame to
+                // prevent blocking the pipeline (which would stall video too).
+                if (!m_frameQueue->isFull()) {
+                    m_frameQueue->push(resampled);
+                }
                 av_frame_free(&resampled);
             }
 

@@ -43,6 +43,7 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_volume(100.0)       // 默认音量 100%
     , m_muted(false)        // 默认非静音
     , m_audioOutputReady(false)
+    , m_speed(1.0)
 {
     connect(m_frameQueueDrainTimer, &QTimer::timeout, this, [this]() {
         if (!m_videoFrameQueue) return;
@@ -166,6 +167,7 @@ void MediaEngine::start()
     }
 
     m_syncController->reset();
+    m_syncController->setSpeed(m_speed);
 
     m_position = 0.0;
     m_startTimeUs = av_gettime();
@@ -173,6 +175,10 @@ void MediaEngine::start()
     m_pauseStartUs = 0;
 
     startThreads();
+
+    if (m_videoThread)
+        m_videoThread->setSpeed(m_speed);
+    m_audioOutput->setSpeed(m_speed);
 
     m_positionTimer->start();
 }
@@ -214,8 +220,6 @@ void MediaEngine::resume()
     if (!m_paused.exchange(false))
         return;
     m_audioOutput->resume();
-    if (m_videoThread)
-        m_videoThread->adjustStartTime();
     m_pausedDurationUs += av_gettime() - m_pauseStartUs;
     m_pauseStartUs = 0;
     emit pausedChanged(false);
@@ -265,13 +269,17 @@ void MediaEngine::seek(double seconds)
         avcodec_flush_buffers(m_audioCodecCtx);
 
     qint64 now = av_gettime();
-    m_startTimeUs = now - static_cast<qint64>(seconds * 1000000);
+    m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(m_speed, 0.1));
     m_pausedDurationUs = 0;
     m_position = seconds;
     emit positionChanged(m_position);
 
     m_pauseStartUs = now;
     startThreads();
+
+    if (m_videoThread)
+        m_videoThread->setSpeed(m_speed);
+    m_audioOutput->setSpeed(m_speed);
 
     if (!wasPaused)
         resume();
@@ -287,6 +295,38 @@ double MediaEngine::position() const
 double MediaEngine::duration() const
 {
     return m_duration;
+}
+
+// --- 速度控制 ---
+
+void MediaEngine::setSpeed(double speed)
+{
+    speed = qBound(0.1, speed, 5.0);
+    if (qFuzzyCompare(m_speed, speed))
+        return;
+    double oldSpeed = m_speed;
+    m_speed = speed;
+    if (m_startTimeUs != 0 && !m_paused) {
+        qint64 now = av_gettime();
+        double currentPos = (now - m_startTimeUs - m_pausedDurationUs) * oldSpeed / 1000000.0;
+        m_startTimeUs = now - m_pausedDurationUs - static_cast<qint64>(currentPos * 1000000.0 / speed);
+    }
+    // Clear all queues to prevent stale frames from causing burst playback
+    // and to unblock the audio decode pipeline.
+    if (m_videoFrameQueue)
+        m_videoFrameQueue->clear();
+    if (m_audioFrameQueue)
+        m_audioFrameQueue->clear();
+    m_syncController->setSpeed(speed);
+    if (m_videoThread)
+        m_videoThread->setSpeed(speed);
+    m_audioOutput->setSpeed(speed);
+    emit speedChanged(m_speed);
+}
+
+double MediaEngine::speed() const
+{
+    return m_speed;
 }
 
 // --- 音量控制实现，转发到 AudioOutput ---
@@ -325,7 +365,7 @@ void MediaEngine::updatePosition()
     if (m_paused || m_startTimeUs == 0)
         return;
 
-    double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs) / 1000000.0;
+    double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs) * m_speed / 1000000.0;
     if (pos < 0) pos = 0;
     if (m_duration > 0 && pos > m_duration) pos = m_duration;
 

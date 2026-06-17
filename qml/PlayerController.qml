@@ -8,6 +8,7 @@ QtObject {
     property string mediaSource: ""
     property real playbackPosition: 0.0
     property real duration: 0.0
+    property real speed: 1.0
 
     function openFile(url) {
         mediaSource = url;
@@ -24,4 +25,9 @@ QtObject {
     }
 
     function togglePlay() { appController.togglePlayback(); }
+
+    function setSpeed(v) {
+        speed = v;
+        appController.setSpeed(v);
+    }
 }

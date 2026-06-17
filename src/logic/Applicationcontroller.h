@@ -15,6 +15,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted NOTIFY mutedChanged)
+    Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
     Q_PROPERTY(PlaylistModel *playlistModel READ playlistModel CONSTANT)
     Q_PROPERTY(RecentFilesModel *recentFilesModel READ recentFilesModel CONSTANT)
 
@@ -30,6 +31,7 @@ public:
     Q_INVOKABLE void playNext();
     Q_INVOKABLE void playPrev();
     Q_INVOKABLE void toggleMute();           // 切换静音
+    Q_INVOKABLE void setSpeed(double speed); // 设置播放速度
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;
@@ -40,6 +42,7 @@ public:
     double volume() const;                   // 获取音量
     void setVolume(double vol);              // 设置音量 0~100
     bool muted() const;                      // 是否静音
+    double speed() const;                    // 获取播放速度
 
 signals:
     void requestOpenFile();
@@ -48,6 +51,7 @@ signals:
     void durationChanged(double dur);
     void volumeChanged(double vol);          // 音量变化信号
     void mutedChanged(bool muted);           // 静音状态变化信号
+    void speedChanged(double speed);         // 速度变化信号
 
 private:
     MediaEngine *m_mediaEngine;

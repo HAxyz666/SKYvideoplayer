@@ -225,6 +225,19 @@ Item {
                         onClicked: appController.playNext()
                     }
 
+                    // 播放速度选择
+                    ComboBox {
+                        id: speedSelector
+                        model: ["0.5x", "1.0x", "1.5x", "2.0x"]
+                        currentIndex: 1
+                        Layout.preferredWidth: 80
+                        font.pixelSize: 12
+                        onActivated: function(index) {
+                            var speeds = [0.5, 1.0, 1.5, 2.0];
+                            controller.setSpeed(speeds[index]);
+                        }
+                    }
+
                     Item { Layout.fillWidth: true }
 
                     // 音量控制：水平滑块

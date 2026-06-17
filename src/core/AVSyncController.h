@@ -14,6 +14,7 @@ enum class SyncMode {
 class AVSyncController : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
 
 public:
     explicit AVSyncController(QObject *parent = nullptr);
@@ -26,8 +27,12 @@ public:
     double getVideoClock() const;
 
     void setSpeed(double speed);
+    double speed() const;
     void reset();
     void setSyncMode(SyncMode mode);
+
+signals:
+    void speedChanged(double speed);
 
 private:
     int synchronizeAudio();

@@ -15,9 +15,11 @@ AudioOutput::AudioOutput(QObject *parent)
     , m_frameQueue(nullptr)
     , m_volume(100.0)
     , m_muted(false)
+    , m_speed(1.0)
     , m_audioBuf(nullptr)
     , m_audioBufSize(0)
     , m_audioBufIndex(0)
+    , m_audioBufIndexFrac(0.0)
     , m_syncController(nullptr)
     , m_currentFrame(nullptr)
 {
@@ -57,6 +59,7 @@ bool AudioOutput::initialize(const SDL_AudioSpec &spec)
     }
 
     m_audioSpec = obtainedSpec;
+    m_speed.store(1.0, std::memory_order_relaxed);
     SDL_PauseAudioDevice(m_audioDeviceID, 0);
     return true;
 }
@@ -80,6 +83,17 @@ void AudioOutput::setVolume(double vol)
 void AudioOutput::setMuted(bool muted)
 {
     m_muted.store(muted, std::memory_order_relaxed);
+}
+
+void AudioOutput::setSpeed(double speed)
+{
+    speed = qBound(0.1, speed, 5.0);
+    m_speed.store(speed, std::memory_order_relaxed);
+    if (m_audioDeviceID != 0)
+        SDL_LockAudioDevice(m_audioDeviceID);
+    m_audioBufIndexFrac = 0.0;
+    if (m_audioDeviceID != 0)
+        SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::pause()
@@ -114,6 +128,7 @@ void AudioOutput::closeDevice()
     }
     m_audioBufSize = 0;
     m_audioBufIndex = 0;
+    m_audioBufIndexFrac = 0.0;
     m_frameQueue = nullptr;
 }
 
@@ -127,6 +142,7 @@ void AudioOutput::reset()
     }
     m_audioBufSize = 0;
     m_audioBufIndex = 0;
+    m_audioBufIndexFrac = 0.0;
     if (m_audioDeviceID != 0)
         SDL_UnlockAudioDevice(m_audioDeviceID);
 }
@@ -159,8 +175,7 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
     if (!fq)
         return;
 
-    // 静音时音量强制为 0，但仍然消费帧，避免 FrameQueue 堆积 → 阻塞解码管线 → 视频卡死
-    // 显式 load() 避免隐式 operator T() 的潜在问题
+    double speed = output->m_speed.load(std::memory_order_relaxed);
     double vol = output->m_volume.load(std::memory_order_relaxed);
     bool muted = output->m_muted.load(std::memory_order_relaxed);
     int volume = muted ? 0
@@ -173,6 +188,8 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
                 output->m_audioBuf = nullptr;
             }
 
+            // Non-blocking pop: AudioDecodeThread already drops frames when
+            // its output queue is full, so the pipeline never stalls.
             AVFrame *frame = fq->tryPop(0);
             if (!frame)
                 break;
@@ -181,10 +198,11 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
             output->m_audioBuf = frame->data[0];
             output->m_audioBufSize = frame->linesize[0];
             output->m_audioBufIndex = 0;
+            output->m_audioBufIndexFrac = 0.0;
 
             if (output->m_syncController)
                 output->m_syncController->updateAudioClock(
-                    frame->pts * av_q2d(frame->time_base));
+                    frame->pts * av_q2d(frame->time_base) * speed);
         }
 
         int remaining = output->m_audioBufSize - output->m_audioBufIndex;
@@ -195,7 +213,14 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
                            output->m_audioSpec.format,
                            toCopy, volume);
 
-        output->m_audioBufIndex += toCopy;
+        int sampleSize = SDL_AUDIO_BITSIZE(output->m_audioSpec.format) / 8;
+        int frameSize = sampleSize * output->m_audioSpec.channels;
+        output->m_audioBufIndexFrac += static_cast<double>(toCopy) * speed;
+        int advance = static_cast<int>(output->m_audioBufIndexFrac);
+        if (frameSize > 0)
+            advance = (advance / frameSize) * frameSize;
+        output->m_audioBufIndexFrac -= advance;
+        output->m_audioBufIndex += advance;
         stream += toCopy;
         len -= toCopy;
     }
