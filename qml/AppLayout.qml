@@ -9,6 +9,16 @@ Item {
 
     PlayerController { id: controller }
 
+    // 隐藏倒计时：3秒无操作后隐藏控制栏
+    Timer {
+        id: hideTimer
+        interval: 3000
+        onTriggered: {
+            console.log("hideTimer fired, hiding controlBar")
+            controlBar.showControls = false
+        }
+    }
+
     // === 底层：初始选择界面 (当没有媒体文件时显示) ===
     RowLayout {
         id: selectionView
@@ -85,6 +95,32 @@ Item {
         color: "black"
         visible: controller.hasMedia
 
+        onVisibleChanged: {
+            console.log("playerView.visible =", visible)
+            if (visible) {
+                controlBar.showControls = true
+                hideTimer.restart()
+            }
+        }
+
+        HoverHandler {
+            onHoveredChanged: {
+                console.log("playerView hovered =", hovered)
+                if (hovered) {
+                    controlBar.showControls = true
+                    hideTimer.restart()
+                }
+            }
+        }
+
+        TapHandler {
+            onTapped: {
+                console.log("playerView tapped")
+                controlBar.showControls = true
+                hideTimer.restart()
+            }
+        }
+
         VideoRenderItem {
             id: videoRenderItem
             objectName: "videoRenderItem"
@@ -97,6 +133,7 @@ Item {
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.margins: 12
+            visible: controlBar.showControls
             icon.name: "go-previous"
             icon.width: 24
             icon.height: 24
@@ -107,6 +144,21 @@ Item {
             }
         }
 
+        // 底部 hover 检测层（始终可见，用于控制栏隐藏时检测鼠标进入）
+        Item {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 80
+            HoverHandler {
+                onHoveredChanged: {
+                    if (hovered) {
+                        controlBar.showControls = true
+                        hideTimer.restart()
+                    }
+                }
+            }
+        }
+
         // 底部悬浮控制区
         Rectangle {
             id: controlBar
@@ -114,6 +166,20 @@ Item {
             width: parent.width
             height: 80
             color: "#80000000"
+
+            property bool showControls: true
+
+            visible: showControls
+
+            HoverHandler {
+                onHoveredChanged: {
+                    console.log("controlBar hovered =", hovered)
+                    if (hovered) {
+                        controlBar.showControls = true
+                        hideTimer.restart()
+                    }
+                }
+            }
 
             ColumnLayout {
                 anchors.fill: parent
