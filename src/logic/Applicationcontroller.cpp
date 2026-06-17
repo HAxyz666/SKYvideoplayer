@@ -56,9 +56,9 @@ bool ApplicationController::loadFile(const QString &path)
     m_playlistModel->clear();
     scanDirectoryFiles(m_playlistModel, fi.absolutePath());
     m_playlistModel->setCurrentIndex(m_playlistModel->indexOf(filePath));
-    m_mediaEngine->open(filePath);
-    emit playbackStateChanged(true);
-    return true;
+    bool ok = m_mediaEngine->open(filePath);
+    emit playbackStateChanged(ok);
+    return ok;
 }
 
 void ApplicationController::togglePlayback()

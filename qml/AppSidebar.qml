@@ -19,10 +19,10 @@ Rectangle {
             Layout.preferredHeight: 80
             color: "transparent"
 
-            Row {
+            Image {
                 anchors.centerIn: parent
-                spacing: 10
-                Label { text: "SKYPlayer"; font.bold: true; font.pixelSize: 20; color: "#333333" }
+                source: "qrc:/icons/logos/LogoL.svg"
+                sourceSize: Qt.size(80, 80)
             }
         }
 
@@ -85,7 +85,7 @@ Rectangle {
         Label {
             Layout.alignment: Qt.AlignHCenter
             Layout.bottomMargin: 20
-            text: "v0.1"
+            text: "v1.0"
             color: "#888888"
             font.pixelSize: 12
         }

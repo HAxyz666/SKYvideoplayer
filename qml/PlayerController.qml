@@ -11,9 +11,9 @@ QtObject {
 
     function openFile(url) {
         mediaSource = url;
-        hasMedia = true;
-        isPlaying = true;
-        appController.loadFile(url);
+        var ok = appController.loadFile(url);
+        hasMedia = ok;
+        isPlaying = ok;
     }
 
     function closeFile() {

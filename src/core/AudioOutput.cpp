@@ -32,6 +32,12 @@ AudioOutput::~AudioOutput()
 
 bool AudioOutput::initialize(const SDL_AudioSpec &spec)
 {
+    if (m_audioDeviceID != 0) {
+        m_audioSpec = spec;
+        SDL_PauseAudioDevice(m_audioDeviceID, 0);
+        return true;
+    }
+
     if (SDL_Init(SDL_INIT_AUDIO) < 0) {
         qCritical() << "SDL_Init failed:" << SDL_GetError();
         return false;
@@ -47,7 +53,6 @@ bool AudioOutput::initialize(const SDL_AudioSpec &spec)
     m_audioDeviceID = SDL_OpenAudioDevice(nullptr, 0, &wantedSpec, &obtainedSpec, SDL_AUDIO_ALLOW_ANY_CHANGE);
     if (m_audioDeviceID == 0) {
         qCritical() << "SDL_OpenAudioDevice failed:" << SDL_GetError();
-        SDL_Quit();
         return false;
     }
 

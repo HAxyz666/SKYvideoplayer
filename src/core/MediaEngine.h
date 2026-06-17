@@ -33,7 +33,7 @@ public:
 
     void start();
     Q_INVOKABLE void stop();
-    Q_INVOKABLE void open(const QString &url);
+    Q_INVOKABLE bool open(const QString &url);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
@@ -98,4 +98,5 @@ private:
 
     double m_volume;        // 音量 0~100，通过 AudioOutput 应用
     bool m_muted;           // 静音标志
+    bool m_audioOutputReady; // SDL 音频设备是否已打开
 };

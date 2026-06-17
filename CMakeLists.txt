@@ -7,6 +7,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Svg)
+
 qt_standard_project_setup(REQUIRES 6.5)
 
 find_package(PkgConfig REQUIRED)
@@ -77,9 +79,18 @@ qt6_add_qml_module(SKYvideoplayer
         qml/PlayerController.qml
         qml/ProgressBar.qml
         qml/PlaylistPanel.qml
+        qml/RecentHistory.qml
         qml/VolumeControl.qml
     SOURCES
         src/core/VideoRenderItem.cpp
+)
+
+qt6_add_resources(SKYvideoplayer "icons"
+    BASE "resources"
+    PREFIX "/icons"
+    FILES
+        resources/logos/LogoD.svg
+        resources/logos/LogoL.svg
 )
 
 target_include_directories(SKYvideoplayer PRIVATE
@@ -93,6 +104,7 @@ target_link_libraries(SKYvideoplayer PRIVATE
     Qt6::Core
     Qt6::Quick
     Qt6::Gui
+    Qt6::Svg
     PkgConfig::AVCODEC
     PkgConfig::AVFORMAT
     PkgConfig::AVUTIL

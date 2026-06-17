@@ -2,7 +2,7 @@
 
 #include <QQuickPaintedItem>
 #include <QImage>
-#include <qqml.h>
+#include <QtQml/qqmlregistration.h>
 
 class VideoRenderItem : public QQuickPaintedItem
 {

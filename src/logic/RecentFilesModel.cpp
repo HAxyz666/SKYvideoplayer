@@ -51,11 +51,15 @@ void RecentFilesModel::addFile(const QString &filePath)
     }
 
     if (existingIndex >= 0) {
-        beginMoveRows(QModelIndex(), existingIndex, existingIndex, QModelIndex(), 0);
-        auto entry = m_items.takeAt(existingIndex);
-        entry.lastPlayed = QDateTime::currentDateTime();
-        m_items.prepend(entry);
-        endMoveRows();
+        if (existingIndex != 0) {
+            beginMoveRows(QModelIndex(), existingIndex, existingIndex, QModelIndex(), 0);
+            auto entry = m_items.takeAt(existingIndex);
+            entry.lastPlayed = QDateTime::currentDateTime();
+            m_items.prepend(entry);
+            endMoveRows();
+        } else {
+            m_items[0].lastPlayed = QDateTime::currentDateTime();
+        }
     } else {
         beginInsertRows(QModelIndex(), 0, 0);
         RecentFileEntry entry;

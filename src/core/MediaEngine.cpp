@@ -42,6 +42,7 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_positionTimer(new QTimer(this))
     , m_volume(100.0)       // 默认音量 100%
     , m_muted(false)        // 默认非静音
+    , m_audioOutputReady(false)
 {
     connect(m_frameQueueDrainTimer, &QTimer::timeout, this, [this]() {
         if (!m_videoFrameQueue) return;
@@ -100,6 +101,11 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     }
 
     m_videoCodecCtx = avcodec_alloc_context3(videoCodec);
+    if (!m_videoCodecCtx) {
+        qCritical() << "Could not allocate video codec context";
+        avformat_close_input(&m_fmtCtx);
+        return false;
+    }
     avcodec_parameters_to_context(m_videoCodecCtx, videoPar);
 
     if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
@@ -115,12 +121,14 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 
         if (audioCodec) {
             m_audioCodecCtx = avcodec_alloc_context3(audioCodec);
-            avcodec_parameters_to_context(m_audioCodecCtx, audioPar);
+            if (m_audioCodecCtx) {
+                avcodec_parameters_to_context(m_audioCodecCtx, audioPar);
 
-            if (avcodec_open2(m_audioCodecCtx, audioCodec, nullptr) < 0) {
-                qWarning() << "Could not open audio codec, playing without audio";
-                avcodec_free_context(&m_audioCodecCtx);
-                m_audioCodecCtx = nullptr;
+                if (avcodec_open2(m_audioCodecCtx, audioCodec, nullptr) < 0) {
+                    qWarning() << "Could not open audio codec, playing without audio";
+                    avcodec_free_context(&m_audioCodecCtx);
+                    m_audioCodecCtx = nullptr;
+                }
             }
         }
     }
@@ -143,6 +151,7 @@ void MediaEngine::start()
     if (!initFFmpeg(m_filename))
         return;
 
+    m_audioOutputReady = false;
     if (m_audioCodecCtx) {
         SDL_AudioSpec spec;
         std::memset(&spec, 0, sizeof(spec));
@@ -151,8 +160,9 @@ void MediaEngine::start()
         spec.channels = 2;
         spec.samples = 1024;
 
-        m_audioOutput->initialize(spec);
-        m_audioOutput->setSyncController(m_syncController);
+        m_audioOutputReady = m_audioOutput->initialize(spec);
+        if (m_audioOutputReady)
+            m_audioOutput->setSyncController(m_syncController);
     }
 
     m_syncController->reset();
@@ -174,10 +184,12 @@ void MediaEngine::stop()
     stopThreads();
     cleanup();
     m_position = 0.0;
+    m_duration = 0.0;
     emit positionChanged(0.0);
+    emit durationChanged(0.0);
 }
 
-void MediaEngine::open(const QString &url)
+bool MediaEngine::open(const QString &url)
 {
     stop();
     QString path = url;
@@ -185,6 +197,7 @@ void MediaEngine::open(const QString &url)
         path = path.mid(7);
     m_filename = path;
     start();
+    return m_fmtCtx != nullptr;
 }
 
 void MediaEngine::pause()
@@ -328,7 +341,7 @@ void MediaEngine::startThreads()
     m_audioPacketQueue = new PacketQueue(64);
     m_videoFrameQueue = new FrameQueue(24);
 
-    if (m_audioCodecCtx) {
+    if (m_audioCodecCtx && m_audioOutputReady) {
         m_audioFrameQueue = new FrameQueue(24);
         m_audioOutput->setFrameQueue(m_audioFrameQueue);
     }
@@ -353,7 +366,7 @@ void MediaEngine::startThreads()
     m_videoThread->setPausedRef(m_paused);
     connect(m_videoThread, &VideoDecodeThread::frameReady, this, &MediaEngine::frameReady);
 
-    if (m_audioCodecCtx) {
+    if (m_audioCodecCtx && m_audioOutputReady) {
         m_audioThread = new AudioDecodeThread(this);
         m_audioThread->setCodecContext(m_audioCodecCtx);
         m_audioThread->setPacketQueue(m_audioPacketQueue);

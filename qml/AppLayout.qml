@@ -19,11 +19,11 @@ Item {
         // 左侧：Logo + 菜单
         AppSidebar {
             Layout.fillHeight: true
-            Layout.preferredWidth: 200
+            Layout.preferredWidth: 160
             onOpenFileTriggered: appController.openFile()
         }
 
-        // 中间：欢迎界面 + 最近播放记录
+        // 中间：主界面 + 最近播放记录
         Rectangle {
             Layout.fillHeight: true
             Layout.fillWidth: true
@@ -44,7 +44,7 @@ Item {
                 }
 
                 Label {
-                    text: qsTr("点击左侧「打开文件」选择视频开始播放")
+                    text: qsTr("点击左侧「openfile」选择视频开始播放")
                     font.pixelSize: 14
                     color: "#888888"
                     horizontalAlignment: Qt.AlignHCenter
@@ -66,57 +66,12 @@ Item {
                     color: "#333333"
                 }
 
-                ListView {
+                RecentHistory {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     model: appController.recentFilesModel
-                    clip: true
-
-                    delegate: Rectangle {
-                        width: ListView.view.width
-                        height: 40
-                        color: mouseArea.containsMouse ? "#d0d0d0" : "transparent"
-
-                        property var entryModel: model
-
-                        MouseArea {
-                            id: mouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onDoubleClicked: {
-                                controller.openFile(model.filePath)
-                            }
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            spacing: 8
-
-                            Label {
-                                text: model.fileName
-                                font.pixelSize: 14
-                                color: "#333333"
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-
-                            Label {
-                                text: model.lastPlayed instanceof Date
-                                    ? Qt.formatDateTime(model.lastPlayed, "yyyy-MM-dd hh:mm")
-                                    : ""
-                                font.pixelSize: 11
-                                color: "#888888"
-                            }
-                        }
-                    }
-
-                    Label {
-                        anchors.centerIn: parent
-                        text: qsTr("暂无播放记录")
-                        opacity: 0.5
-                        visible: parent.count === 0
+                    onFileDoubleClicked: function(filePath) {
+                        controller.openFile(filePath)
                     }
                 }
             }
@@ -206,9 +161,9 @@ Item {
 
                     Item { Layout.fillWidth: true }
 
-                    // 音量控制：点击图标上下拖拽调节
+                    // 音量控制：水平滑块
                     VolumeControl {
-                        Layout.preferredWidth: 32
+                        Layout.preferredWidth: 140
                         Layout.preferredHeight: 32
                     }
 
