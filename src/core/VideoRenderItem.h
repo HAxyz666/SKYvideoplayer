@@ -2,7 +2,7 @@
 
 #include <QQuickPaintedItem>
 #include <QImage>
-#include <qqml.h>
+#include <QtQml/qqmlregistration.h>
 
 class VideoRenderItem : public QQuickPaintedItem
 {
@@ -17,6 +17,7 @@ public:
 
     QImage image() const;
     void setImage(const QImage &image);
+    Q_INVOKABLE void clearImage();
 
 signals:
     void imageChanged();

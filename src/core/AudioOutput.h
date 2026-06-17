@@ -1,15 +1,16 @@
 #pragma once
 
 #include <QObject>
-#include <QMutex>
-#include <QWaitCondition>
-#include <QQueue>
+#include <atomic>
+#include <cstdint>
 
 extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libswresample/swresample.h>
 #include <SDL2/SDL.h>
 }
+
+class FrameQueue;
+class AVSyncController;
+struct AVFrame;
 
 class AudioOutput : public QObject
 {
@@ -19,26 +20,32 @@ public:
     explicit AudioOutput(QObject *parent = nullptr);
     ~AudioOutput();
 
-    bool init(AVCodecContext *audioCodecCtx);
-    void enqueue(uint8_t *data, int size);
+    bool initialize(const SDL_AudioSpec &spec);
+    void setFrameQueue(FrameQueue *queue);
+    void setSyncController(AVSyncController *ctrl);
+    void setVolume(double vol);
+    void setMuted(bool muted);
+    void pause();
+    void resume();
     void stop();
-    bool isInited() const;
+    void reset();
+    void closeDevice();
+
+    double volume() const;
+    bool muted() const;
+    double getAudioClock() const;
 
 private:
-    struct AudioPacket {
-        uint8_t *data;
-        int size;
-    };
-
     static void sdlAudioCallback(void *userdata, Uint8 *stream, int len);
 
-    QQueue<AudioPacket> m_audioQueue;
-    QMutex m_audioMutex;
-    QWaitCondition m_audioCond;
-
-    uint8_t *m_audioBuffer;
-    int m_audioBufferSize;
-    int m_audioBufferIndex;
-
-    bool m_sdlInited;
+    SDL_AudioDeviceID m_audioDeviceID;
+    SDL_AudioSpec m_audioSpec;
+    FrameQueue *m_frameQueue;
+    std::atomic<double> m_volume;   // 音量 0~100，原子类型，主线程写入、SDL 回调线程读取
+    std::atomic<bool> m_muted;      // 静音标志，原子类型，跨线程安全
+    uint8_t *m_audioBuf;
+    uint32_t m_audioBufSize;
+    uint32_t m_audioBufIndex;
+    AVSyncController *m_syncController;
+    AVFrame *m_currentFrame;
 };
