@@ -74,6 +74,43 @@ ApplicationWindow {
     }}
 
     AppLayout {
+        id: appLayout
         anchors.fill: parent
+    }
+
+    DropArea {
+        id: dropArea
+        anchors.fill: parent
+        keys: ["text/uri-list"]
+
+        onEntered: function(drag) {
+            drag.accepted = drag.urls.some(function(url) {
+                var path = url.toString()
+                return /\.(mp4|mkv|avi|mov|flv|wmv)$/i.test(path)
+            })
+        }
+
+        onDropped: function(drop) {
+            var urls = drop.urls
+            if (urls.length > 0) {
+                for (var i = 0; i < urls.length; ++i)
+                    appController.recentFilesModel.addFile(urls[i].toString())
+                appLayout.controller.openFile(urls[0].toString())
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: "#88000000"
+        visible: dropArea.containsDrag
+
+        Label {
+            anchors.centerIn: parent
+            text: qsTr("松开以播放视频")
+            font.pixelSize: 28
+            font.bold: true
+            color: "white"
+        }
     }
 }

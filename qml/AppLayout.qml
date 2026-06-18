@@ -7,6 +7,8 @@ import SKYvideoplayer 1.0
 Item {
     id: appLayout
 
+    property alias controller: controller
+
     PlayerController { id: controller }
 
     // 隐藏倒计时：3秒无操作后隐藏控制栏
