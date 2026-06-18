@@ -17,6 +17,58 @@ extern "C" {
 #include <libavutil/time.h>
 }
 
+#ifdef ENABLE_HWACCEL
+bool MediaEngine::createHwDeviceContext(const AVCodec *codec)
+{
+    AVHWDeviceType hwTypes[] = {
+#if defined(Q_OS_LINUX)
+        AV_HWDEVICE_TYPE_VAAPI,
+#elif defined(Q_OS_WIN)
+        AV_HWDEVICE_TYPE_D3D11VA,
+        AV_HWDEVICE_TYPE_DXVA2,
+#elif defined(Q_OS_MACOS)
+        AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+#endif
+    };
+
+    for (AVHWDeviceType type : hwTypes) {
+        // 查找该 codec 是否支持此硬件类型的像素格式
+        for (int i = 0; ; i++) {
+            const AVCodecHWConfig *hwcfg = avcodec_get_hw_config(codec, i);
+            if (!hwcfg) break;
+
+            bool typeMatch = false;
+            switch (type) {
+            case AV_HWDEVICE_TYPE_VAAPI:     typeMatch = (hwcfg->pix_fmt == AV_PIX_FMT_VAAPI); break;
+            case AV_HWDEVICE_TYPE_D3D11VA:   typeMatch = (hwcfg->pix_fmt == AV_PIX_FMT_D3D11); break;
+            case AV_HWDEVICE_TYPE_DXVA2:     typeMatch = (hwcfg->pix_fmt == AV_PIX_FMT_DXVA2_VLD); break;
+            case AV_HWDEVICE_TYPE_VIDEOTOOLBOX: typeMatch = (hwcfg->pix_fmt == AV_PIX_FMT_VIDEOTOOLBOX); break;
+            default: break;
+            }
+            if (!typeMatch) continue;
+
+            AVBufferRef *deviceCtx = nullptr;
+            int ret = av_hwdevice_ctx_create(&deviceCtx, type, nullptr, nullptr, 0);
+            if (ret < 0) {
+                qDebug() << "Failed to create hw device" << av_hwdevice_get_type_name(type)
+                         << ":" << av_err2str(ret);
+                continue;
+            }
+            m_hwDeviceCtx = deviceCtx;
+            m_hwPixFmt = hwcfg->pix_fmt;
+            m_hwDeviceType = type;
+            m_useHardwareDecode = true;
+            qDebug() << "HW decode available:" << av_hwdevice_get_type_name(type)
+                     << "fmt:" << av_get_pix_fmt_name(hwcfg->pix_fmt);
+            return true;
+        }
+    }
+
+    qDebug() << "No HW decoder available, using software decoding";
+    return false;
+}
+#endif
+
 MediaEngine::MediaEngine(QObject *parent)
     : QObject(parent)
     , m_fmtCtx(nullptr)
@@ -109,12 +161,52 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     }
     avcodec_parameters_to_context(m_videoCodecCtx, videoPar);
 
+#ifdef ENABLE_HWACCEL
+    if (createHwDeviceContext(videoCodec)) {
+        m_videoCodecCtx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
+        m_videoCodecCtx->pix_fmt = m_hwPixFmt;
+    }
+#endif
+
     if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
+#ifdef ENABLE_HWACCEL
+        if (m_hwDeviceCtx) {
+            qWarning() << "HW decode failed, falling back to software";
+            avcodec_free_context(&m_videoCodecCtx);
+            m_videoCodecCtx = avcodec_alloc_context3(videoCodec);
+            avcodec_parameters_to_context(m_videoCodecCtx, videoPar);
+            m_videoCodecCtx->hw_device_ctx = nullptr;
+            m_hwPixFmt = AV_PIX_FMT_NONE;
+
+            if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
+                qCritical() << "Could not open video codec (both HW and SW failed)";
+                avcodec_free_context(&m_videoCodecCtx);
+                avformat_close_input(&m_fmtCtx);
+                return false;
+            }
+        } else {
+            qCritical() << "Could not open video codec";
+            avcodec_free_context(&m_videoCodecCtx);
+            avformat_close_input(&m_fmtCtx);
+            return false;
+        }
+#else
         qCritical() << "Could not open video codec";
         avcodec_free_context(&m_videoCodecCtx);
         avformat_close_input(&m_fmtCtx);
         return false;
+#endif
     }
+
+#ifdef ENABLE_HWACCEL
+    if (m_hwPixFmt != AV_PIX_FMT_NONE) {
+        m_useHardwareDecode = true;
+        qDebug() << "Hardware decoding active:" << av_get_pix_fmt_name(m_hwPixFmt);
+    } else {
+        m_useHardwareDecode = false;
+        qDebug() << "Software decoding (hw device not used by codec)";
+    }
+#endif
 
     if (m_audioStreamIndex != -1) {
         AVCodecParameters *audioPar = m_fmtCtx->streams[m_audioStreamIndex]->codecpar;
@@ -406,6 +498,12 @@ void MediaEngine::startThreads()
     m_videoThread->setPausedRef(m_paused);
     connect(m_videoThread, &VideoDecodeThread::frameReady, this, &MediaEngine::frameReady);
 
+#ifdef ENABLE_HWACCEL
+    if (m_useHardwareDecode && m_hwDeviceCtx) {
+        m_videoThread->setHwContext(m_hwDeviceCtx, m_hwPixFmt);
+    }
+#endif
+
     if (m_audioCodecCtx && m_audioOutputReady) {
         m_audioThread = new AudioDecodeThread(this);
         m_audioThread->setCodecContext(m_audioCodecCtx);
@@ -469,4 +567,14 @@ void MediaEngine::cleanup()
         avformat_close_input(&m_fmtCtx);
         m_fmtCtx = nullptr;
     }
+
+#ifdef ENABLE_HWACCEL
+    if (m_hwDeviceCtx) {
+        av_buffer_unref(&m_hwDeviceCtx);
+        m_hwDeviceCtx = nullptr;
+    }
+    m_hwPixFmt = AV_PIX_FMT_NONE;
+    m_hwDeviceType = AV_HWDEVICE_TYPE_NONE;
+    m_useHardwareDecode = false;
+#endif
 }

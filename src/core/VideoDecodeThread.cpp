@@ -26,6 +26,10 @@ VideoDecodeThread::~VideoDecodeThread()
 {
     stopDecode();
     wait();
+#ifdef ENABLE_HWACCEL
+    if (m_hwDeviceCtx)
+        av_buffer_unref(&m_hwDeviceCtx);
+#endif
 }
 
 void VideoDecodeThread::setCodecContext(AVCodecContext *ctx)
@@ -90,6 +94,15 @@ void VideoDecodeThread::setSpeed(double speed)
     }
 }
 
+#ifdef ENABLE_HWACCEL
+void VideoDecodeThread::setHwContext(AVBufferRef *ctx, AVPixelFormat pixFmt)
+{
+    if (ctx)
+        m_hwDeviceCtx = av_buffer_ref(ctx);
+    m_hwPixFmt = pixFmt;
+}
+#endif
+
 void VideoDecodeThread::run()
 {
     if (!m_codecCtx || !m_packetQueue)
@@ -98,23 +111,35 @@ void VideoDecodeThread::run()
     int videoWidth = m_codecCtx->width;
     int videoHeight = m_codecCtx->height;
 
-    SwsContext *swsCtx = sws_getContext(
-        videoWidth, videoHeight, m_codecCtx->pix_fmt,
-        videoWidth, videoHeight, AV_PIX_FMT_RGB24,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
+    SwsContext *swsCtx = nullptr;
+    AVFrame *rgbFrame = nullptr;
+    uint8_t *buffer = nullptr;
+    int rgbWidth = (videoWidth + 15) & ~15;
+
+    if (m_hwPixFmt == AV_PIX_FMT_NONE) {
+        swsCtx = sws_getContext(
+            videoWidth, videoHeight, m_codecCtx->pix_fmt,
+            videoWidth, videoHeight, AV_PIX_FMT_RGB24,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+    } else {
+        swsCtx = sws_getContext(
+            videoWidth, videoHeight, AV_PIX_FMT_NV12,
+            videoWidth, videoHeight, AV_PIX_FMT_RGB24,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+    }
+
     if (!swsCtx) {
         emit frameReady(QImage());
         return;
     }
 
-    AVFrame *rgbFrame = av_frame_alloc();
-    int rgbWidth = (videoWidth + 15) & ~15;
+    rgbFrame = av_frame_alloc();
     int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, rgbWidth, videoHeight, 32);
     if (numBytes <= 0) {
         sws_freeContext(swsCtx);
         return;
     }
-    uint8_t *buffer = (uint8_t *)av_malloc(numBytes);
+    buffer = (uint8_t *)av_malloc(numBytes);
     if (!buffer) {
         av_frame_free(&rgbFrame);
         sws_freeContext(swsCtx);
@@ -147,7 +172,7 @@ void VideoDecodeThread::run()
         if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
             continue;
 
-    while (!m_quit) {
+        while (!m_quit) {
             AVFrame *frame = av_frame_alloc();
             ret = avcodec_receive_frame(m_codecCtx, frame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
@@ -162,46 +187,97 @@ void VideoDecodeThread::run()
             if (m_frameQueue)
                 m_frameQueue->push(frame);
 
-            sws_scale(swsCtx, frame->data, frame->linesize, 0,
-                      frame->height, rgbFrame->data, rgbFrame->linesize);
+            if (m_hwPixFmt != AV_PIX_FMT_NONE && frame->format == m_hwPixFmt) {
+                AVFrame *nv12Frame = av_frame_alloc();
+                nv12Frame->format = AV_PIX_FMT_NV12;
+                if (av_hwframe_transfer_data(nv12Frame, frame, 0) == 0) {
+                    if (frame->pts != AV_NOPTS_VALUE) {
+                        double pts = frame->pts * av_q2d(m_timeBase);
+                        int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
 
-            if (frame->pts != AV_NOPTS_VALUE) {
-                double pts = frame->pts * av_q2d(m_timeBase);
-                int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
+                        if (m_firstFrame.load(std::memory_order_relaxed)) {
+                            m_startTime.store(av_gettime() - ptsUs, std::memory_order_relaxed);
+                            m_firstFrame.store(false, std::memory_order_relaxed);
+                        }
 
-                if (m_firstFrame.load(std::memory_order_relaxed)) {
-                    m_startTime.store(av_gettime() - ptsUs, std::memory_order_relaxed);
-                    m_firstFrame.store(false, std::memory_order_relaxed);
+                        {
+                            int64_t now = av_gettime();
+                            double speed = m_speed.load(std::memory_order_relaxed);
+                            double effectiveSpeed = (speed > 0.0) ? speed : 1.0;
+                            int64_t baseStart = m_startTime.load(std::memory_order_relaxed);
+                            int64_t targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
+                            int64_t delay = targetDisplayUs - now;
+                            while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
+                                int64_t sleepUs = qMin(delay, (int64_t)10000);
+                                av_usleep(sleepUs);
+                                speed = m_speed.load(std::memory_order_relaxed);
+                                effectiveSpeed = (speed > 0.0) ? speed : 1.0;
+                                baseStart = m_startTime.load(std::memory_order_relaxed);
+                                targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
+                                delay = targetDisplayUs - av_gettime();
+                            }
+                        }
+                    }
+                    if (m_quit) {
+                        av_frame_free(&nv12Frame);
+                        av_frame_unref(frame);
+                        av_frame_free(&frame);
+                        break;
+                    }
+
+                    sws_scale(swsCtx, nv12Frame->data, nv12Frame->linesize, 0,
+                              nv12Frame->height, rgbFrame->data, rgbFrame->linesize);
+
+                    QImage image(rgbFrame->data[0], rgbWidth, videoHeight,
+                                 rgbFrame->linesize[0], QImage::Format_RGB888);
+                    QImage cropped = image.copy(0, 0, videoWidth, videoHeight);
+                    emit frameReady(cropped);
+                } else {
+                    qWarning() << "av_hwframe_transfer_data failed, dropping frame";
                 }
+                av_frame_free(&nv12Frame);
+            } else {
+                sws_scale(swsCtx, frame->data, frame->linesize, 0,
+                          frame->height, rgbFrame->data, rgbFrame->linesize);
 
-                {
-                    int64_t now = av_gettime();
-                    double speed = m_speed.load(std::memory_order_relaxed);
-                    double effectiveSpeed = (speed > 0.0) ? speed : 1.0;
-                    int64_t baseStart = m_startTime.load(std::memory_order_relaxed);
-                    int64_t targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
-                    int64_t delay = targetDisplayUs - now;
-                    while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
-                        int64_t sleepUs = qMin(delay, (int64_t)10000);
-                        av_usleep(sleepUs);
-                        speed = m_speed.load(std::memory_order_relaxed);
-                        effectiveSpeed = (speed > 0.0) ? speed : 1.0;
-                        baseStart = m_startTime.load(std::memory_order_relaxed);
-                        targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
-                        delay = targetDisplayUs - av_gettime();
+                if (frame->pts != AV_NOPTS_VALUE) {
+                    double pts = frame->pts * av_q2d(m_timeBase);
+                    int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
+
+                    if (m_firstFrame.load(std::memory_order_relaxed)) {
+                        m_startTime.store(av_gettime() - ptsUs, std::memory_order_relaxed);
+                        m_firstFrame.store(false, std::memory_order_relaxed);
+                    }
+
+                    {
+                        int64_t now = av_gettime();
+                        double speed = m_speed.load(std::memory_order_relaxed);
+                        double effectiveSpeed = (speed > 0.0) ? speed : 1.0;
+                        int64_t baseStart = m_startTime.load(std::memory_order_relaxed);
+                        int64_t targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
+                        int64_t delay = targetDisplayUs - now;
+                        while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
+                            int64_t sleepUs = qMin(delay, (int64_t)10000);
+                            av_usleep(sleepUs);
+                            speed = m_speed.load(std::memory_order_relaxed);
+                            effectiveSpeed = (speed > 0.0) ? speed : 1.0;
+                            baseStart = m_startTime.load(std::memory_order_relaxed);
+                            targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
+                            delay = targetDisplayUs - av_gettime();
+                        }
                     }
                 }
-            }
-            if (m_quit) {
-                av_frame_unref(frame);
-                av_frame_free(&frame);
-                break;
-            }
+                if (m_quit) {
+                    av_frame_unref(frame);
+                    av_frame_free(&frame);
+                    break;
+                }
 
-            QImage image(rgbFrame->data[0], rgbWidth, videoHeight,
-                         rgbFrame->linesize[0], QImage::Format_RGB888);
-            QImage cropped = image.copy(0, 0, videoWidth, videoHeight);
-            emit frameReady(cropped);
+                QImage image(rgbFrame->data[0], rgbWidth, videoHeight,
+                             rgbFrame->linesize[0], QImage::Format_RGB888);
+                QImage cropped = image.copy(0, 0, videoWidth, videoHeight);
+                emit frameReady(cropped);
+            }
 
             av_frame_unref(frame);
             av_frame_free(&frame);

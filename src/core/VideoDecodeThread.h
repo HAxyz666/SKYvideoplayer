@@ -8,6 +8,9 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 #include <libavutil/rational.h>
+#ifdef ENABLE_HWACCEL
+#include <libavutil/hwcontext.h>
+#endif
 }
 
 class PacketQueue;
@@ -29,6 +32,9 @@ public:
     void setPausedRef(const std::atomic<bool> &paused);
     void adjustStartTime(int64_t offset = -1);
     void setSpeed(double speed);
+#ifdef ENABLE_HWACCEL
+    void setHwContext(AVBufferRef *ctx, AVPixelFormat pixFmt);
+#endif
 
 protected:
     void run() override;
@@ -47,4 +53,8 @@ private:
     const std::atomic<bool> *m_paused;
     std::atomic<bool> m_firstFrame;
     std::atomic<double> m_speed{1.0};
+#ifdef ENABLE_HWACCEL
+    AVBufferRef *m_hwDeviceCtx{nullptr};
+    AVPixelFormat m_hwPixFmt{AV_PIX_FMT_NONE};
+#endif
 };

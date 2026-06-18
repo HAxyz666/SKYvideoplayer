@@ -19,6 +19,11 @@ pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 pkg_check_modules(SWRESAMPLE REQUIRED IMPORTED_TARGET libswresample)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 
+if(UNIX AND NOT APPLE)
+    pkg_check_modules(LIBVA IMPORTED_TARGET libva)
+    pkg_check_modules(LIBDRM IMPORTED_TARGET libdrm)
+endif()
+
 set(CORE_SOURCES
     src/core/MediaEngine.cpp
     src/core/AVSyncController.cpp
@@ -112,3 +117,11 @@ target_link_libraries(SKYvideoplayer PRIVATE
     PkgConfig::SWRESAMPLE
     PkgConfig::SDL2
 )
+
+if(UNIX AND NOT APPLE AND LIBVA_FOUND AND LIBDRM_FOUND)
+    target_link_libraries(SKYvideoplayer PRIVATE
+        PkgConfig::LIBVA
+        PkgConfig::LIBDRM
+    )
+    target_compile_definitions(SKYvideoplayer PRIVATE ENABLE_HWACCEL)
+endif()

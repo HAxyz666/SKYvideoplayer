@@ -9,6 +9,9 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#ifdef ENABLE_HWACCEL
+#include <libavutil/hwcontext.h>
+#endif
 }
 
 class DemuxThread;
@@ -106,4 +109,13 @@ private:
     bool m_muted;           // 静音标志
     bool m_audioOutputReady; // SDL 音频设备是否已打开
     double m_speed;         // 播放速度
+
+#ifdef ENABLE_HWACCEL
+    AVBufferRef *m_hwDeviceCtx{nullptr};
+    AVPixelFormat m_hwPixFmt{AV_PIX_FMT_NONE};
+    AVHWDeviceType m_hwDeviceType{AV_HWDEVICE_TYPE_NONE};
+    bool m_useHardwareDecode{false};
+
+    bool createHwDeviceContext(const AVCodec *codec);
+#endif
 };
