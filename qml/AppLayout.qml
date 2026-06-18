@@ -115,11 +115,29 @@ Item {
             }
         }
 
-        TapHandler {
-            onTapped: {
-                console.log("playerView tapped")
+        // 双击检测定时器：单击等待 250ms 确认非双击后执行暂停/继续
+        Timer {
+            id: doubleTapTimer
+            interval: 250
+            onTriggered: {
+                console.log("singleTap confirmed")
                 controlBar.showControls = true
                 hideTimer.restart()
+                controller.togglePlay()
+            }
+        }
+
+        TapHandler {
+            onTapped: {
+                if (doubleTapTimer.running) {
+                    // 第二次点击在超时内 → 双击，取消定时器，切换全屏
+                    doubleTapTimer.stop()
+                    console.log("doubleTap detected")
+                    window.toggleMaximize()
+                } else {
+                    // 第一次点击 → 启动定时器等待双击确认
+                    doubleTapTimer.restart()
+                }
             }
         }
 
