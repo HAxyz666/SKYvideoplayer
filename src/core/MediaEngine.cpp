@@ -270,7 +270,8 @@ void MediaEngine::start()
 
     if (m_videoThread)
         m_videoThread->setSpeed(m_speed);
-    m_audioOutput->setSpeed(m_speed);
+    if (m_audioThread)
+        m_audioThread->setSpeed(m_speed);
 
     m_positionTimer->start();
 }
@@ -371,7 +372,8 @@ void MediaEngine::seek(double seconds)
 
     if (m_videoThread)
         m_videoThread->setSpeed(m_speed);
-    m_audioOutput->setSpeed(m_speed);
+    if (m_audioThread)
+        m_audioThread->setSpeed(m_speed);
 
     if (!wasPaused)
         resume();
@@ -412,7 +414,8 @@ void MediaEngine::setSpeed(double speed)
     m_syncController->setSpeed(speed);
     if (m_videoThread)
         m_videoThread->setSpeed(speed);
-    m_audioOutput->setSpeed(speed);
+    if (m_audioThread)
+        m_audioThread->setSpeed(speed);
     emit speedChanged(m_speed);
 }
 
@@ -510,6 +513,7 @@ void MediaEngine::startThreads()
         m_audioThread->setPacketQueue(m_audioPacketQueue);
         m_audioThread->setFrameQueue(m_audioFrameQueue);
         m_audioThread->setPausedRef(m_paused);
+        m_audioThread->setTimeBase(m_fmtCtx->streams[m_audioStreamIndex]->time_base);
     }
 
     m_frameQueueDrainTimer->start(100);

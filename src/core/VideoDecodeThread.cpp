@@ -74,23 +74,25 @@ void VideoDecodeThread::adjustStartTime(int64_t offset)
 {
     if (offset < 0)
         offset = av_gettime() - m_pauseStartTime;
-    m_startTime.store(m_startTime.load(std::memory_order_relaxed) + offset,
-                      std::memory_order_relaxed);
+    m_startTime.store(m_startTime.load(std::memory_order_acquire) + offset,
+                      std::memory_order_release);
+    m_driftCompensation = 0;
 }
 
 void VideoDecodeThread::setSpeed(double speed)
 {
     speed = qBound(0.1, speed, 5.0);
-    double oldSpeed = m_speed.load(std::memory_order_relaxed);
+    double oldSpeed = m_speed.load(std::memory_order_acquire);
     if (qFuzzyCompare(oldSpeed, speed))
         return;
-    m_speed.store(speed, std::memory_order_relaxed);
+    m_speed.store(speed, std::memory_order_release);
 
-    if (!m_firstFrame.load(std::memory_order_relaxed) && !m_paused->load() && oldSpeed > 0.0) {
+    if (!m_firstFrame.load(std::memory_order_acquire) && !m_paused->load() && oldSpeed > 0.0) {
         int64_t now = av_gettime();
-        int64_t elapsed = now - m_startTime.load(std::memory_order_relaxed);
+        int64_t elapsed = now - m_startTime.load(std::memory_order_acquire);
         int64_t newElapsed = static_cast<int64_t>(elapsed * oldSpeed / speed);
-        m_startTime.store(now - newElapsed, std::memory_order_relaxed);
+        m_startTime.store(now - newElapsed, std::memory_order_release);
+        m_driftCompensation = 0;
     }
 }
 
@@ -148,7 +150,8 @@ void VideoDecodeThread::run()
     av_image_fill_arrays(rgbFrame->data, rgbFrame->linesize, buffer, AV_PIX_FMT_RGB24,
                          rgbWidth, videoHeight, 32);
 
-    m_startTime.store(av_gettime(), std::memory_order_relaxed);
+    int64_t t_start = av_gettime();
+    m_startTime.store(t_start, std::memory_order_release);
 
     while (!m_quit) {
         if (m_paused && m_paused->load()) {
@@ -195,27 +198,38 @@ void VideoDecodeThread::run()
                         double pts = frame->pts * av_q2d(m_timeBase);
                         int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
 
-                        if (m_firstFrame.load(std::memory_order_relaxed)) {
-                            m_startTime.store(av_gettime() - ptsUs, std::memory_order_relaxed);
-                            m_firstFrame.store(false, std::memory_order_relaxed);
-                        }
+                if (m_firstFrame.load(std::memory_order_relaxed)) {
+                    double initSpeed = m_speed.load(std::memory_order_acquire);
+                    double effSpeed = (initSpeed > 0.0) ? initSpeed : 1.0;
+                    int64_t t_now = av_gettime();
+                    m_startTime.store(t_now - static_cast<int64_t>(ptsUs / effSpeed), std::memory_order_release);
+                    m_firstFrame.store(false, std::memory_order_relaxed);
+                    m_driftCompensation = 0;
+                }
 
-                        {
-                            int64_t now = av_gettime();
-                            double speed = m_speed.load(std::memory_order_relaxed);
+                {
+                    double speed = m_speed.load(std::memory_order_acquire);
                             double effectiveSpeed = (speed > 0.0) ? speed : 1.0;
-                            int64_t baseStart = m_startTime.load(std::memory_order_relaxed);
+                            int64_t baseStart = m_startTime.load(std::memory_order_acquire);
                             int64_t targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
-                            int64_t delay = targetDisplayUs - now;
+                            int64_t delay = targetDisplayUs - av_gettime();
+                            delay -= m_driftCompensation;
+                            if (delay < 0)
+                                delay = 0;
                             while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
                                 int64_t sleepUs = qMin(delay, (int64_t)10000);
                                 av_usleep(sleepUs);
-                                speed = m_speed.load(std::memory_order_relaxed);
+                                speed = m_speed.load(std::memory_order_acquire);
                                 effectiveSpeed = (speed > 0.0) ? speed : 1.0;
-                                baseStart = m_startTime.load(std::memory_order_relaxed);
+                                baseStart = m_startTime.load(std::memory_order_acquire);
                                 targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
                                 delay = targetDisplayUs - av_gettime();
                             }
+                            int64_t overrun = av_gettime() - targetDisplayUs;
+                            if (overrun > 0)
+                                m_driftCompensation = overrun;
+                            else
+                                m_driftCompensation = 0;
                         }
                     }
                     if (m_quit) {
@@ -240,31 +254,43 @@ void VideoDecodeThread::run()
                 sws_scale(swsCtx, frame->data, frame->linesize, 0,
                           frame->height, rgbFrame->data, rgbFrame->linesize);
 
+                int64_t ptsUs = AV_NOPTS_VALUE;
+                int64_t delay = 0;
                 if (frame->pts != AV_NOPTS_VALUE) {
                     double pts = frame->pts * av_q2d(m_timeBase);
-                    int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
+                    ptsUs = static_cast<int64_t>(pts * 1000000);
 
                     if (m_firstFrame.load(std::memory_order_relaxed)) {
-                        m_startTime.store(av_gettime() - ptsUs, std::memory_order_relaxed);
+                        double initSpeed = m_speed.load(std::memory_order_acquire);
+                        double effSpeed = (initSpeed > 0.0) ? initSpeed : 1.0;
+                        m_startTime.store(av_gettime() - static_cast<int64_t>(ptsUs / effSpeed), std::memory_order_release);
                         m_firstFrame.store(false, std::memory_order_relaxed);
+                        m_driftCompensation = 0;
                     }
 
                     {
-                        int64_t now = av_gettime();
-                        double speed = m_speed.load(std::memory_order_relaxed);
+                        double speed = m_speed.load(std::memory_order_acquire);
                         double effectiveSpeed = (speed > 0.0) ? speed : 1.0;
-                        int64_t baseStart = m_startTime.load(std::memory_order_relaxed);
+                        int64_t baseStart = m_startTime.load(std::memory_order_acquire);
                         int64_t targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
-                        int64_t delay = targetDisplayUs - now;
+                        delay = targetDisplayUs - av_gettime();
+                        delay -= m_driftCompensation;
+                        if (delay < 0)
+                            delay = 0;
                         while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
                             int64_t sleepUs = qMin(delay, (int64_t)10000);
                             av_usleep(sleepUs);
-                            speed = m_speed.load(std::memory_order_relaxed);
+                            speed = m_speed.load(std::memory_order_acquire);
                             effectiveSpeed = (speed > 0.0) ? speed : 1.0;
-                            baseStart = m_startTime.load(std::memory_order_relaxed);
+                            baseStart = m_startTime.load(std::memory_order_acquire);
                             targetDisplayUs = baseStart + static_cast<int64_t>(ptsUs / effectiveSpeed);
                             delay = targetDisplayUs - av_gettime();
                         }
+                        int64_t overrun = av_gettime() - targetDisplayUs;
+                        if (overrun > 0)
+                            m_driftCompensation = overrun;
+                        else
+                            m_driftCompensation = 0;
                     }
                 }
                 if (m_quit) {

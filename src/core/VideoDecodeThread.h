@@ -53,6 +53,7 @@ private:
     const std::atomic<bool> *m_paused;
     std::atomic<bool> m_firstFrame;
     std::atomic<double> m_speed{1.0};
+    int64_t m_driftCompensation{0};
 #ifdef ENABLE_HWACCEL
     AVBufferRef *m_hwDeviceCtx{nullptr};
     AVPixelFormat m_hwPixFmt{AV_PIX_FMT_NONE};

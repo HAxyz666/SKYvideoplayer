@@ -2,10 +2,13 @@
 
 #include <QThread>
 #include <atomic>
+#include <mutex>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
+#include <libavfilter/avfilter.h>
+#include <libavutil/rational.h>
 }
 
 class PacketQueue;
@@ -22,8 +25,10 @@ public:
     void setCodecContext(AVCodecContext *ctx);
     void setPacketQueue(PacketQueue *queue);
     void setFrameQueue(FrameQueue *queue);
+    void setTimeBase(AVRational tb);
     void stopDecode();
     void setPausedRef(const std::atomic<bool> &paused);
+    void setSpeed(double speed);
 
 protected:
     void run() override;
@@ -31,6 +36,9 @@ protected:
 private:
     bool initSwrContext();
     AVFrame *resampleFrame(AVFrame *frame);
+    bool initFilterGraph(double tempo);
+    void destroyFilterGraph();
+    void applySpeed();
 
     AVCodecContext *m_codecCtx;
     PacketQueue *m_packetQueue;
@@ -38,4 +46,15 @@ private:
     SwrContext *m_swrCtx;
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;
+    AVRational m_timeBase;
+
+    AVFilterGraph *m_filterGraph;
+    AVFilterContext *m_abufferCtx;
+    AVFilterContext *m_atempoCtx;
+    AVFilterContext *m_abuffersinkCtx;
+
+    std::atomic<bool> m_speedDirty;
+    double m_pendingSpeed;
+    double m_currentSpeed{1.0};
+    std::mutex m_speedMutex;
 };

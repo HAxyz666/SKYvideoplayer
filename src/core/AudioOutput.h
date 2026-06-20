@@ -25,7 +25,6 @@ public:
     void setSyncController(AVSyncController *ctrl);
     void setVolume(double vol);
     void setMuted(bool muted);
-    void setSpeed(double speed);
     void pause();
     void resume();
     void stop();
@@ -42,13 +41,11 @@ private:
     SDL_AudioDeviceID m_audioDeviceID;
     SDL_AudioSpec m_audioSpec;
     FrameQueue *m_frameQueue;
-    std::atomic<double> m_volume;   // 音量 0~100，原子类型，主线程写入、SDL 回调线程读取
-    std::atomic<bool> m_muted;      // 静音标志，原子类型，跨线程安全
-    std::atomic<double> m_speed;    // 播放速度，跨线程安全
+    std::atomic<double> m_volume;
+    std::atomic<bool> m_muted;
     uint8_t *m_audioBuf;
     uint32_t m_audioBufSize;
     uint32_t m_audioBufIndex;
-    double m_audioBufIndexFrac;     // fractional position for precise speed
     AVSyncController *m_syncController;
     AVFrame *m_currentFrame;
 };

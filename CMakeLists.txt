@@ -17,6 +17,7 @@ pkg_check_modules(AVFORMAT REQUIRED IMPORTED_TARGET libavformat)
 pkg_check_modules(AVUTIL REQUIRED IMPORTED_TARGET libavutil)
 pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 pkg_check_modules(SWRESAMPLE REQUIRED IMPORTED_TARGET libswresample)
+pkg_check_modules(AVFILTER REQUIRED IMPORTED_TARGET libavfilter)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 
 if(UNIX AND NOT APPLE)
@@ -115,6 +116,7 @@ target_link_libraries(SKYvideoplayer PRIVATE
     PkgConfig::AVUTIL
     PkgConfig::SWSCALE
     PkgConfig::SWRESAMPLE
+    PkgConfig::AVFILTER
     PkgConfig::SDL2
 )
 
