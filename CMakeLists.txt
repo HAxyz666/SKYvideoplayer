@@ -101,6 +101,9 @@ qt6_add_resources(SKYvideoplayer "icons"
 qt6_add_shaders(SKYvideoplayer "shaders"
     BASE "resources/shaders"
     PREFIX "/shaders"
+    GLSL "440"
+    NOHLSL
+    NOMSL
     FILES
         resources/shaders/yuv.vert
         resources/shaders/yuv.frag
