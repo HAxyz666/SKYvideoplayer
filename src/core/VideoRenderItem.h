@@ -1,27 +1,35 @@
 #pragma once
 
-#include <QQuickPaintedItem>
-#include <QImage>
+#include <QQuickRhiItem>
+#include <QByteArray>
+#include <QMutex>
+#include <QSize>
 #include <QtQml/qqmlregistration.h>
 
-class VideoRenderItem : public QQuickPaintedItem
+struct YUVFrame {
+    QByteArray yPlane;
+    QByteArray uPlane;
+    QByteArray vPlane;
+    QSize frameSize;
+};
+Q_DECLARE_METATYPE(YUVFrame)
+
+class VideoRenderItem : public QQuickRhiItem
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(QImage image READ image WRITE setImage NOTIFY imageChanged)
 
 public:
     explicit VideoRenderItem(QQuickItem *parent = nullptr);
 
-    void paint(QPainter *painter) override;
-
-    QImage image() const;
-    void setImage(const QImage &image);
+    Q_INVOKABLE void setYUVFrame(const YUVFrame &frame);
     Q_INVOKABLE void clearImage();
 
-signals:
-    void imageChanged();
+protected:
+    QQuickRhiItemRenderer *createRenderer() override;
 
 private:
-    QImage m_image;
+    friend class VideoRenderItemRenderer;
+    YUVFrame m_pendingFrame;
+    QMutex m_mutex;
 };

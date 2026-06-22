@@ -1,17 +1,17 @@
 #pragma once
 
 #include <QThread>
-#include <QImage>
 #include <atomic>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
 #include <libavutil/rational.h>
 #ifdef ENABLE_HWACCEL
 #include <libavutil/hwcontext.h>
 #endif
 }
+
+struct YUVFrame;
 
 class PacketQueue;
 class FrameQueue;
@@ -40,7 +40,7 @@ protected:
     void run() override;
 
 signals:
-    void frameReady(const QImage &image);
+    void frameReady(const YUVFrame &frame);
 
 private:
     AVCodecContext *m_codecCtx;

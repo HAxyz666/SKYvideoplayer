@@ -53,4 +53,7 @@ compile_commands.json
 # QtCreator local machine specific files for imported projects
 *creator.user*
 
+# Pre-compiled shader files (generated from GLSL sources at build time)
+*.qsb
+
 *_qmlcache.qrc

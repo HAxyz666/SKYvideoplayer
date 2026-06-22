@@ -2,7 +2,6 @@
 
 #include <QObject>
 #include <QTimer>
-#include <QImage>
 #include <QElapsedTimer>
 #include <atomic>
 
@@ -13,6 +12,8 @@ extern "C" {
 #include <libavutil/hwcontext.h>
 #endif
 }
+
+struct YUVFrame;
 
 class DemuxThread;
 class VideoDecodeThread;
@@ -58,7 +59,7 @@ public:
     double speed() const;
 
 signals:
-    void frameReady(const QImage &image);
+    void frameReady(const YUVFrame &frame);
     void playbackFinished();
     void pausedChanged(bool paused);
     void positionChanged(double pos);

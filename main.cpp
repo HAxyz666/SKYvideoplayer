@@ -14,6 +14,7 @@ int main(int argc, char *argv[])
     app.setApplicationName("SKYvideoplayer");
 
     qRegisterMetaType<PlaybackMode>("PlaybackMode");
+    qRegisterMetaType<YUVFrame>("YUVFrame");
 
     ApplicationController controller;
     QQmlApplicationEngine engine;
@@ -26,7 +27,7 @@ int main(int argc, char *argv[])
         VideoRenderItem *display = rootObjects.first()->findChild<VideoRenderItem *>("videoRenderItem");
         if (display)
             QObject::connect(controller.mediaEngine(), &MediaEngine::frameReady,
-                             display, &VideoRenderItem::setImage);
+                             display, &VideoRenderItem::setYUVFrame);
     }
 
     return app.exec();

@@ -7,7 +7,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Svg)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Svg ShaderTools)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -15,7 +15,6 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(AVCODEC REQUIRED IMPORTED_TARGET libavcodec)
 pkg_check_modules(AVFORMAT REQUIRED IMPORTED_TARGET libavformat)
 pkg_check_modules(AVUTIL REQUIRED IMPORTED_TARGET libavutil)
-pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 pkg_check_modules(SWRESAMPLE REQUIRED IMPORTED_TARGET libswresample)
 pkg_check_modules(AVFILTER REQUIRED IMPORTED_TARGET libavfilter)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
@@ -99,9 +98,28 @@ qt6_add_resources(SKYvideoplayer "icons"
         resources/logos/LogoL.svg
 )
 
+qt6_add_shaders(SKYvideoplayer "shaders"
+    BASE "resources/shaders"
+    PREFIX "/shaders"
+    FILES
+        resources/shaders/yuv.vert
+        resources/shaders/yuv.frag
+)
+
 target_include_directories(SKYvideoplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
 )
+
+get_target_property(_qt6gui_inc Qt6::Gui INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_incdir IN LISTS _qt6gui_inc)
+    if(EXISTS "${_incdir}/QtGui/${Qt6_VERSION}/QtGui/rhi")
+        target_include_directories(SKYvideoplayer PRIVATE
+            "${_incdir}/QtGui/${Qt6_VERSION}/QtGui/rhi"
+            "${_incdir}/QtGui/${Qt6_VERSION}/QtGui"
+        )
+        break()
+    endif()
+endforeach()
 
 target_include_directories(SKYvideoplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/logic
@@ -114,7 +132,6 @@ target_link_libraries(SKYvideoplayer PRIVATE
     PkgConfig::AVCODEC
     PkgConfig::AVFORMAT
     PkgConfig::AVUTIL
-    PkgConfig::SWSCALE
     PkgConfig::SWRESAMPLE
     PkgConfig::AVFILTER
     PkgConfig::SDL2
