@@ -74,6 +74,11 @@ ApplicationWindow {
     Shortcut { sequence: "M";    onActivated: appController.toggleMute() }
     Shortcut { sequence: "Space"; onActivated: appController.togglePlayback() }
 
+    Shortcut { sequence: "Left";  context: Qt.ApplicationShortcut; onActivated: appController.stepBackward() }
+    Shortcut { sequence: "Right"; context: Qt.ApplicationShortcut; onActivated: appController.stepForward() }
+    Shortcut { sequence: "Ctrl+Left";  context: Qt.ApplicationShortcut; onActivated: appController.stepBackwardLarge() }
+    Shortcut { sequence: "Ctrl+Right"; context: Qt.ApplicationShortcut; onActivated: appController.stepForwardLarge() }
+
     Shortcut { sequence: "F11"; onActivated: window.toggleMaximize() }
 
     Shortcut { sequence: "Escape"; onActivated: {

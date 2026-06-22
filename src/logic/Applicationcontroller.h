@@ -33,6 +33,10 @@ public:
     Q_INVOKABLE void playPrev();
     Q_INVOKABLE void toggleMute();           // 切换静音
     Q_INVOKABLE void setSpeed(double speed); // 设置播放速度
+    Q_INVOKABLE void stepForward();
+    Q_INVOKABLE void stepBackward();
+    Q_INVOKABLE void stepForwardLarge();
+    Q_INVOKABLE void stepBackwardLarge();
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;

@@ -175,6 +175,30 @@ double ApplicationController::speed() const
     return m_mediaEngine->speed();
 }
 
+void ApplicationController::stepForward()
+{
+    double pos = m_mediaEngine->position();
+    m_mediaEngine->seek(qMin(pos + 5, m_mediaEngine->duration()));
+}
+
+void ApplicationController::stepBackward()
+{
+    double pos = m_mediaEngine->position();
+    m_mediaEngine->seek(qMax(pos - 5, 0.0));
+}
+
+void ApplicationController::stepForwardLarge()
+{
+    double pos = m_mediaEngine->position();
+    m_mediaEngine->seek(qMin(pos + 30, m_mediaEngine->duration()));
+}
+
+void ApplicationController::stepBackwardLarge()
+{
+    double pos = m_mediaEngine->position();
+    m_mediaEngine->seek(qMax(pos - 30, 0.0));
+}
+
 QString ApplicationController::theme() const
 {
     return m_theme;
