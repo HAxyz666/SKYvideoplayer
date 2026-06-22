@@ -44,8 +44,10 @@ Item {
                 width: 14
                 height: 14
                 radius: 7
-                color: volSlider.pressed ? "#ffffff" : "#cccccc"
-                border.color: "#888888"
+                color: volSlider.pressed
+                    ? (appController.theme === "dark" ? "#ffffff" : "#333333")
+                    : (appController.theme === "dark" ? "#cccccc" : "#666666")
+                border.color: appController.theme === "dark" ? "#888888" : "#999999"
                 border.width: 1
             }
 
@@ -55,7 +57,7 @@ Item {
                 width: volSlider.availableWidth
                 height: 4
                 radius: 2
-                color: "#444444"
+                color: appController.theme === "dark" ? "#444444" : "#d0d0d0"
 
                 Rectangle {
                     width: volSlider.visualPosition * parent.width
@@ -71,7 +73,7 @@ Item {
             id: volLabel
             text: Math.round(volSlider.value) + "%"
             font.pixelSize: 11
-            color: "#cccccc"
+            color: appController.theme === "dark" ? "#cccccc" : "#666666"
             anchors.verticalCenter: parent.verticalCenter
             width: 36
             horizontalAlignment: Text.AlignRight

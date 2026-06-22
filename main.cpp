@@ -10,6 +10,8 @@
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+    app.setOrganizationName("SKYsoft");
+    app.setApplicationName("SKYvideoplayer");
 
     qRegisterMetaType<PlaybackMode>("PlaybackMode");
 

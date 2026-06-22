@@ -4,7 +4,7 @@ import QtQuick.Layouts
 
 Rectangle {
     id: sidebar
-    color: "#e0e0e0"
+    color: appController.theme === "dark" ? "#2a2a2a" : "#e0e0e0"
 
     signal openFileTriggered()
 
@@ -20,14 +20,16 @@ Rectangle {
             color: "transparent"
 
             Image {
+                id: logoImg
                 anchors.centerIn: parent
-                source: "qrc:/icons/logos/LogoL.svg"
+                source: appController.theme === "dark" ? "qrc:/icons/logos/LogoD.svg" : "qrc:/icons/logos/LogoL.svg"
                 sourceSize: Qt.size(80, 80)
             }
+
         }
 
         // 分割线
-        Rectangle { Layout.fillWidth: true; height: 1; color: "#cccccc" }
+        Rectangle { Layout.fillWidth: true; height: 1; color: appController.theme === "dark" ? "#3d3d3d" : "#cccccc" }
 
         // 自定义菜单栏 (垂直排列)
         Column {
@@ -44,10 +46,14 @@ Rectangle {
                     text: parent.text
                     verticalAlignment: Text.AlignVCenter
                     leftPadding: 20
-                    color: parent.hovered ? "#000000" : "#333333"
+                    color: parent.hovered
+                        ? (appController.theme === "dark" ? "#ffffff" : "#000000")
+                        : (appController.theme === "dark" ? "#ffffff" : "#333333")
                 }
                 background: Rectangle {
-                    color: parent.hovered ? "#d0d0d0" : "transparent"
+                    color: parent.hovered
+                        ? (appController.theme === "dark" ? "#3d3d3d" : "#d0d0d0")
+                        : "transparent"
                 }
             }
 
@@ -70,7 +76,9 @@ Rectangle {
                     color: parent.hovered ? "#A93226" : "#C0392B"
                 }
                 background: Rectangle {
-                    color: parent.hovered ? "#d0d0d0" : "transparent"
+                    color: parent.hovered
+                        ? (appController.theme === "dark" ? "#3d3d3d" : "#d0d0d0")
+                        : "transparent"
                 }
             }
             ExitButton{
@@ -81,12 +89,45 @@ Rectangle {
         // 底部弹簧
         Item { Layout.fillHeight: true }
 
+        // 主题切换（左下角）
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.bottomMargin: 4
+            spacing: 6
+
+            Button {
+                id: themeBtn
+                text: appController.theme === "dark" ? "☀ Light" : "🌙 Dark"
+                flat: true
+                font.pixelSize: 13
+                onClicked: {
+                    appController.theme = appController.theme === "dark" ? "light" : "dark"
+                }
+                contentItem: Label {
+                    text: parent.text
+                    verticalAlignment: Text.AlignVCenter
+                    color: parent.hovered
+                        ? (appController.theme === "dark" ? "#ffffff" : "#000000")
+                        : (appController.theme === "dark" ? "#cccccc" : "#666666")
+                    font.pixelSize: 13
+                }
+                background: Rectangle {
+                    color: parent.hovered
+                        ? (appController.theme === "dark" ? "#3d3d3d" : "#d0d0d0")
+                        : "transparent"
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+
         // 底部信息
         Label {
             Layout.alignment: Qt.AlignHCenter
-            Layout.bottomMargin: 20
+            Layout.bottomMargin: 16
             text: "v1.0"
-            color: "#888888"
+            color: appController.theme === "dark" ? "#888888" : "#888888"
             font.pixelSize: 12
         }
     }

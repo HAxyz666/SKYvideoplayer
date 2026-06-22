@@ -39,7 +39,7 @@ Item {
         Rectangle {
             Layout.fillHeight: true
             Layout.fillWidth: true
-            color: "#f0f0f0"
+            color: appController.theme === "dark" ? "#2d2d2d" : "#f0f0f0"
 
             ColumnLayout {
                 anchors.fill: parent
@@ -50,7 +50,7 @@ Item {
                     text: qsTr("SKYPlayer")
                     font.bold: true
                     font.pixelSize: 36
-                    color: "#333333"
+                    color: appController.theme === "dark" ? "#ffffff" : "#333333"
                     horizontalAlignment: Qt.AlignHCenter
                     Layout.fillWidth: true
                 }
@@ -58,7 +58,7 @@ Item {
                 Label {
                     text: qsTr("点击左侧「openfile」选择视频开始播放")
                     font.pixelSize: 14
-                    color: "#888888"
+                    color: appController.theme === "dark" ? "#cccccc" : "#888888"
                     horizontalAlignment: Qt.AlignHCenter
                     Layout.fillWidth: true
                 }
@@ -66,7 +66,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
-                    color: "#cccccc"
+                    color: appController.theme === "dark" ? "#3d3d3d" : "#cccccc"
                     Layout.topMargin: 8
                     Layout.bottomMargin: 8
                 }
@@ -75,7 +75,7 @@ Item {
                     text: qsTr("最近播放")
                     font.bold: true
                     font.pixelSize: 16
-                    color: "#333333"
+                    color: appController.theme === "dark" ? "#ffffff" : "#333333"
                 }
 
                 RecentHistory {
@@ -185,7 +185,7 @@ Item {
             anchors.bottom: parent.bottom
             width: parent.width
             height: 80
-            color: "#80000000"
+            color: appController.theme === "dark" ? "#80000000" : "#cc000000"
 
             property bool showControls: true
 

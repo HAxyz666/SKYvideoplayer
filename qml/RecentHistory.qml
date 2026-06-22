@@ -37,7 +37,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 36
-            color: "#e8e8e8"
+            color: appController.theme === "dark" ? "#333333" : "#e8e8e8"
             visible: listView.count > 0
 
             RowLayout {
@@ -104,7 +104,9 @@ Item {
                 width: ListView.view.width
                 height: 40
                 property bool rowHovered: false
-                color: rowHovered ? "#d0d0d0" : "transparent"
+                color: rowHovered
+                    ? (appController.theme === "dark" ? "#3d3d3d" : "#d0d0d0")
+                    : "transparent"
 
                 HoverHandler {
                     onHoveredChanged: parent.rowHovered = hovered
@@ -144,7 +146,7 @@ Item {
                     Label {
                         text: model.fileName
                         font.pixelSize: 14
-                        color: "#333333"
+                        color: appController.theme === "dark" ? "#ffffff" : "#333333"
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
@@ -154,7 +156,7 @@ Item {
                             ? Qt.formatDateTime(model.lastPlayed, "yyyy-MM-dd hh:mm")
                             : ""
                         font.pixelSize: 11
-                        color: "#888888"
+                        color: appController.theme === "dark" ? "#888888" : "#999999"
                     }
                 }
             }

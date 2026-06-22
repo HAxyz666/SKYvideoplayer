@@ -18,6 +18,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
     Q_PROPERTY(PlaylistModel *playlistModel READ playlistModel CONSTANT)
     Q_PROPERTY(RecentFilesModel *recentFilesModel READ recentFilesModel CONSTANT)
+    Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -43,6 +44,8 @@ public:
     void setVolume(double vol);              // 设置音量 0~100
     bool muted() const;                      // 是否静音
     double speed() const;                    // 获取播放速度
+    QString theme() const;
+    void setTheme(const QString &theme);
 
 signals:
     void requestOpenFile();
@@ -52,9 +55,11 @@ signals:
     void volumeChanged(double vol);          // 音量变化信号
     void mutedChanged(bool muted);           // 静音状态变化信号
     void speedChanged(double speed);         // 速度变化信号
+    void themeChanged();
 
 private:
     MediaEngine *m_mediaEngine;
     PlaylistModel *m_playlistModel;
     RecentFilesModel *m_recentFiles;
+    QString m_theme;
 };

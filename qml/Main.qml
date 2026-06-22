@@ -10,13 +10,20 @@ ApplicationWindow {
     visible: true
     title: "Video Audio Sync Player"
 
-    palette.window: "#1e1e1e"
-    palette.windowText: "#ffffff"
-    palette.base: "#2d2d2d"
-    palette.text: "#ffffff"
-    palette.button: "#3d3d3d"
-    palette.buttonText: "#ffffff"
-    palette.highlight: "#0078d7"
+    function applyTheme() {
+        var d = appController.theme === "dark"
+        palette.window      = d ? "#1e1e1e" : "#f5f5f5"
+        palette.windowText  = d ? "#ffffff" : "#222222"
+        palette.base        = d ? "#2d2d2d" : "#ffffff"
+        palette.text        = d ? "#ffffff" : "#222222"
+        palette.button      = d ? "#3d3d3d" : "#e0e0e0"
+        palette.buttonText  = d ? "#ffffff" : "#333333"
+        palette.highlight   = "#0078d7"
+    }
+
+    property string currentTheme: appController.theme
+    onCurrentThemeChanged: applyTheme()
+    Component.onCompleted: applyTheme()
 
     property bool isFullscreen: false
     property real savedWidth: 1280

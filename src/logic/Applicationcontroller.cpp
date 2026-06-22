@@ -7,13 +7,18 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QUrl>
+#include <QSettings>
 
 ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
     , m_mediaEngine(new MediaEngine(this))
     , m_playlistModel(new PlaylistModel(this))
     , m_recentFiles(new RecentFilesModel(this))
+    , m_theme("dark")
 {
+    QSettings settings;
+    m_theme = settings.value("theme", "dark").toString();
+
     connect(m_mediaEngine, &MediaEngine::pausedChanged, this, [this](bool paused) {
         emit playbackStateChanged(!paused);
     });
@@ -168,4 +173,17 @@ void ApplicationController::setSpeed(double speed)
 double ApplicationController::speed() const
 {
     return m_mediaEngine->speed();
+}
+
+QString ApplicationController::theme() const
+{
+    return m_theme;
+}
+
+void ApplicationController::setTheme(const QString &theme)
+{
+    if (m_theme == theme) return;
+    m_theme = theme;
+    QSettings().setValue("theme", theme);
+    emit themeChanged();
 }
