@@ -15,17 +15,16 @@ AudioOutput::AudioOutput(QObject *parent)
     , m_frameQueue(nullptr)
     , m_volume(100.0)
     , m_muted(false)
-    , m_audioBuf(nullptr)
-    , m_audioBufSize(0)
-    , m_audioBufIndex(0)
     , m_syncController(nullptr)
-    , m_currentFrame(nullptr)
+    , m_audioFifo(av_fifo_alloc2(kFifoSize, 1, 0))
 {
 }
 
 AudioOutput::~AudioOutput()
 {
     closeDevice();
+    if (m_audioFifo)
+        av_fifo_freep2(&m_audioFifo);
     if (SDL_WasInit(SDL_INIT_AUDIO))
         SDL_Quit();
 }
@@ -108,12 +107,8 @@ void AudioOutput::closeDevice()
         m_audioDeviceID = 0;
     }
 
-    if (m_currentFrame) {
-        av_frame_free(&m_currentFrame);
-        m_audioBuf = nullptr;
-    }
-    m_audioBufSize = 0;
-    m_audioBufIndex = 0;
+    if (m_audioFifo)
+        av_fifo_reset2(m_audioFifo);
     m_frameQueue = nullptr;
 }
 
@@ -121,12 +116,8 @@ void AudioOutput::reset()
 {
     if (m_audioDeviceID != 0)
         SDL_LockAudioDevice(m_audioDeviceID);
-    if (m_currentFrame) {
-        av_frame_free(&m_currentFrame);
-        m_audioBuf = nullptr;
-    }
-    m_audioBufSize = 0;
-    m_audioBufIndex = 0;
+    if (m_audioFifo)
+        av_fifo_reset2(m_audioFifo);
     if (m_audioDeviceID != 0)
         SDL_UnlockAudioDevice(m_audioDeviceID);
 }
@@ -148,14 +139,36 @@ double AudioOutput::getAudioClock() const
     return 0.0;
 }
 
+void AudioOutput::fillAudioFifo()
+{
+    if (!m_frameQueue || !m_audioFifo)
+        return;
+
+    while (av_fifo_can_write(m_audioFifo) >= 4096) {
+        AVFrame *frame = m_frameQueue->tryPop(0);
+        if (!frame)
+            break;
+
+        // NB: linesize[0] includes alignment padding; use actual data size.
+        av_fifo_write(m_audioFifo, frame->data[0],
+                      frame->nb_samples * frame->ch_layout.nb_channels
+                      * static_cast<int>(sizeof(int16_t)));
+
+        if (m_syncController)
+            m_syncController->updateAudioClock(
+                frame->pts * av_q2d(frame->time_base));
+
+        av_frame_free(&frame);
+    }
+}
+
 void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
 {
     auto *output = static_cast<AudioOutput *>(userdata);
 
     SDL_memset(stream, 0, len);
 
-    FrameQueue *fq = output->m_frameQueue;
-    if (!fq)
+    if (!output->m_frameQueue || !output->m_audioFifo)
         return;
 
     double vol = output->m_volume.load(std::memory_order_relaxed);
@@ -163,37 +176,21 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
     int volume = muted ? 0
         : static_cast<int>(vol / 100.0 * SDL_MIX_MAXVOLUME);
 
+    // Pre-fill FIFO from FrameQueue when running low
+    output->fillAudioFifo();
+
+    // Read from FIFO and mix into stream
+    uint8_t buf[4096];
     while (len > 0) {
-        if (output->m_audioBufIndex >= output->m_audioBufSize) {
-            if (output->m_currentFrame) {
-                av_frame_free(&output->m_currentFrame);
-                output->m_audioBuf = nullptr;
-            }
+        size_t available = av_fifo_can_read(output->m_audioFifo);
+        if (available <= 0)
+            break;
 
-            AVFrame *frame = fq->tryPop(0);
-            if (!frame)
-                break;
-
-            output->m_currentFrame = frame;
-            output->m_audioBuf = frame->data[0];
-            output->m_audioBufSize = frame->linesize[0];
-            output->m_audioBufIndex = 0;
-
-            if (output->m_syncController)
-                output->m_syncController->updateAudioClock(
-                    frame->pts * av_q2d(frame->time_base));
-        }
-
-        int remaining = output->m_audioBufSize - output->m_audioBufIndex;
-        int toCopy = qMin(len, remaining);
-
-        SDL_MixAudioFormat(stream,
-                           output->m_audioBuf + output->m_audioBufIndex,
-                           output->m_audioSpec.format,
-                           toCopy, volume);
-
-        output->m_audioBufIndex += toCopy;
-        stream += toCopy;
-        len -= toCopy;
+        int toRead = qMin(len, qMin((int)available, (int)sizeof(buf)));
+        av_fifo_read(output->m_audioFifo, buf, toRead);
+        SDL_MixAudioFormat(stream, buf, output->m_audioSpec.format,
+                           (Uint32)toRead, volume);
+        stream += toRead;
+        len -= toRead;
     }
 }

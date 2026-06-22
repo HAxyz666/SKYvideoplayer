@@ -69,6 +69,8 @@ signals:
     void speedChanged(double speed);
 
 private:
+    static constexpr int kAudioFrameQueueSize = 256;
+
     bool initFFmpeg(const QString &filename);
     void cleanup();
     void startThreads();

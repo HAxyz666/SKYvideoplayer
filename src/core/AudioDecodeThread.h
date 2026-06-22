@@ -50,7 +50,9 @@ private:
 
     AVFilterGraph *m_filterGraph;
     AVFilterContext *m_abufferCtx;
+    AVFilterContext *m_aresampleInCtx;
     AVFilterContext *m_atempoCtx;
+    AVFilterContext *m_aresampleOutCtx;
     AVFilterContext *m_abuffersinkCtx;
 
     std::atomic<bool> m_speedDirty;

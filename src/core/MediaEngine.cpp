@@ -245,6 +245,23 @@ void MediaEngine::start()
         return;
 
     m_audioOutputReady = false;
+    m_syncController->reset();
+    m_syncController->setSpeed(m_speed);
+
+    m_position = 0.0;
+    m_startTimeUs = av_gettime();
+    m_pausedDurationUs = 0;
+    m_pauseStartUs = 0;
+
+    // Start threads first so audio decoder fills the FrameQueue
+    startThreads();
+
+    if (m_videoThread)
+        m_videoThread->setSpeed(m_speed);
+    if (m_audioThread)
+        m_audioThread->setSpeed(m_speed);
+
+    // Initialize SDL audio AFTER decoder has started, so FIFO can pre-fill
     if (m_audioCodecCtx) {
         SDL_AudioSpec spec;
         std::memset(&spec, 0, sizeof(spec));
@@ -254,24 +271,11 @@ void MediaEngine::start()
         spec.samples = 1024;
 
         m_audioOutputReady = m_audioOutput->initialize(spec);
-        if (m_audioOutputReady)
+        if (m_audioOutputReady) {
             m_audioOutput->setSyncController(m_syncController);
+            // SDL_PauseAudioDevice(0) was called inside initialize(), callback active now
+        }
     }
-
-    m_syncController->reset();
-    m_syncController->setSpeed(m_speed);
-
-    m_position = 0.0;
-    m_startTimeUs = av_gettime();
-    m_pausedDurationUs = 0;
-    m_pauseStartUs = 0;
-
-    startThreads();
-
-    if (m_videoThread)
-        m_videoThread->setSpeed(m_speed);
-    if (m_audioThread)
-        m_audioThread->setSpeed(m_speed);
 
     m_positionTimer->start();
 }
@@ -476,8 +480,8 @@ void MediaEngine::startThreads()
     m_audioPacketQueue = new PacketQueue(64);
     m_videoFrameQueue = new FrameQueue(24);
 
-    if (m_audioCodecCtx && m_audioOutputReady) {
-        m_audioFrameQueue = new FrameQueue(24);
+    if (m_audioCodecCtx) {
+        m_audioFrameQueue = new FrameQueue(kAudioFrameQueueSize);
         m_audioOutput->setFrameQueue(m_audioFrameQueue);
     }
 
@@ -507,7 +511,7 @@ void MediaEngine::startThreads()
     }
 #endif
 
-    if (m_audioCodecCtx && m_audioOutputReady) {
+    if (m_audioCodecCtx) {
         m_audioThread = new AudioDecodeThread(this);
         m_audioThread->setCodecContext(m_audioCodecCtx);
         m_audioThread->setPacketQueue(m_audioPacketQueue);

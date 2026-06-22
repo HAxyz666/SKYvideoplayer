@@ -129,6 +129,10 @@ Item {
 
         TapHandler {
             onTapped: {
+                // 过滤控制栏区域的点击，避免与进度条/播放按钮等控件冲突
+                if (point.position.y >= playerView.height - controlBar.height) {
+                    return
+                }
                 if (doubleTapTimer.running) {
                     // 第二次点击在超时内 → 双击，取消定时器，切换全屏
                     doubleTapTimer.stop()

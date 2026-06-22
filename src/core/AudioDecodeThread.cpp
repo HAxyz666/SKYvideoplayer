@@ -3,6 +3,81 @@
 #include "FrameQueue.h"
 #include <QDebug>
 #include <cmath>
+#include <cstring>
+
+
+static AVFrame *convertFrameToS16(AVFrame *frame)
+{
+    const int nb_samples = frame->nb_samples;
+    const int channels = frame->ch_layout.nb_channels > 0
+                             ? frame->ch_layout.nb_channels : 2;
+
+    // ── S16 interleaved (fallback / non-speed path) ──
+    if (frame->format == AV_SAMPLE_FMT_S16) {
+        int16_t *s = (int16_t*)frame->data[0];
+        const int total = nb_samples * channels;
+
+        float peak = 0.0f;
+        for (int i = 0; i < total; i++) {
+            float v = fabsf((float)s[i]);
+            if (v > peak) peak = v;
+        }
+
+        // Only scale down when near clipping; 0.99 headroom
+        const float scale = (peak > 32767.0f * 0.99f)
+                                ? (32767.0f * 0.99f / peak) : 1.0f;
+        if (scale < 1.0f)
+            for (int i = 0; i < total; i++)
+                s[i] = (int16_t)(s[i] * scale);
+
+        return frame;
+    }
+
+    // ── FLTP planar ── find full-frame peak, then convert + scale ──
+    if (frame->format == AV_SAMPLE_FMT_FLTP) {
+        float *src[8];
+        for (int c = 0; c < channels && c < 8; c++)
+            src[c] = (float*)frame->data[c];
+
+        float peak = 0.0f;
+        for (int i = 0; i < nb_samples; i++)
+            for (int c = 0; c < channels; c++) {
+                float v = fabsf(src[c][i]);
+                if (v > peak) peak = v;
+            }
+
+        // Only scale down when > 1.0 (atempo OLA overshoot); keep 0.99 headroom
+        const float scale = (peak > 1.0f) ? (0.99f / peak) : 1.0f;
+
+        // 3. Allocate S16 frame and convert
+        AVFrame *out = av_frame_alloc();
+        if (!out) { av_frame_free(&frame); return nullptr; }
+
+        out->format      = AV_SAMPLE_FMT_S16;
+        out->sample_rate = frame->sample_rate;
+        out->nb_samples  = nb_samples;
+        out->pts         = frame->pts;
+        out->time_base   = frame->time_base;
+        av_channel_layout_copy(&out->ch_layout, &frame->ch_layout);
+
+        if (av_frame_get_buffer(out, 0) < 0) {
+            av_frame_free(&out);
+            av_frame_free(&frame);
+            return nullptr;
+        }
+
+        int16_t *dst = (int16_t*)out->data[0];
+        for (int i = 0; i < nb_samples; i++)
+            for (int c = 0; c < channels; c++)
+                *dst++ = (int16_t)(src[c][i] * scale * 32767.0f);
+
+        av_frame_free(&frame);
+        return out;
+    }
+
+    qWarning("AudioDecodeThread: unexpected frame format %d", frame->format);
+    return frame;
+}
 
 extern "C" {
 #include <libavutil/opt.h>
@@ -24,7 +99,9 @@ AudioDecodeThread::AudioDecodeThread(QObject *parent)
     , m_timeBase{1, 44100}
     , m_filterGraph(nullptr)
     , m_abufferCtx(nullptr)
+    , m_aresampleInCtx(nullptr)
     , m_atempoCtx(nullptr)
+    , m_aresampleOutCtx(nullptr)
     , m_abuffersinkCtx(nullptr)
     , m_speedDirty(false)
     , m_pendingSpeed(1.0)
@@ -141,7 +218,8 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
     }
 
     outFrame->nb_samples = converted;
-    outFrame->linesize[0] = converted * av_get_bytes_per_sample(AV_SAMPLE_FMT_S16) * outFrame->ch_layout.nb_channels;
+    outFrame->linesize[0] = av_samples_get_buffer_size(nullptr, outFrame->ch_layout.nb_channels,
+                                                        converted, AV_SAMPLE_FMT_S16, 1);
 
     if (frame->pts != AV_NOPTS_VALUE) {
         outFrame->pts = av_rescale_q(frame->pts, m_timeBase, (AVRational){1, 44100});
@@ -153,7 +231,7 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
     return outFrame;
 }
 
-// ── Filter graph (S16 format, single atempo) ──
+// ── Filter graph: abuffer(S16) → aresample(→FLTP) → atempo → aresample(→FLTP) → abuffersink → peak-norm(→S16) ──
 
 bool AudioDecodeThread::initFilterGraph(double tempo)
 {
@@ -162,34 +240,47 @@ bool AudioDecodeThread::initFilterGraph(double tempo)
         return false;
 
     const AVFilter *abuffer = avfilter_get_by_name("abuffer");
+    const AVFilter *aresample = avfilter_get_by_name("aresample");
     const AVFilter *atempo = avfilter_get_by_name("atempo");
     const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
 
-    if (!abuffer || !atempo || !abuffersink) {
+    if (!abuffer || !aresample || !atempo || !abuffersink) {
         qWarning() << "AudioDecodeThread: required filters not found";
         avfilter_graph_free(&m_filterGraph);
         m_filterGraph = nullptr;
         return false;
     }
 
-    char args[256];
-    snprintf(args, sizeof(args),
-        "time_base=%d/%d:sample_rate=%d:sample_fmt=%s:channel_layout=%s:channels=%d",
-        1, 44100, 44100,
-        av_get_sample_fmt_name(AV_SAMPLE_FMT_S16),
-        "stereo", 2);
+    const QString args = QStringLiteral("time_base=1/44100:sample_rate=44100:sample_fmt=s16:channel_layout=stereo");
+    const QByteArray argsBuf = args.toUtf8();
 
-    if (avfilter_graph_create_filter(&m_abufferCtx, abuffer, "in", args, nullptr, m_filterGraph) < 0) {
+    if (avfilter_graph_create_filter(&m_abufferCtx, abuffer, "in", argsBuf.constData(), nullptr, m_filterGraph) < 0) {
         qWarning() << "AudioDecodeThread: failed to create abuffer filter";
         avfilter_graph_free(&m_filterGraph);
         m_filterGraph = nullptr;
         return false;
     }
 
-    char tempoStr[32];
-    snprintf(tempoStr, sizeof(tempoStr), "tempo=%.4f", tempo);
-    if (avfilter_graph_create_filter(&m_atempoCtx, atempo, "atempo", tempoStr, nullptr, m_filterGraph) < 0) {
+    if (avfilter_graph_create_filter(&m_aresampleInCtx, aresample, "aresample_in",
+                                     "osr=44100:out_chlayout=stereo:osf=fltp", nullptr, m_filterGraph) < 0) {
+        qWarning() << "AudioDecodeThread: failed to create input aresample filter";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    const QString tempoArg = QStringLiteral("tempo=%1").arg(tempo, 0, 'f', 4);
+    const QByteArray tempoArgBuf = tempoArg.toUtf8();
+    if (avfilter_graph_create_filter(&m_atempoCtx, atempo, "atempo", tempoArgBuf.constData(), nullptr, m_filterGraph) < 0) {
         qWarning() << "AudioDecodeThread: failed to create atempo filter";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    if (avfilter_graph_create_filter(&m_aresampleOutCtx, aresample, "aresample_out",
+                                     "osr=44100:out_chlayout=stereo:osf=fltp", nullptr, m_filterGraph) < 0) {
+        qWarning() << "AudioDecodeThread: failed to create output aresample filter";
         avfilter_graph_free(&m_filterGraph);
         m_filterGraph = nullptr;
         return false;
@@ -202,8 +293,10 @@ bool AudioDecodeThread::initFilterGraph(double tempo)
         return false;
     }
 
-    if (avfilter_link(m_abufferCtx, 0, m_atempoCtx, 0) < 0 ||
-        avfilter_link(m_atempoCtx, 0, m_abuffersinkCtx, 0) < 0) {
+    if (avfilter_link(m_abufferCtx, 0, m_aresampleInCtx, 0) < 0 ||
+        avfilter_link(m_aresampleInCtx, 0, m_atempoCtx, 0) < 0 ||
+        avfilter_link(m_atempoCtx, 0, m_aresampleOutCtx, 0) < 0 ||
+        avfilter_link(m_aresampleOutCtx, 0, m_abuffersinkCtx, 0) < 0) {
         qWarning() << "AudioDecodeThread: failed to link filter graph";
         avfilter_graph_free(&m_filterGraph);
         m_filterGraph = nullptr;
@@ -225,7 +318,9 @@ void AudioDecodeThread::destroyFilterGraph()
     if (m_filterGraph) {
         avfilter_graph_free(&m_filterGraph);
         m_abufferCtx = nullptr;
+        m_aresampleInCtx = nullptr;
         m_atempoCtx = nullptr;
+        m_aresampleOutCtx = nullptr;
         m_abuffersinkCtx = nullptr;
     }
 }
@@ -254,6 +349,21 @@ void AudioDecodeThread::applySpeed()
     if (m_currentSpeed == speed)
         return;
     m_currentSpeed = speed;
+
+    if (m_filterGraph) {
+        av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
+        while (!m_quit) {
+            AVFrame *filtered = av_frame_alloc();
+            int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
+            if (r < 0) {
+                av_frame_free(&filtered);
+                break;
+            }
+            filtered = convertFrameToS16(filtered);
+            m_frameQueue->push(filtered);
+            av_frame_free(&filtered);
+        }
+    }
 
     destroyFilterGraph();
     if (qFuzzyCompare(speed, 1.0))
@@ -309,14 +419,15 @@ void AudioDecodeThread::run()
             if (ret < 0)
                 break;
 
-            AVFrame *s16 = resampleFrame(frame);
-            if (!s16) {
+            AVFrame *resampled = resampleFrame(frame);
+            if (!resampled) {
                 av_frame_unref(frame);
                 continue;
             }
 
             if (m_filterGraph && !qFuzzyCompare(m_currentSpeed, 1.0)) {
-                if (av_buffersrc_add_frame_flags(m_abufferCtx, s16, 0) >= 0) {
+                int addRet = av_buffersrc_add_frame_flags(m_abufferCtx, resampled, 0);
+                if (addRet >= 0) {
                     while (true) {
                         AVFrame *filtered = av_frame_alloc();
                         int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
@@ -328,25 +439,28 @@ void AudioDecodeThread::run()
                             av_frame_free(&filtered);
                             break;
                         }
+                        filtered = convertFrameToS16(filtered);
 
-                        if (!m_frameQueue->isFull())
-                            m_frameQueue->push(filtered);
-                        else
-                            av_frame_free(&filtered);
+                        m_frameQueue->push(filtered);
+                        av_frame_free(&filtered);
                     }
+                } else if (addRet < 0) {
+                    qWarning() << "AudioDecodeThread: av_buffersrc_add_frame_flags failed:" << addRet;
                 }
             } else {
-                if (!m_frameQueue->isFull())
-                    m_frameQueue->push(s16);
+                if (!m_frameQueue->isFull()) {
+                    m_frameQueue->push(resampled);
+                    resampled = nullptr;
+                }
             }
 
-            av_frame_free(&s16);
+            av_frame_free(&resampled);
             av_frame_unref(frame);
         }
     }
 
     if (m_filterGraph) {
-        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, AV_BUFFERSRC_FLAG_NO_CHECK_FORMAT);
+        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
         while (true) {
             AVFrame *filtered = av_frame_alloc();
             int ret = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
@@ -354,11 +468,10 @@ void AudioDecodeThread::run()
                 av_frame_free(&filtered);
                 break;
             }
-            if (!m_frameQueue->isFull() && !m_quit) {
+            filtered = convertFrameToS16(filtered);
+            if (!m_quit)
                 m_frameQueue->push(filtered);
-            } else {
-                av_frame_free(&filtered);
-            }
+            av_frame_free(&filtered);
         }
     }
 

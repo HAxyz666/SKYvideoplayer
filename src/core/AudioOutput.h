@@ -6,6 +6,7 @@
 
 extern "C" {
 #include <SDL2/SDL.h>
+#include <libavutil/fifo.h>
 }
 
 class FrameQueue;
@@ -37,15 +38,15 @@ public:
 
 private:
     static void sdlAudioCallback(void *userdata, Uint8 *stream, int len);
+    void fillAudioFifo();
 
     SDL_AudioDeviceID m_audioDeviceID;
     SDL_AudioSpec m_audioSpec;
     FrameQueue *m_frameQueue;
     std::atomic<double> m_volume;
     std::atomic<bool> m_muted;
-    uint8_t *m_audioBuf;
-    uint32_t m_audioBufSize;
-    uint32_t m_audioBufIndex;
     AVSyncController *m_syncController;
-    AVFrame *m_currentFrame;
+
+    AVFifo *m_audioFifo;
+    static constexpr int kFifoSize = 4 * 1024 * 1024;
 };
