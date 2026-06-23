@@ -12,6 +12,8 @@ static QShader loadShader(const QString &path)
     return {};
 }
 
+
+//周代森：顶点定义：矩形，图片位置匹配
 static const float kQuadVertices[] = {
     -1.0f, -1.0f,  0.0f, 1.0f,
      1.0f, -1.0f,  1.0f, 1.0f,
@@ -60,13 +62,16 @@ public:
 
         QRhi *rhi = cb->rhi();
 
+        //周代森：创建采样器，控制纹理读取（1,2线性插值保证画面平滑；3不使用mipmap；4,5,6裁剪范围以外的画面）
         samplerLinear = rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
                                         QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
         samplerLinear->create();
 
+        //周代森：创建Uniform缓冲，存放着色器的常量数据（1每帧都更新mvp矩阵；2用途：着色器常量缓冲；3，大小）
         uniformBuf = rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 64);
         uniformBuf->create();
 
+        //周代森：创建顶点缓冲，存放画面四个顶点数据（1顶点固定不变；2用途：作为顶点输出；3四个顶点[矩形画面]）
         vertexBuf = rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(kQuadVertices));
         vertexBuf->create();
 
@@ -82,6 +87,7 @@ public:
             return;
 
         QRhi *rhi = cb->rhi();
+        //周代森：创建资源更新批处理对象，将需要更新的内容先暂存，后续一起发送
         QRhiResourceUpdateBatch *batch = rhi->nextResourceUpdateBatch();
 
         if (m_initialUpdates) {
@@ -110,6 +116,7 @@ public:
                 buildPipeline(rhi);
             }
 
+            //周代森：将数据上传为GPU纹理
             auto uploadPlane = [&](QRhiTexture *tex, const QByteArray &data) {
                 QRhiTextureSubresourceUploadDescription desc(data.constData(), data.size());
                 batch->uploadTexture(tex, QRhiTextureUploadEntry(0, 0, desc));
@@ -124,6 +131,12 @@ public:
         batch->updateDynamicBuffer(uniformBuf, 0, 64, mvpMatrix().constData());
 
         cb->beginPass(renderTarget(), Qt::black, QRhiDepthStencilClearValue(), batch);
+        //周代森：强制渲染当前画面，修复了暂停+按下全屏时的画面尺寸问题
+        {
+            QSize s = renderTarget()->pixelSize();
+            cb->setViewport(QRhiViewport(0, 0, s.width(), s.height()));
+            cb->setScissor(QRhiScissor(0, 0, s.width(), s.height()));
+        }
         cb->setGraphicsPipeline(pipeline);
         cb->setShaderResources(srb);
         QRhiCommandBuffer::VertexInput vbuf(vertexBuf, 0);
@@ -151,6 +164,7 @@ private:
         delete srb;
         delete pipeline;
 
+        //周代森：获取当前渲染目标的渲染信息
         QRhiRenderPassDescriptor *rpDesc = renderTarget()->renderPassDescriptor();
 
         QRhiVertexInputBinding binding(sizeof(float) * 4);
@@ -160,6 +174,7 @@ private:
         inputLayout.setBindings({binding});
         inputLayout.setAttributes({posAttr, texAttr});
 
+        //周代森：加载着色器
         QShader vertShader = loadShader(":/shaders/yuv.vert.qsb");
         vertShader.setStage(QShader::VertexStage);
         QShader fragShader = loadShader(":/shaders/yuv.frag.qsb");
@@ -175,6 +190,7 @@ private:
         });
         srb->create();
 
+        //周代森：创建图形管线并设置着色器
         pipeline = rhi->newGraphicsPipeline();
         pipeline->setShaderStages({
             QRhiShaderStage(QRhiShaderStage::Vertex, vertShader),
@@ -226,3 +242,5 @@ void VideoRenderItem::clearImage()
     m_pendingFrame = YUVFrame();
     update();
 }
+
+
