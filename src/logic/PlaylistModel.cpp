@@ -90,7 +90,9 @@ void PlaylistModel::clear()
 // 设置当前播放项，自动更新旧项和新项的高亮状态
 void PlaylistModel::setCurrentIndex(int index)
 {
-    if (index == m_currentIndex || index < 0 || index >= m_items.size())
+    if (index < 0 || index >= m_items.size())
+        return;
+    if (index == m_currentIndex)
         return;
 
     int old = m_currentIndex;

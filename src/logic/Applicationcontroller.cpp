@@ -29,6 +29,9 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::volumeChanged, this, &ApplicationController::volumeChanged);
     connect(m_mediaEngine, &MediaEngine::mutedChanged, this, &ApplicationController::mutedChanged);
     connect(m_mediaEngine, &MediaEngine::speedChanged, this, &ApplicationController::speedChanged);
+    connect(m_mediaEngine, &MediaEngine::hasVideoChanged, this, [this]() {
+        emit isAudioOnlyChanged();
+    });
 }
 
 bool ApplicationController::openFile()
@@ -37,15 +40,17 @@ bool ApplicationController::openFile()
     return true;
 }
 
-static QStringList videoFileFilters()
+static QStringList mediaFileFilters()
 {
-    return { "*.mp4", "*.mkv", "*.avi", "*.mov", "*.flv", "*.wmv" };
+    return { "*.mp4", "*.mkv", "*.avi", "*.mov", "*.flv", "*.wmv",
+             "*.mp3", "*.flac", "*.wav", "*.aac", "*.ogg", "*.opus",
+             "*.m4a", "*.wma" };
 }
 
 static void scanDirectoryFiles(PlaylistModel *model, const QString &dirPath)
 {
     QDir dir(dirPath);
-    QFileInfoList entries = dir.entryInfoList(videoFileFilters(), QDir::Files);
+    QFileInfoList entries = dir.entryInfoList(mediaFileFilters(), QDir::Files);
     for (const auto &entry : entries) {
         model->addFile(entry.absoluteFilePath());
     }
@@ -210,4 +215,9 @@ void ApplicationController::setTheme(const QString &theme)
     m_theme = theme;
     QSettings().setValue("theme", theme);
     emit themeChanged();
+}
+
+bool ApplicationController::isAudioOnly() const
+{
+    return !m_mediaEngine->hasVideo();
 }

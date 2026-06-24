@@ -448,10 +448,8 @@ void AudioDecodeThread::run()
                     qWarning() << "AudioDecodeThread: av_buffersrc_add_frame_flags failed:" << addRet;
                 }
             } else {
-                if (!m_frameQueue->isFull()) {
-                    m_frameQueue->push(resampled);
-                    resampled = nullptr;
-                }
+                m_frameQueue->push(resampled);
+                resampled = nullptr;
             }
 
             av_frame_free(&resampled);

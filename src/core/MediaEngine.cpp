@@ -132,74 +132,69 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     }
 
     for (unsigned int i = 0; i < m_fmtCtx->nb_streams; i++) {
-        if (m_fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && m_videoStreamIndex == -1) {
+        AVStream *st = m_fmtCtx->streams[i];
+        // 跳过封面/专辑封面（attached picture），防止误识别为视频流
+        if (st->disposition & AV_DISPOSITION_ATTACHED_PIC)
+            continue;
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && m_videoStreamIndex == -1) {
             m_videoStreamIndex = i;
-        } else if (m_fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && m_audioStreamIndex == -1) {
+        } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && m_audioStreamIndex == -1) {
             m_audioStreamIndex = i;
         }
     }
 
-    if (m_videoStreamIndex == -1) {
-        qCritical() << "No video stream found";
-        avformat_close_input(&m_fmtCtx);
-        return false;
-    }
-
-    AVCodecParameters *videoPar = m_fmtCtx->streams[m_videoStreamIndex]->codecpar;
-    const AVCodec *videoCodec = avcodec_find_decoder(videoPar->codec_id);
-    if (!videoCodec) {
-        qCritical() << "Video codec not found";
-        avformat_close_input(&m_fmtCtx);
-        return false;
-    }
-
-    m_videoCodecCtx = avcodec_alloc_context3(videoCodec);
-    if (!m_videoCodecCtx) {
-        qCritical() << "Could not allocate video codec context";
-        avformat_close_input(&m_fmtCtx);
-        return false;
-    }
-    avcodec_parameters_to_context(m_videoCodecCtx, videoPar);
-
-#ifdef ENABLE_HWACCEL
-    if (createHwDeviceContext(videoCodec)) {
-        m_videoCodecCtx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
-        m_videoCodecCtx->pix_fmt = m_hwPixFmt;
-    }
-#endif
-
-    if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
-#ifdef ENABLE_HWACCEL
-        if (m_hwDeviceCtx) {
-            qWarning() << "HW decode failed, falling back to software";
-            avcodec_free_context(&m_videoCodecCtx);
-            m_videoCodecCtx = avcodec_alloc_context3(videoCodec);
-            avcodec_parameters_to_context(m_videoCodecCtx, videoPar);
-            m_videoCodecCtx->hw_device_ctx = nullptr;
-            m_hwPixFmt = AV_PIX_FMT_NONE;
-
-            if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
-                qCritical() << "Could not open video codec (both HW and SW failed)";
-                avcodec_free_context(&m_videoCodecCtx);
-                avformat_close_input(&m_fmtCtx);
-                return false;
-            }
+    if (m_videoStreamIndex != -1) {
+        AVCodecParameters *videoPar = m_fmtCtx->streams[m_videoStreamIndex]->codecpar;
+        const AVCodec *videoCodec = avcodec_find_decoder(videoPar->codec_id);
+        if (!videoCodec) {
+            qWarning() << "Video codec not found, playing without video";
+            m_videoStreamIndex = -1;
         } else {
-            qCritical() << "Could not open video codec";
-            avcodec_free_context(&m_videoCodecCtx);
-            avformat_close_input(&m_fmtCtx);
-            return false;
-        }
-#else
-        qCritical() << "Could not open video codec";
-        avcodec_free_context(&m_videoCodecCtx);
-        avformat_close_input(&m_fmtCtx);
-        return false;
+            m_videoCodecCtx = avcodec_alloc_context3(videoCodec);
+            if (!m_videoCodecCtx) {
+                qWarning() << "Could not allocate video codec context, playing without video";
+                m_videoStreamIndex = -1;
+            } else {
+                avcodec_parameters_to_context(m_videoCodecCtx, videoPar);
+
+#ifdef ENABLE_HWACCEL
+                if (createHwDeviceContext(videoCodec)) {
+                    m_videoCodecCtx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
+                    m_videoCodecCtx->pix_fmt = m_hwPixFmt;
+                }
 #endif
+
+                if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
+#ifdef ENABLE_HWACCEL
+                    if (m_hwDeviceCtx) {
+                        qWarning() << "HW decode failed, falling back to software";
+                        avcodec_free_context(&m_videoCodecCtx);
+                        m_videoCodecCtx = avcodec_alloc_context3(videoCodec);
+                        avcodec_parameters_to_context(m_videoCodecCtx, videoPar);
+                        m_videoCodecCtx->hw_device_ctx = nullptr;
+                        m_hwPixFmt = AV_PIX_FMT_NONE;
+
+                        if (avcodec_open2(m_videoCodecCtx, videoCodec, nullptr) < 0) {
+                            qWarning() << "Could not open video codec (both HW and SW failed), playing without video";
+                            avcodec_free_context(&m_videoCodecCtx);
+                            m_videoCodecCtx = nullptr;
+                            m_videoStreamIndex = -1;
+                        }
+                    } else
+#endif
+                    {
+                        qWarning() << "Could not open video codec, playing without video";
+                        avcodec_free_context(&m_videoCodecCtx);
+                        m_videoCodecCtx = nullptr;
+                        m_videoStreamIndex = -1;
+                    }
+                }
+            }
+        }
     }
 
 #ifdef ENABLE_HWACCEL
-    if (m_hwPixFmt != AV_PIX_FMT_NONE) {
+    if (m_videoCodecCtx && m_hwPixFmt != AV_PIX_FMT_NONE) {
         m_useHardwareDecode = true;
         qDebug() << "Hardware decoding active:" << av_get_pix_fmt_name(m_hwPixFmt);
     } else {
@@ -211,18 +206,24 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     if (m_audioStreamIndex != -1) {
         AVCodecParameters *audioPar = m_fmtCtx->streams[m_audioStreamIndex]->codecpar;
         const AVCodec *audioCodec = avcodec_find_decoder(audioPar->codec_id);
+        qDebug() << "Audio codec_id:" << audioPar->codec_id << "codec found:" << !!audioCodec;
 
         if (audioCodec) {
             m_audioCodecCtx = avcodec_alloc_context3(audioCodec);
             if (m_audioCodecCtx) {
                 avcodec_parameters_to_context(m_audioCodecCtx, audioPar);
 
-                if (avcodec_open2(m_audioCodecCtx, audioCodec, nullptr) < 0) {
-                    qWarning() << "Could not open audio codec, playing without audio";
+                int ret = avcodec_open2(m_audioCodecCtx, audioCodec, nullptr);
+                if (ret < 0) {
+                    char errbuf[128] = {0};
+                    av_strerror(ret, errbuf, sizeof(errbuf));
+                    qWarning() << "Could not open audio codec:" << errbuf;
                     avcodec_free_context(&m_audioCodecCtx);
                     m_audioCodecCtx = nullptr;
                 }
             }
+        } else {
+            qWarning() << "Audio decoder not found for codec_id:" << audioPar->codec_id;
         }
     }
 
@@ -243,6 +244,8 @@ void MediaEngine::start()
 {
     if (!initFFmpeg(m_filename))
         return;
+
+    emit hasVideoChanged();
 
     m_audioOutputReady = false;
     m_syncController->reset();
@@ -354,14 +357,18 @@ void MediaEngine::seek(double seconds)
     if (m_duration > 0 && targetUs > static_cast<int64_t>(m_duration * AV_TIME_BASE))
         targetUs = static_cast<int64_t>(m_duration * AV_TIME_BASE);
 
-    int64_t targetStreamTs = av_rescale_q(targetUs, AV_TIME_BASE_Q,
-                                          m_fmtCtx->streams[m_videoStreamIndex]->time_base);
-    int ret = avformat_seek_file(m_fmtCtx, m_videoStreamIndex,
-                                 INT64_MIN, targetStreamTs, targetStreamTs, 0);
-    if (ret < 0)
-        qWarning() << "Seek failed:" << ret;
+    int streamIdx = m_videoStreamIndex >= 0 ? m_videoStreamIndex : m_audioStreamIndex;
+    if (streamIdx >= 0) {
+        int64_t targetStreamTs = av_rescale_q(targetUs, AV_TIME_BASE_Q,
+                                              m_fmtCtx->streams[streamIdx]->time_base);
+        int ret = avformat_seek_file(m_fmtCtx, streamIdx,
+                                     INT64_MIN, targetStreamTs, targetStreamTs, 0);
+        if (ret < 0)
+            qWarning() << "Seek failed:" << ret;
+    }
 
-    avcodec_flush_buffers(m_videoCodecCtx);
+    if (m_videoCodecCtx)
+        avcodec_flush_buffers(m_videoCodecCtx);
     if (m_audioCodecCtx)
         avcodec_flush_buffers(m_audioCodecCtx);
 
@@ -476,9 +483,12 @@ void MediaEngine::updatePosition()
 
 void MediaEngine::startThreads()
 {
-    m_videoPacketQueue = new PacketQueue(64);
     m_audioPacketQueue = new PacketQueue(64);
-    m_videoFrameQueue = new FrameQueue(24);
+
+    if (m_videoStreamIndex != -1) {
+        m_videoPacketQueue = new PacketQueue(64);
+        m_videoFrameQueue = new FrameQueue(24);
+    }
 
     if (m_audioCodecCtx) {
         m_audioFrameQueue = new FrameQueue(kAudioFrameQueueSize);
@@ -497,19 +507,21 @@ void MediaEngine::startThreads()
         qWarning() << "Demux error:" << msg;
     });
 
-    m_videoThread = new VideoDecodeThread(this);
-    m_videoThread->setCodecContext(m_videoCodecCtx);
-    m_videoThread->setPacketQueue(m_videoPacketQueue);
-    m_videoThread->setFrameQueue(m_videoFrameQueue);
-    m_videoThread->setTimeBase(m_fmtCtx->streams[m_videoStreamIndex]->time_base);
-    m_videoThread->setPausedRef(m_paused);
-    connect(m_videoThread, &VideoDecodeThread::frameReady, this, &MediaEngine::frameReady);
+    if (m_videoCodecCtx) {
+        m_videoThread = new VideoDecodeThread(this);
+        m_videoThread->setCodecContext(m_videoCodecCtx);
+        m_videoThread->setPacketQueue(m_videoPacketQueue);
+        m_videoThread->setFrameQueue(m_videoFrameQueue);
+        m_videoThread->setTimeBase(m_fmtCtx->streams[m_videoStreamIndex]->time_base);
+        m_videoThread->setPausedRef(m_paused);
+        connect(m_videoThread, &VideoDecodeThread::frameReady, this, &MediaEngine::frameReady);
 
 #ifdef ENABLE_HWACCEL
-    if (m_useHardwareDecode && m_hwDeviceCtx) {
-        m_videoThread->setHwContext(m_hwDeviceCtx, m_hwPixFmt);
-    }
+        if (m_useHardwareDecode && m_hwDeviceCtx) {
+            m_videoThread->setHwContext(m_hwDeviceCtx, m_hwPixFmt);
+        }
 #endif
+    }
 
     if (m_audioCodecCtx) {
         m_audioThread = new AudioDecodeThread(this);
@@ -520,10 +532,12 @@ void MediaEngine::startThreads()
         m_audioThread->setTimeBase(m_fmtCtx->streams[m_audioStreamIndex]->time_base);
     }
 
-    m_frameQueueDrainTimer->start(100);
+    if (m_videoFrameQueue)
+        m_frameQueueDrainTimer->start(100);
 
     m_demuxThread->start();
-    m_videoThread->start();
+    if (m_videoThread)
+        m_videoThread->start();
     if (m_audioThread)
         m_audioThread->start();
 }

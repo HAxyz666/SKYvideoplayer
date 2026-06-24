@@ -5,6 +5,7 @@ QtObject {
 
     property bool hasMedia: false
     property bool isPlaying: false
+    property bool isAudioOnly: appController.isAudioOnly
     property string mediaSource: ""
     property real playbackPosition: 0.0
     property real duration: 0.0

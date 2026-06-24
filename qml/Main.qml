@@ -98,7 +98,7 @@ ApplicationWindow {
         onEntered: function(drag) {
             drag.accepted = drag.urls.some(function(url) {
                 var path = url.toString()
-                return /\.(mp4|mkv|avi|mov|flv|wmv)$/i.test(path)
+                return /\.(mp4|mkv|avi|mov|flv|wmv|mp3|flac|wav|aac|ogg|opus|m4a|wma)$/i.test(path)
             })
         }
 
@@ -119,7 +119,7 @@ ApplicationWindow {
 
         Label {
             anchors.centerIn: parent
-            text: qsTr("松开以播放视频")
+            text: qsTr("松开以播放媒体文件")
             font.pixelSize: 28
             font.bold: true
             color: "white"

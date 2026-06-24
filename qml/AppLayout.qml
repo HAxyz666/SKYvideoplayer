@@ -149,6 +149,21 @@ Item {
             id: videoRenderItem
             objectName: "videoRenderItem"
             anchors.fill: parent
+            visible: !controller.isAudioOnly
+        }
+
+        Rectangle {
+            id: audioOverlay
+            anchors.fill: parent
+            color: "black"
+            visible: controller.isAudioOnly
+
+            Label {
+                anchors.centerIn: parent
+                text: qsTr("正在播放音频")
+                color: "white"
+                font.pixelSize: 28
+            }
         }
 
         // 左上角：返回按钮
@@ -302,8 +317,12 @@ Item {
 
     FileDialog {
         id: fileDialog
-        title: qsTr("Select video file")
-        nameFilters: [qsTr("video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)"), qsTr("all file (*)")]
+        title: qsTr("Select media file")
+        nameFilters: [
+            qsTr("all file (*)"),
+            qsTr("video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)"),
+            qsTr("audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)")
+        ]
         onAccepted: controller.openFile(selectedFile)
     }
 }

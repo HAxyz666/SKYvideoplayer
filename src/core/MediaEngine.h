@@ -31,6 +31,7 @@ class MediaEngine : public QObject
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
+    Q_PROPERTY(bool hasVideo READ hasVideo NOTIFY hasVideoChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -44,6 +45,7 @@ public:
     Q_INVOKABLE void togglePause();
     Q_INVOKABLE void seek(double seconds);
     bool isPaused() const;
+    bool hasVideo() const { return m_videoStreamIndex >= 0; }
 
     double position() const;
     double duration() const;
@@ -67,6 +69,7 @@ signals:
     void volumeChanged(double vol);     // 音量变化信号
     void mutedChanged(bool muted);      // 静音状态变化信号
     void speedChanged(double speed);
+    void hasVideoChanged();
 
 private:
     static constexpr int kAudioFrameQueueSize = 256;

@@ -144,15 +144,22 @@ void AudioOutput::fillAudioFifo()
     if (!m_frameQueue || !m_audioFifo)
         return;
 
-    while (av_fifo_can_write(m_audioFifo) >= 4096) {
-        AVFrame *frame = m_frameQueue->tryPop(0);
+    while (true) {
+        AVFrame *frame = m_frameQueue->peek();
         if (!frame)
             break;
 
-        // NB: linesize[0] includes alignment padding; use actual data size.
-        av_fifo_write(m_audioFifo, frame->data[0],
-                      frame->nb_samples * frame->ch_layout.nb_channels
-                      * static_cast<int>(sizeof(int16_t)));
+        size_t frameBytes = static_cast<size_t>(frame->nb_samples)
+                            * static_cast<size_t>(frame->ch_layout.nb_channels)
+                            * sizeof(int16_t);
+        if (av_fifo_can_write(m_audioFifo) < static_cast<int>(frameBytes))
+            break;
+
+        frame = m_frameQueue->tryPop(0);
+        if (!frame)
+            break;
+
+        av_fifo_write(m_audioFifo, frame->data[0], frameBytes);
 
         if (m_syncController)
             m_syncController->updateAudioClock(
