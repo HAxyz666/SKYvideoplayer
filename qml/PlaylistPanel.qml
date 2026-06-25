@@ -7,8 +7,75 @@ Drawer {
     edge: Qt.RightEdge
     width: 280
     height: parent.height
-    modal: false
+    modal: true
     interactive: true
+
+    background: Rectangle {
+        color: appController.theme === "dark" ? "#dd1e1e1e" : "#bbffffff"
+    }
+
+    property int sortField: 0
+    property bool sortAscending: true
+
+    function toggleSort(field) {
+        if (sortField === field) {
+            sortAscending = !sortAscending
+        } else {
+            sortField = field
+            sortAscending = true
+        }
+        rebuildModel()
+    }
+
+    function formatDuration(sec) {
+        if (isNaN(sec) || sec <= 0) return "0:00"
+        var t = Math.floor(sec)
+        var h = Math.floor(t / 3600)
+        var m = Math.floor((t % 3600) / 60)
+        var s = t % 60
+        if (h > 0)
+            return h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
+        return m + ":" + (s < 10 ? "0" : "") + s
+    }
+
+    function rebuildModel() {
+        sortedModel.clear()
+        var src = appController.playlistModel
+        var count = src.count
+        if (count === 0) return
+
+        var items = []
+        for (var i = 0; i < count; i++)
+            items.push(src.getItem(i))
+
+        var field = sortField
+        var asc = sortAscending ? 1 : -1
+        items.sort(function(a, b) {
+            var va = field === 0 ? a.title : a.duration
+            var vb = field === 0 ? b.title : b.duration
+            if (typeof va === "string") {
+                va = va.toLowerCase()
+                vb = vb.toLowerCase()
+            }
+            if (va < vb) return -1 * asc
+            if (va > vb) return 1 * asc
+            return 0
+        })
+
+        for (var j = 0; j < items.length; j++)
+            sortedModel.append(items[j])
+    }
+
+    ListModel { id: sortedModel }
+
+    Connections {
+        target: appController.playlistModel
+        function onCountChanged() { rebuildModel() }
+        function onDataChanged() { rebuildModel() }
+        function onModelReset() { rebuildModel() }
+    }
+
+    Component.onCompleted: rebuildModel()
 
     ColumnLayout {
         anchors.fill: parent
@@ -16,6 +83,7 @@ Drawer {
 
         ToolBar {
             Layout.fillWidth: true
+            background: null
 
             RowLayout {
                 anchors.fill: parent
@@ -27,6 +95,18 @@ Drawer {
                     font.pixelSize: 16
                     Layout.fillWidth: true
                     leftPadding: 8
+                }
+
+                ToolButton {
+                    text: qsTr("名称") + (sortField === 0 ? (sortAscending ? " ↑" : " ↓") : "")
+                    font.pixelSize: 11
+                    onClicked: toggleSort(0)
+                }
+
+                ToolButton {
+                    text: qsTr("时长") + (sortField === 1 ? (sortAscending ? " ↑" : " ↓") : "")
+                    font.pixelSize: 11
+                    onClicked: toggleSort(1)
                 }
 
                 ToolButton {
@@ -48,30 +128,98 @@ Drawer {
             id: listView
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: appController.playlistModel
+            model: sortedModel
             clip: true
 
-            delegate: ItemDelegate {
+            Rectangle {
+                x: 40
+                y: 0
+                width: 1
+                height: listView.contentHeight
+                color: appController.theme === "dark" ? "#444444" : "#dddddd"
+            }
+
+            delegate: Rectangle {
                 id: delegateRoot
                 width: ListView.view.width
-                text: model.title
-                highlighted: model.isPlaying
-                onDoubleClicked: appController.playItem(index)
+                height: 44
+
+                property bool hovered: false
+
+                color: model.isPlaying
+                    ? (appController.theme === "dark" ? "#440078d7" : "#440078d7")
+                    : (hovered
+                        ? (appController.theme === "dark" ? "#33ffffff" : "#22000000")
+                        : "transparent")
+
+                HoverHandler {
+                    onHoveredChanged: delegateRoot.hovered = hovered
+                }
+
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    cursorShape: Qt.PointingHandCursor
+                    onDoubleTapped: appController.playItem(model.sourceRow)
+                }
 
                 TapHandler {
                     acceptedButtons: Qt.RightButton
                     onTapped: {
-                        contextMenu.itemIndex = index
+                        contextMenu.sourceRow = model.sourceRow
                         contextMenu.popup()
                     }
                 }
 
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    spacing: 0
+
+                    Label {
+                        text: (index + 1)
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: appController.theme === "dark" ? "#666666" : "#bbbbbb"
+                        Layout.preferredWidth: 24
+                        horizontalAlignment: Qt.AlignHCenter
+                    }
+
+                    Item { Layout.preferredWidth: 8 }
+
+                    Label {
+                        text: model.title
+                        font.pixelSize: 13
+                        color: appController.theme === "dark" ? "#ffffff" : "#333333"
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        text: formatDuration(model.duration)
+                        font.pixelSize: 11
+                        color: appController.theme === "dark" ? "#888888" : "#999999"
+                        Layout.preferredWidth: 50
+                        horizontalAlignment: Qt.AlignRight
+                        Layout.rightMargin: 4
+                    }
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.leftMargin: 0
+                    height: 1
+                    color: appController.theme === "dark" ? "#33ffffff" : "#22000000"
+                }
+
                 Menu {
                     id: contextMenu
-                    property int itemIndex: -1
+                    property int sourceRow: -1
                     MenuItem {
                         text: qsTr("移除")
-                        onTriggered: appController.playlistModel.removeItem(contextMenu.itemIndex)
+                        onTriggered: appController.playlistModel.removeItem(contextMenu.sourceRow)
                     }
                 }
             }
@@ -92,7 +240,6 @@ Drawer {
             }
         }
 
-        // 播放模式选择
         RowLayout {
             Layout.fillWidth: true
             Layout.margins: 8

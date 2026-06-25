@@ -1,6 +1,10 @@
 #include "PlaylistModel.h"
 #include <QFileInfo>
 
+extern "C" {
+#include <libavformat/avformat.h>
+}
+
 PlaylistModel::PlaylistModel(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -42,6 +46,21 @@ QHash<int, QByteArray> PlaylistModel::roleNames() const
     };
 }
 
+// 使用 FFmpeg 探测媒体文件时长（秒）
+static double probeDuration(const QString &filePath)
+{
+    AVFormatContext *fmtCtx = nullptr;
+    if (avformat_open_input(&fmtCtx, filePath.toUtf8().constData(), nullptr, nullptr) < 0)
+        return 0.0;
+    if (avformat_find_stream_info(fmtCtx, nullptr) < 0) {
+        avformat_close_input(&fmtCtx);
+        return 0.0;
+    }
+    double duration = fmtCtx->duration / (double)AV_TIME_BASE;
+    avformat_close_input(&fmtCtx);
+    return duration > 0 ? duration : 0.0;
+}
+
 // 添加文件到列表末尾，已存在则跳过
 void PlaylistModel::addFile(const QString &filePath)
 {
@@ -52,7 +71,7 @@ void PlaylistModel::addFile(const QString &filePath)
 
     int row = m_items.size();
     beginInsertRows(QModelIndex(), row, row);
-    m_items.append({ extractTitle(filePath), filePath, 0.0 });
+    m_items.append({ extractTitle(filePath), filePath, probeDuration(filePath) });
     endInsertRows();
     emit countChanged();
 }
@@ -73,6 +92,21 @@ void PlaylistModel::removeItem(int index)
         m_currentIndex--;
 
     emit countChanged();
+}
+
+// 获取指定行的全部数据，供 QML 排序用
+QVariantMap PlaylistModel::getItem(int row) const
+{
+    QVariantMap map;
+    if (row < 0 || row >= m_items.size())
+        return map;
+    const auto &item = m_items.at(row);
+    map["title"] = item.title;
+    map["filePath"] = item.filePath;
+    map["duration"] = item.duration;
+    map["isPlaying"] = (row == m_currentIndex);
+    map["sourceRow"] = row;
+    return map;
 }
 
 // 清空整个播放列表

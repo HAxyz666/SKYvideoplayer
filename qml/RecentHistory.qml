@@ -36,14 +36,22 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 36
+            Layout.preferredHeight: 40
             color: appController.theme === "dark" ? "#333333" : "#e8e8e8"
             visible: listView.count > 0
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 4
+                anchors.leftMargin: 8
                 anchors.rightMargin: 4
+
+                Label {
+                    text: qsTr("最近播放")
+                    font.bold: true
+                    font.pixelSize: 16
+                    color: appController.theme === "dark" ? "#ffffff" : "#333333"
+                    Layout.alignment: Qt.AlignVCenter
+                }
 
                 Item { Layout.fillWidth: true }
 
