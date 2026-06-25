@@ -147,6 +147,43 @@ Item {
             visible: !controller.isAudioOnly
         }
 
+        // 字幕叠加层（文本）
+        Item {
+            id: subtitleOverlay
+            anchors.fill: parent
+            visible: !controller.isAudioOnly
+            z: 10
+
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 90
+                width: subtitleText.implicitWidth + 24
+                height: subtitleText.implicitHeight + 12
+                radius: 6
+                color: "#c0000000"
+                visible: subtitleText.text.length > 0
+            }
+
+            Text {
+                id: subtitleText
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 96
+                text: appController.currentSubtitle
+                color: "white"
+                font.pixelSize: 20
+                font.bold: true
+                horizontalAlignment: Text.Center
+                width: parent.width * 0.75
+                wrapMode: Text.Wrap
+                style: Text.Outline
+                styleColor: "#80000000"
+                lineHeight: 1.3
+                visible: text.length > 0
+            }
+        }
+
         Rectangle {
             id: audioOverlay
             anchors.fill: parent
@@ -271,6 +308,8 @@ Item {
                             controller.setSpeed(speeds[index]);
                         }
                     }
+
+                    SubtitleSelector { }
 
                     Item { Layout.fillWidth: true }
 

@@ -32,6 +32,9 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::hasVideoChanged, this, [this]() {
         emit isAudioOnlyChanged();
     });
+    connect(m_mediaEngine, &MediaEngine::currentSubtitleChanged, this, &ApplicationController::currentSubtitleChanged);
+    connect(m_mediaEngine, &MediaEngine::subtitleStreamsChanged, this, &ApplicationController::subtitleStreamsChanged);
+    connect(m_mediaEngine, &MediaEngine::currentSubtitleStreamChanged, this, &ApplicationController::currentSubtitleStreamChanged);
 }
 
 bool ApplicationController::openFile()
@@ -218,6 +221,26 @@ void ApplicationController::setTheme(const QString &theme)
     m_theme = theme;
     QSettings().setValue("theme", theme);
     emit themeChanged();
+}
+
+QString ApplicationController::currentSubtitle() const
+{
+    return m_mediaEngine->currentSubtitle();
+}
+
+QVariantList ApplicationController::subtitleStreams() const
+{
+    return m_mediaEngine->subtitleStreams();
+}
+
+int ApplicationController::currentSubtitleStream() const
+{
+    return m_mediaEngine->currentSubtitleStream();
+}
+
+void ApplicationController::setCurrentSubtitleStream(int index)
+{
+    m_mediaEngine->setCurrentSubtitleStream(index);
 }
 
 bool ApplicationController::isAudioOnly() const

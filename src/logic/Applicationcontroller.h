@@ -20,6 +20,9 @@ class ApplicationController : public QObject
     Q_PROPERTY(RecentFilesModel *recentFilesModel READ recentFilesModel CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
     Q_PROPERTY(bool isAudioOnly READ isAudioOnly NOTIFY isAudioOnlyChanged)
+    Q_PROPERTY(QString currentSubtitle READ currentSubtitle NOTIFY currentSubtitleChanged)
+    Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY subtitleStreamsChanged)
+    Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream NOTIFY currentSubtitleStreamChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -50,6 +53,10 @@ public:
     bool muted() const;                      // 是否静音
     double speed() const;                    // 获取播放速度
     bool isAudioOnly() const;                // 是否为纯音频文件
+    QString currentSubtitle() const;
+    QVariantList subtitleStreams() const;
+    int currentSubtitleStream() const;
+    Q_INVOKABLE void setCurrentSubtitleStream(int index);
     QString theme() const;
     void setTheme(const QString &theme);
 
@@ -62,6 +69,9 @@ signals:
     void mutedChanged(bool muted);           // 静音状态变化信号
     void speedChanged(double speed);         // 速度变化信号
     void isAudioOnlyChanged();
+    void currentSubtitleChanged(QString text);
+    void subtitleStreamsChanged();
+    void currentSubtitleStreamChanged(int index);
     void themeChanged();
 
 private:

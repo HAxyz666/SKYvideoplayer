@@ -18,8 +18,9 @@ public:
     ~DemuxThread() override;
 
     void setFormatContext(AVFormatContext *ctx);
-    void setStreamIndices(int videoIdx, int audioIdx);
-    void setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQueue);
+    void setStreamIndices(int videoIdx, int audioIdx, int subtitleIdx);
+    void setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQueue, PacketQueue *subtitleQueue);
+    void setSubtitleStreamIndex(int idx) { m_subtitleStreamIdx = idx; }
     void stopRead();
     void setPausedRef(const std::atomic<bool> &paused);
 
@@ -34,8 +35,10 @@ private:
     AVFormatContext *m_fmtCtx;
     int m_videoStreamIdx;
     int m_audioStreamIdx;
+    int m_subtitleStreamIdx;
     PacketQueue *m_videoQueue;
     PacketQueue *m_audioQueue;
+    PacketQueue *m_subtitleQueue;
 
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;

@@ -18,6 +18,7 @@ struct YUVFrame;
 class DemuxThread;
 class VideoDecodeThread;
 class AudioDecodeThread;
+class SubtitleDecodeThread;
 class PacketQueue;
 class FrameQueue;
 class AVSyncController;
@@ -32,6 +33,9 @@ class MediaEngine : public QObject
     Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
     Q_PROPERTY(bool hasVideo READ hasVideo NOTIFY hasVideoChanged)
+    Q_PROPERTY(QString currentSubtitle READ currentSubtitle NOTIFY currentSubtitleChanged)
+    Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY subtitleStreamsChanged)
+    Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream WRITE setCurrentSubtitleStream NOTIFY currentSubtitleStreamChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -56,6 +60,12 @@ public:
     double volume() const;          // 获取当前音量
     bool muted() const;             // 是否静音
 
+    // --- 字幕 ---
+    QString currentSubtitle() const { return m_currentSubtitle; }
+    QVariantList subtitleStreams() const;
+    int currentSubtitleStream() const { return m_currentSubtitleStreamIndex; }
+    Q_INVOKABLE void setCurrentSubtitleStream(int index);
+
     // --- 速度控制 ---
     void setSpeed(double speed);
     double speed() const;
@@ -70,6 +80,9 @@ signals:
     void mutedChanged(bool muted);      // 静音状态变化信号
     void speedChanged(double speed);
     void hasVideoChanged();
+    void currentSubtitleChanged(QString text);
+    void subtitleStreamsChanged();
+    void currentSubtitleStreamChanged(int index);
 
 private:
     static constexpr int kAudioFrameQueueSize = 256;
@@ -85,16 +98,20 @@ private:
     AVFormatContext *m_fmtCtx;
     int m_videoStreamIndex;
     int m_audioStreamIndex;
+    int m_subtitleStreamIndex;
 
     AVCodecContext *m_videoCodecCtx;
     AVCodecContext *m_audioCodecCtx;
+    AVCodecContext *m_subtitleCodecCtx;
 
     DemuxThread *m_demuxThread;
     VideoDecodeThread *m_videoThread;
     AudioDecodeThread *m_audioThread;
+    SubtitleDecodeThread *m_subtitleThread;
 
     PacketQueue *m_videoPacketQueue;
     PacketQueue *m_audioPacketQueue;
+    PacketQueue *m_subtitlePacketQueue;
     FrameQueue *m_videoFrameQueue;
     FrameQueue *m_audioFrameQueue{nullptr};
 
@@ -111,10 +128,19 @@ private:
     qint64 m_pauseStartUs;
     QTimer *m_positionTimer;
 
-    double m_volume;        // 音量 0~100，通过 AudioOutput 应用
-    bool m_muted;           // 静音标志
-    bool m_audioOutputReady; // SDL 音频设备是否已打开
-    double m_speed;         // 播放速度
+    double m_volume;
+    bool m_muted;
+    bool m_audioOutputReady;
+    double m_speed;
+
+    struct SubtitleStreamInfo {
+        int streamIndex;
+        QString language;
+        QString title;
+    };
+    QVector<SubtitleStreamInfo> m_subtitleStreamsInfo;
+    int m_currentSubtitleStreamIndex{-1};
+    QString m_currentSubtitle;
 
 #ifdef ENABLE_HWACCEL
     AVBufferRef *m_hwDeviceCtx{nullptr};

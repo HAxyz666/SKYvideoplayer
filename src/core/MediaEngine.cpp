@@ -2,6 +2,7 @@
 #include "DemuxThread.h"
 #include "VideoDecodeThread.h"
 #include "AudioDecodeThread.h"
+#include "SubtitleDecodeThread.h"
 #include "PacketQueue.h"
 #include "FrameQueue.h"
 #include "AVSyncController.h"
@@ -74,13 +75,17 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_fmtCtx(nullptr)
     , m_videoStreamIndex(-1)
     , m_audioStreamIndex(-1)
+    , m_subtitleStreamIndex(-1)
     , m_videoCodecCtx(nullptr)
     , m_audioCodecCtx(nullptr)
+    , m_subtitleCodecCtx(nullptr)
     , m_demuxThread(nullptr)
     , m_videoThread(nullptr)
     , m_audioThread(nullptr)
+    , m_subtitleThread(nullptr)
     , m_videoPacketQueue(nullptr)
     , m_audioPacketQueue(nullptr)
+    , m_subtitlePacketQueue(nullptr)
     , m_videoFrameQueue(nullptr)
     , m_syncController(new AVSyncController(this))
     , m_audioOutput(new AudioOutput(this))
@@ -119,6 +124,9 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 {
     m_videoStreamIndex = -1;
     m_audioStreamIndex = -1;
+    m_subtitleStreamIndex = -1;
+    m_subtitleStreamsInfo.clear();
+    m_currentSubtitle = QString();
 
     if (avformat_open_input(&m_fmtCtx, filename.toUtf8().constData(), nullptr, nullptr) != 0) {
         qCritical() << "Could not open file:" << filename;
@@ -140,6 +148,14 @@ bool MediaEngine::initFFmpeg(const QString &filename)
             m_videoStreamIndex = i;
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && m_audioStreamIndex == -1) {
             m_audioStreamIndex = i;
+        } else if (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
+            AVDictionaryEntry *lang = av_dict_get(st->metadata, "language", nullptr, 0);
+            AVDictionaryEntry *title = av_dict_get(st->metadata, "title", nullptr, 0);
+            m_subtitleStreamsInfo.append({
+                static_cast<int>(i),
+                lang ? QString::fromUtf8(lang->value) : QString(),
+                title ? QString::fromUtf8(title->value) : QString()
+            });
         }
     }
 
@@ -229,6 +245,31 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 
     if (!m_audioCodecCtx)
         m_audioStreamIndex = -1;
+
+    // 初始化字幕解码器（选择默认或第一个字幕流）
+    m_currentSubtitleStreamIndex = -1;
+    m_subtitleStreamIndex = -1;
+    if (!m_subtitleStreamsInfo.isEmpty()) {
+        m_currentSubtitleStreamIndex = 0;
+        int selIdx = m_subtitleStreamsInfo[0].streamIndex;
+        AVCodecParameters *subPar = m_fmtCtx->streams[selIdx]->codecpar;
+        const AVCodec *subCodec = avcodec_find_decoder(subPar->codec_id);
+        if (subCodec) {
+            m_subtitleCodecCtx = avcodec_alloc_context3(subCodec);
+            if (m_subtitleCodecCtx) {
+                avcodec_parameters_to_context(m_subtitleCodecCtx, subPar);
+                if (avcodec_open2(m_subtitleCodecCtx, subCodec, nullptr) == 0) {
+                    m_subtitleStreamIndex = selIdx;
+                } else {
+                    avcodec_free_context(&m_subtitleCodecCtx);
+                }
+            }
+        }
+        if (m_subtitleStreamIndex < 0)
+            qWarning() << "Could not open subtitle codec";
+    }
+
+    emit subtitleStreamsChanged();
 
     av_dump_format(m_fmtCtx, 0, filename.toUtf8().constData(), 0);
 
@@ -371,6 +412,13 @@ void MediaEngine::seek(double seconds)
         avcodec_flush_buffers(m_videoCodecCtx);
     if (m_audioCodecCtx)
         avcodec_flush_buffers(m_audioCodecCtx);
+    if (m_subtitleCodecCtx) {
+        avcodec_flush_buffers(m_subtitleCodecCtx);
+        if (m_subtitleThread)
+            m_subtitleThread->clearSubtitles();
+    }
+    m_currentSubtitle = QString();
+    emit currentSubtitleChanged(m_currentSubtitle);
 
     qint64 now = av_gettime();
     m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(m_speed, 0.1));
@@ -479,6 +527,16 @@ void MediaEngine::updatePosition()
         m_position = pos;
         emit positionChanged(m_position);
     }
+
+    // 字幕同步
+    if (m_subtitleThread) {
+        qint64 posUs = static_cast<qint64>(pos * 1000000);
+        QString sub = m_subtitleThread->getSubtitleAt(posUs);
+        if (sub != m_currentSubtitle) {
+            m_currentSubtitle = sub;
+            emit currentSubtitleChanged(m_currentSubtitle);
+        }
+    }
 }
 
 void MediaEngine::startThreads()
@@ -495,10 +553,19 @@ void MediaEngine::startThreads()
         m_audioOutput->setFrameQueue(m_audioFrameQueue);
     }
 
+    if (m_subtitleCodecCtx) {
+        m_subtitlePacketQueue = new PacketQueue(16);
+        m_subtitleThread = new SubtitleDecodeThread(this);
+        m_subtitleThread->setCodecContext(m_subtitleCodecCtx);
+        m_subtitleThread->setPacketQueue(m_subtitlePacketQueue);
+        m_subtitleThread->setTimeBase(m_fmtCtx->streams[m_subtitleStreamIndex]->time_base);
+        m_subtitleThread->setPausedRef(m_paused);
+    }
+
     m_demuxThread = new DemuxThread(this);
     m_demuxThread->setFormatContext(m_fmtCtx);
-    m_demuxThread->setStreamIndices(m_videoStreamIndex, m_audioStreamIndex);
-    m_demuxThread->setPacketQueues(m_videoPacketQueue, m_audioPacketQueue);
+    m_demuxThread->setStreamIndices(m_videoStreamIndex, m_audioStreamIndex, m_subtitleStreamIndex);
+    m_demuxThread->setPacketQueues(m_videoPacketQueue, m_audioPacketQueue, m_subtitlePacketQueue);
     m_demuxThread->setPausedRef(m_paused);
     connect(m_demuxThread, &DemuxThread::eofReached, this, [this]() {
         emit playbackFinished();
@@ -540,6 +607,8 @@ void MediaEngine::startThreads()
         m_videoThread->start();
     if (m_audioThread)
         m_audioThread->start();
+    if (m_subtitleThread)
+        m_subtitleThread->start();
 }
 
 void MediaEngine::stopThreads()
@@ -564,6 +633,12 @@ void MediaEngine::stopThreads()
         delete m_audioThread;
         m_audioThread = nullptr;
     }
+    if (m_subtitleThread) {
+        m_subtitleThread->stopDecode();
+        m_subtitleThread->wait();
+        delete m_subtitleThread;
+        m_subtitleThread = nullptr;
+    }
 
     m_audioOutput->pause();
     m_audioOutput->reset();
@@ -571,6 +646,7 @@ void MediaEngine::stopThreads()
 
     delete m_videoPacketQueue; m_videoPacketQueue = nullptr;
     delete m_audioPacketQueue; m_audioPacketQueue = nullptr;
+    delete m_subtitlePacketQueue; m_subtitlePacketQueue = nullptr;
     delete m_videoFrameQueue; m_videoFrameQueue = nullptr;
     delete m_audioFrameQueue; m_audioFrameQueue = nullptr;
 }
@@ -584,6 +660,10 @@ void MediaEngine::cleanup()
     if (m_audioCodecCtx) {
         avcodec_free_context(&m_audioCodecCtx);
         m_audioCodecCtx = nullptr;
+    }
+    if (m_subtitleCodecCtx) {
+        avcodec_free_context(&m_subtitleCodecCtx);
+        m_subtitleCodecCtx = nullptr;
     }
     if (m_fmtCtx) {
         avformat_close_input(&m_fmtCtx);
@@ -599,4 +679,122 @@ void MediaEngine::cleanup()
     m_hwDeviceType = AV_HWDEVICE_TYPE_NONE;
     m_useHardwareDecode = false;
 #endif
+
+    m_currentSubtitle = QString();
+    emit currentSubtitleChanged(m_currentSubtitle);
+    m_currentSubtitleStreamIndex = -1;
+    m_subtitleStreamIndex = -1;
+    m_subtitleStreamsInfo.clear();
+    emit subtitleStreamsChanged();
+}
+
+QVariantList MediaEngine::subtitleStreams() const
+{
+    QVariantList list;
+    int idx = 1;
+    for (const auto &info : m_subtitleStreamsInfo) {
+        QString label;
+        if (!info.language.isEmpty())
+            label = info.language;
+        else if (!info.title.isEmpty())
+            label = info.title;
+        else
+            label = QStringLiteral("Subtitle #%1").arg(idx);
+        list << label;
+        idx++;
+    }
+    return list;
+}
+
+void MediaEngine::setCurrentSubtitleStream(int index)
+{
+    if (index == m_currentSubtitleStreamIndex)
+        return;
+
+    // -1 = 关闭字幕
+    if (index < 0 || index >= m_subtitleStreamsInfo.size()) {
+        m_currentSubtitle = QString();
+        emit currentSubtitleChanged(m_currentSubtitle);
+        if (m_subtitleThread) {
+            m_subtitleThread->stopDecode();
+            m_subtitleThread->wait();
+            delete m_subtitleThread;
+            m_subtitleThread = nullptr;
+        }
+        delete m_subtitlePacketQueue;
+        m_subtitlePacketQueue = nullptr;
+        if (m_subtitleCodecCtx) {
+            avcodec_free_context(&m_subtitleCodecCtx);
+            m_subtitleCodecCtx = nullptr;
+        }
+        m_subtitleStreamIndex = -1;
+        m_currentSubtitleStreamIndex = -1;
+        if (m_demuxThread)
+            m_demuxThread->setSubtitleStreamIndex(-1);
+        emit currentSubtitleStreamChanged(-1);
+        return;
+    }
+
+    int newStreamIdx = m_subtitleStreamsInfo[index].streamIndex;
+
+    // 停止旧字幕线程
+    m_currentSubtitle = QString();
+    emit currentSubtitleChanged(m_currentSubtitle);
+
+    if (m_subtitleThread) {
+        m_subtitleThread->stopDecode();
+        m_subtitleThread->wait();
+        delete m_subtitleThread;
+        m_subtitleThread = nullptr;
+    }
+    delete m_subtitlePacketQueue;
+    m_subtitlePacketQueue = nullptr;
+
+    if (m_subtitleCodecCtx) {
+        avcodec_free_context(&m_subtitleCodecCtx);
+        m_subtitleCodecCtx = nullptr;
+    }
+    m_subtitleStreamIndex = -1;
+
+    // 打开新字幕流解码器
+    AVCodecParameters *subPar = m_fmtCtx->streams[newStreamIdx]->codecpar;
+    const AVCodec *subCodec = avcodec_find_decoder(subPar->codec_id);
+    if (!subCodec) {
+        m_currentSubtitleStreamIndex = -1;
+        emit currentSubtitleStreamChanged(-1);
+        return;
+    }
+
+    m_subtitleCodecCtx = avcodec_alloc_context3(subCodec);
+    if (!m_subtitleCodecCtx) {
+        m_currentSubtitleStreamIndex = -1;
+        emit currentSubtitleStreamChanged(-1);
+        return;
+    }
+
+    avcodec_parameters_to_context(m_subtitleCodecCtx, subPar);
+    if (avcodec_open2(m_subtitleCodecCtx, subCodec, nullptr) < 0) {
+        avcodec_free_context(&m_subtitleCodecCtx);
+        m_currentSubtitleStreamIndex = -1;
+        emit currentSubtitleStreamChanged(-1);
+        return;
+    }
+
+    m_subtitleStreamIndex = newStreamIdx;
+    m_currentSubtitleStreamIndex = index;
+
+    // 更新解复用线程的字幕流索引
+    if (m_demuxThread)
+        m_demuxThread->setSubtitleStreamIndex(m_subtitleStreamIndex);
+
+    // 启动新字幕线程
+    m_subtitlePacketQueue = new PacketQueue(16);
+    m_subtitleThread = new SubtitleDecodeThread(this);
+    m_subtitleThread->setCodecContext(m_subtitleCodecCtx);
+    m_subtitleThread->setPacketQueue(m_subtitlePacketQueue);
+    m_subtitleThread->setTimeBase(m_fmtCtx->streams[m_subtitleStreamIndex]->time_base);
+    m_subtitleThread->setPausedRef(m_paused);
+    m_subtitleThread->start();
+
+    emit currentSubtitleStreamChanged(index);
 }

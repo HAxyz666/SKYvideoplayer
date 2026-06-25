@@ -7,8 +7,10 @@ DemuxThread::DemuxThread(QObject *parent)
     , m_fmtCtx(nullptr)
     , m_videoStreamIdx(-1)
     , m_audioStreamIdx(-1)
+    , m_subtitleStreamIdx(-1)
     , m_videoQueue(nullptr)
     , m_audioQueue(nullptr)
+    , m_subtitleQueue(nullptr)
     , m_quit(false)
     , m_paused(nullptr)
 {
@@ -25,16 +27,18 @@ void DemuxThread::setFormatContext(AVFormatContext *ctx)
     m_fmtCtx = ctx;
 }
 
-void DemuxThread::setStreamIndices(int videoIdx, int audioIdx)
+void DemuxThread::setStreamIndices(int videoIdx, int audioIdx, int subtitleIdx)
 {
     m_videoStreamIdx = videoIdx;
     m_audioStreamIdx = audioIdx;
+    m_subtitleStreamIdx = subtitleIdx;
 }
 
-void DemuxThread::setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQueue)
+void DemuxThread::setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQueue, PacketQueue *subtitleQueue)
 {
     m_videoQueue = videoQueue;
     m_audioQueue = audioQueue;
+    m_subtitleQueue = subtitleQueue;
 }
 
 void DemuxThread::stopRead()
@@ -47,6 +51,10 @@ void DemuxThread::stopRead()
     if (m_audioQueue) {
         m_audioQueue->flush();
         m_audioQueue->setFinished(true);
+    }
+    if (m_subtitleQueue) {
+        m_subtitleQueue->flush();
+        m_subtitleQueue->setFinished(true);
     }
 }
 
@@ -90,6 +98,8 @@ void DemuxThread::run()
             m_videoQueue->push(pkt);
         } else if (pkt->stream_index == m_audioStreamIdx && m_audioQueue) {
             m_audioQueue->push(pkt);
+        } else if (pkt->stream_index == m_subtitleStreamIdx && m_subtitleQueue) {
+            m_subtitleQueue->push(pkt);
         }
 
         av_packet_unref(pkt);
@@ -99,4 +109,5 @@ void DemuxThread::run()
 
     if (m_videoQueue) m_videoQueue->setFinished(true);
     if (m_audioQueue) m_audioQueue->setFinished(true);
+    if (m_subtitleQueue) m_subtitleQueue->setFinished(true);
 }

@@ -34,6 +34,7 @@ set(CORE_SOURCES
     src/core/DemuxThread.cpp
     src/core/VideoDecodeThread.cpp
     src/core/AudioDecodeThread.cpp
+    src/core/SubtitleDecodeThread.cpp
 )
 
 set(CORE_HEADERS
@@ -46,6 +47,7 @@ set(CORE_HEADERS
     src/core/DemuxThread.h
     src/core/VideoDecodeThread.h
     src/core/AudioDecodeThread.h
+    src/core/SubtitleDecodeThread.h
 )
 
 set(LOGIC_SOURCES
@@ -85,6 +87,7 @@ qt6_add_qml_module(SKYvideoplayer
         qml/ProgressBar.qml
         qml/PlaylistPanel.qml
         qml/RecentHistory.qml
+        qml/SubtitleSelector.qml
         qml/VolumeControl.qml
     SOURCES
         src/core/VideoRenderItem.cpp
