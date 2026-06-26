@@ -36,7 +36,19 @@ Item {
             value: appController.volume
             stepSize: 1
 
+            // Don't push back to the controller while the user is dragging —
+            // onMoved handles that. Using a binding alone breaks the first
+            // time the user drags, so we restore the value via Connections
+            // only when the slider is not actively pressed.
             onMoved: appController.volume = value
+
+            Connections {
+                target: appController
+                function onVolumeChanged(vol) {
+                    if (!volSlider.pressed)
+                        volSlider.value = vol
+                }
+            }
 
             handle: Rectangle {
                 x: volSlider.leftPadding + volSlider.visualPosition * (volSlider.availableWidth - width)

@@ -48,7 +48,11 @@ public:
     {
         auto *ri = static_cast<VideoRenderItem *>(item);
         QMutexLocker lock(&ri->m_mutex);
-        if (!ri->m_pendingFrame.yPlane.isEmpty()) {
+        if (ri->m_clearRequested) {
+            pendingFrame = YUVFrame();
+            needsUpload = false;
+            ri->m_clearRequested = false;
+        } else if (!ri->m_pendingFrame.yPlane.isEmpty()) {
             pendingFrame = ri->m_pendingFrame;
             needsUpload = true;
         }
@@ -83,7 +87,7 @@ public:
 
     void render(QRhiCommandBuffer *cb) override
     {
-        if (pendingFrame.yPlane.isEmpty() || !initialized || !uniformBuf)
+        if (!initialized || !uniformBuf)
             return;
 
         QRhi *rhi = cb->rhi();
@@ -96,7 +100,12 @@ public:
             m_initialUpdates = nullptr;
         }
 
-        if (needsUpload) {
+        const bool hasFrameData = !pendingFrame.yPlane.isEmpty();
+
+        // Upload must be attempted even when texY/pipeline are still null
+        // (first valid frame), otherwise textures and pipeline are never
+        // created and the screen stays black forever.
+        if (needsUpload && hasFrameData) {
             int w = pendingFrame.frameSize.width();
             int h = pendingFrame.frameSize.height();
             int halfW = (w + 1) / 2;
@@ -128,20 +137,26 @@ public:
             needsUpload = false;
         }
 
-        batch->updateDynamicBuffer(uniformBuf, 0, 64, mvpMatrix().constData());
+        const bool hasFrame = hasFrameData && pipeline && texY;
 
-        cb->beginPass(renderTarget(), Qt::black, QRhiDepthStencilClearValue(), batch);
+        if (hasFrame)
+            batch->updateDynamicBuffer(uniformBuf, 0, 64, mvpMatrix().constData());
+
         //周代森：强制渲染当前画面，修复了暂停+按下全屏时的画面尺寸问题
-        {
+        // beginPass always clears to Qt::black, so an empty frame (e.g. after
+        // clearImage()) simply repaints the surface black instead of leaving
+        // the previous frame stuck on screen.
+        cb->beginPass(renderTarget(), Qt::black, QRhiDepthStencilClearValue(), batch);
+        if (hasFrame) {
             QSize s = renderTarget()->pixelSize();
             cb->setViewport(QRhiViewport(0, 0, s.width(), s.height()));
             cb->setScissor(QRhiScissor(0, 0, s.width(), s.height()));
+            cb->setGraphicsPipeline(pipeline);
+            cb->setShaderResources(srb);
+            QRhiCommandBuffer::VertexInput vbuf(vertexBuf, 0);
+            cb->setVertexInput(0, 1, &vbuf);
+            cb->draw(4);
         }
-        cb->setGraphicsPipeline(pipeline);
-        cb->setShaderResources(srb);
-        QRhiCommandBuffer::VertexInput vbuf(vertexBuf, 0);
-        cb->setVertexInput(0, 1, &vbuf);
-        cb->draw(4);
         cb->endPass();
     }
 
@@ -233,6 +248,7 @@ void VideoRenderItem::setYUVFrame(const YUVFrame &frame)
 {
     QMutexLocker lock(&m_mutex);
     m_pendingFrame = frame;
+    m_clearRequested = false;
     update();
 }
 
@@ -240,6 +256,7 @@ void VideoRenderItem::clearImage()
 {
     QMutexLocker lock(&m_mutex);
     m_pendingFrame = YUVFrame();
+    m_clearRequested = true;
     update();
 }
 

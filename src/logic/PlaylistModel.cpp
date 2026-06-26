@@ -86,12 +86,18 @@ void PlaylistModel::removeItem(int index)
     m_items.removeAt(index);
     endRemoveRows();
 
-    if (m_currentIndex == index)
+    bool currentChanged = false;
+    if (m_currentIndex == index) {
         m_currentIndex = -1;
-    else if (m_currentIndex > index)
+        currentChanged = true;
+    } else if (m_currentIndex > index) {
         m_currentIndex--;
+        currentChanged = true;
+    }
 
     emit countChanged();
+    if (currentChanged)
+        emit currentIndexChanged();
 }
 
 // 获取指定行的全部数据，供 QML 排序用
@@ -179,7 +185,7 @@ int PlaylistModel::count() const
 // 是否有上一首
 bool PlaylistModel::hasPrev() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0)
         return false;
     switch (m_playbackMode) {
     case PlaybackMode::Loop:
@@ -194,7 +200,7 @@ bool PlaylistModel::hasPrev() const
 // 是否有下一首
 bool PlaylistModel::hasNext() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0)
         return false;
     switch (m_playbackMode) {
     case PlaybackMode::Loop:
@@ -209,7 +215,7 @@ bool PlaylistModel::hasNext() const
 // 获取上一首文件路径（根据播放模式）
 QString PlaylistModel::prevFilePath() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0 || m_currentIndex >= m_items.size())
         return {};
 
     switch (m_playbackMode) {
@@ -228,7 +234,7 @@ QString PlaylistModel::prevFilePath() const
 // 获取下一首文件路径（根据播放模式）
 QString PlaylistModel::nextFilePath() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0 || m_currentIndex >= m_items.size())
         return {};
 
     switch (m_playbackMode) {

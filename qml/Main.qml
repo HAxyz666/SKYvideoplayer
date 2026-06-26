@@ -103,12 +103,8 @@ ApplicationWindow {
         }
 
         onDropped: function(drop) {
-            var urls = drop.urls
-            if (urls.length > 0) {
-                for (var i = 0; i < urls.length; ++i)
-                    appController.recentFilesModel.addFile(urls[i].toString())
-                appLayout.controller.openFile(urls[0].toString())
-            }
+            if (drop.urls.length > 0)
+                appLayout.controller.openFile(drop.urls[0].toString())
         }
     }
 

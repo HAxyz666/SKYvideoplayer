@@ -346,12 +346,13 @@ void AudioDecodeThread::applySpeed()
     }
     m_speedDirty.store(false, std::memory_order_relaxed);
 
-    if (m_currentSpeed == speed)
+    double current = m_currentSpeed.load(std::memory_order_acquire);
+    if (qFuzzyCompare(current, speed))
         return;
-    m_currentSpeed = speed;
+    m_currentSpeed.store(speed, std::memory_order_release);
 
     if (m_filterGraph) {
-        av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
+        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
         while (!m_quit) {
             AVFrame *filtered = av_frame_alloc();
             int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
@@ -360,16 +361,22 @@ void AudioDecodeThread::applySpeed()
                 break;
             }
             filtered = convertFrameToS16(filtered);
-            m_frameQueue->push(filtered);
-            av_frame_free(&filtered);
+            if (filtered) {
+                m_frameQueue->push(filtered);
+                av_frame_free(&filtered);
+            }
         }
     }
 
     destroyFilterGraph();
     if (qFuzzyCompare(speed, 1.0))
         return;
-    if (!initFilterGraph(speed))
-        qWarning() << "AudioDecodeThread: failed to recreate filter graph at tempo" << speed;
+    if (!initFilterGraph(speed)) {
+        qWarning() << "AudioDecodeThread: failed to recreate filter graph at tempo" << speed
+                   << "- falling back to 1.0x passthrough";
+        // Keep m_currentSpeed in sync with reality (no graph => 1.0x output).
+        m_currentSpeed.store(1.0, std::memory_order_release);
+    }
 }
 
 // ── Main loop ──
@@ -384,8 +391,8 @@ void AudioDecodeThread::run()
         return;
     }
 
-    if (!qFuzzyCompare(m_currentSpeed, 1.0))
-        initFilterGraph(m_currentSpeed);
+    if (!qFuzzyCompare(m_currentSpeed.load(std::memory_order_acquire), 1.0))
+        initFilterGraph(m_currentSpeed.load(std::memory_order_acquire));
 
     AVFrame *frame = av_frame_alloc();
     if (!frame)
@@ -425,7 +432,7 @@ void AudioDecodeThread::run()
                 continue;
             }
 
-            if (m_filterGraph && !qFuzzyCompare(m_currentSpeed, 1.0)) {
+            if (m_filterGraph && !qFuzzyCompare(m_currentSpeed.load(std::memory_order_acquire), 1.0)) {
                 int addRet = av_buffersrc_add_frame_flags(m_abufferCtx, resampled, 0);
                 if (addRet >= 0) {
                     while (true) {
@@ -440,9 +447,10 @@ void AudioDecodeThread::run()
                             break;
                         }
                         filtered = convertFrameToS16(filtered);
-
-                        m_frameQueue->push(filtered);
-                        av_frame_free(&filtered);
+                        if (filtered) {
+                            m_frameQueue->push(filtered);
+                            av_frame_free(&filtered);
+                        }
                     }
                 } else if (addRet < 0) {
                     qWarning() << "AudioDecodeThread: av_buffersrc_add_frame_flags failed:" << addRet;
@@ -467,9 +475,11 @@ void AudioDecodeThread::run()
                 break;
             }
             filtered = convertFrameToS16(filtered);
-            if (!m_quit)
-                m_frameQueue->push(filtered);
-            av_frame_free(&filtered);
+            if (filtered) {
+                if (!m_quit)
+                    m_frameQueue->push(filtered);
+                av_frame_free(&filtered);
+            }
         }
     }
 

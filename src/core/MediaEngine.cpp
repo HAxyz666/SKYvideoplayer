@@ -7,15 +7,67 @@
 #include "FrameQueue.h"
 #include "AVSyncController.h"
 #include "AudioOutput.h"
+#include "VideoRenderItem.h"
 
 #include <QDebug>
 #include <QFileInfo>
+#include <cstring>
 
 extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
+}
+
+// --- YUV plane extraction (runs on GUI thread inside onVideoRefresh) ---
+
+static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
+{
+    YUVFrame out;
+    out.frameSize = QSize(width, height);
+
+    int halfW = (width + 1) / 2;
+    int halfH = (height + 1) / 2;
+
+    out.yPlane.resize(width * height);
+    for (int i = 0; i < height; i++)
+        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
+
+    out.uPlane.resize(halfW * halfH);
+    for (int i = 0; i < halfH; i++)
+        memcpy(out.uPlane.data() + i * halfW, frame->data[1] + i * frame->linesize[1], halfW);
+
+    out.vPlane.resize(halfW * halfH);
+    for (int i = 0; i < halfH; i++)
+        memcpy(out.vPlane.data() + i * halfW, frame->data[2] + i * frame->linesize[2], halfW);
+
+    return out;
+}
+
+static YUVFrame extractNV12(AVFrame *frame, int width, int height)
+{
+    YUVFrame out;
+    out.frameSize = QSize(width, height);
+
+    int halfW = (width + 1) / 2;
+    int halfH = (height + 1) / 2;
+
+    out.yPlane.resize(width * height);
+    for (int i = 0; i < height; i++)
+        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
+
+    out.uPlane.resize(halfW * halfH);
+    out.vPlane.resize(halfW * halfH);
+    const uint8_t *uv = frame->data[1];
+    for (int i = 0; i < halfH; i++) {
+        for (int j = 0; j < halfW; j++) {
+            out.uPlane[i * halfW + j] = uv[i * frame->linesize[1] + j * 2];
+            out.vPlane[i * halfW + j] = uv[i * frame->linesize[1] + j * 2 + 1];
+        }
+    }
+
+    return out;
 }
 
 #ifdef ENABLE_HWACCEL
@@ -89,7 +141,7 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_videoFrameQueue(nullptr)
     , m_syncController(new AVSyncController(this))
     , m_audioOutput(new AudioOutput(this))
-    , m_frameQueueDrainTimer(new QTimer(this))
+    , m_videoRefreshTimer(new QTimer(this))
     , m_paused(false)
     , m_position(0.0)
     , m_duration(0.0)
@@ -102,14 +154,11 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_audioOutputReady(false)
     , m_speed(1.0)
 {
-    connect(m_frameQueueDrainTimer, &QTimer::timeout, this, [this]() {
-        if (!m_videoFrameQueue) return;
-        while (m_videoFrameQueue->size() > 0) {
-            AVFrame *frame = m_videoFrameQueue->tryPop(0);
-            if (frame) av_frame_free(&frame);
-            else break;
-        }
-    });
+    // Video display refresh: peeks m_videoFrameQueue and times frame delivery
+    // to VideoRenderItem via AVSyncController. 10ms granularity is fine for
+    // <=60fps content; the actual delay is driven by computeFrameDelay().
+    m_videoRefreshTimer->setInterval(10);
+    connect(m_videoRefreshTimer, &QTimer::timeout, this, &MediaEngine::onVideoRefresh);
 
     m_positionTimer->setInterval(250);
     connect(m_positionTimer, &QTimer::timeout, this, &MediaEngine::updatePosition);
@@ -288,6 +337,7 @@ void MediaEngine::start()
 
     emit hasVideoChanged();
 
+    m_paused = false;
     m_audioOutputReady = false;
     m_syncController->reset();
     m_syncController->setSpeed(m_speed);
@@ -296,14 +346,10 @@ void MediaEngine::start()
     m_startTimeUs = av_gettime();
     m_pausedDurationUs = 0;
     m_pauseStartUs = 0;
+    m_lastFrameDisplayTimeUs = 0;
 
     // Start threads first so audio decoder fills the FrameQueue
     startThreads();
-
-    if (m_videoThread)
-        m_videoThread->setSpeed(m_speed);
-    if (m_audioThread)
-        m_audioThread->setSpeed(m_speed);
 
     // Initialize SDL audio AFTER decoder has started, so FIFO can pre-fill
     if (m_audioCodecCtx) {
@@ -317,23 +363,32 @@ void MediaEngine::start()
         m_audioOutputReady = m_audioOutput->initialize(spec);
         if (m_audioOutputReady) {
             m_audioOutput->setSyncController(m_syncController);
-            // SDL_PauseAudioDevice(0) was called inside initialize(), callback active now
         }
     }
 
     m_positionTimer->start();
+    if (m_videoFrameQueue)
+        m_videoRefreshTimer->start();
 }
 
 void MediaEngine::stop()
 {
     m_positionTimer->stop();
-    m_paused = false;
+    m_videoRefreshTimer->stop();
+
+    // Report "not playing" only if something was actually playing; avoids
+    // spurious pausedChanged on the very first open() (no prior fmtCtx).
+    const bool wasPlaying = !m_paused && m_fmtCtx != nullptr;
+    m_paused = true;
+
     stopThreads();
     cleanup();
     m_position = 0.0;
     m_duration = 0.0;
     emit positionChanged(0.0);
     emit durationChanged(0.0);
+    if (wasPlaying)
+        emit pausedChanged(true);
 }
 
 bool MediaEngine::open(const QString &url)
@@ -351,6 +406,7 @@ void MediaEngine::pause()
 {
     if (m_paused.exchange(true))
         return;
+    m_videoRefreshTimer->stop();
     m_audioOutput->pause();
     m_pauseStartUs = av_gettime();
     emit pausedChanged(true);
@@ -363,6 +419,8 @@ void MediaEngine::resume()
     m_audioOutput->resume();
     m_pausedDurationUs += av_gettime() - m_pauseStartUs;
     m_pauseStartUs = 0;
+    if (m_videoFrameQueue)
+        m_videoRefreshTimer->start();
     emit pausedChanged(false);
 }
 
@@ -385,11 +443,10 @@ void MediaEngine::seek(double seconds)
         return;
 
     m_positionTimer->stop();
+    m_videoRefreshTimer->stop();
 
-    bool wasPaused = m_paused;
-    if (!wasPaused)
-        pause();
-
+    // Stop audio directly (no pausedChanged signal) to avoid UI flicker.
+    m_audioOutput->pause();
     m_audioOutput->reset();
     stopThreads();
 
@@ -420,24 +477,25 @@ void MediaEngine::seek(double seconds)
     m_currentSubtitle = QString();
     emit currentSubtitleChanged(m_currentSubtitle);
 
+    m_syncController->reset();
+    m_syncController->setSpeed(m_speed);
+
     qint64 now = av_gettime();
     m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(m_speed, 0.1));
     m_pausedDurationUs = 0;
+    m_pauseStartUs = 0;
+    m_lastFrameDisplayTimeUs = 0;
     m_position = seconds;
     emit positionChanged(m_position);
 
-    m_pauseStartUs = now;
     startThreads();
 
-    if (m_videoThread)
-        m_videoThread->setSpeed(m_speed);
-    if (m_audioThread)
-        m_audioThread->setSpeed(m_speed);
-
-    if (!wasPaused)
-        resume();
+    if (!m_paused)
+        m_audioOutput->resume();
 
     m_positionTimer->start();
+    if (m_videoFrameQueue)
+        m_videoRefreshTimer->start();
 }
 
 double MediaEngine::position() const
@@ -454,25 +512,32 @@ double MediaEngine::duration() const
 
 void MediaEngine::setSpeed(double speed)
 {
-    speed = qBound(0.1, speed, 5.0);
+    // Match the audio atempo filter's working range so A/V stay in sync.
+    speed = qBound(0.5, speed, 2.0);
     if (qFuzzyCompare(m_speed, speed))
         return;
     double oldSpeed = m_speed;
     m_speed = speed;
-    if (m_startTimeUs != 0 && !m_paused) {
-        qint64 now = av_gettime();
-        double currentPos = (now - m_startTimeUs - m_pausedDurationUs) * oldSpeed / 1000000.0;
-        m_startTimeUs = now - m_pausedDurationUs - static_cast<qint64>(currentPos * 1000000.0 / speed);
+
+    // Re-anchor the wall-clock start time so the displayed position is
+    // continuous across the speed change. When paused, anchor against the
+    // pause start moment so resume doesn't jump.
+    if (m_startTimeUs != 0) {
+        qint64 refTime = m_paused ? m_pauseStartUs : av_gettime();
+        double currentPos = (refTime - m_startTimeUs - m_pausedDurationUs) * oldSpeed / 1000000.0;
+        m_startTimeUs = refTime - m_pausedDurationUs
+                        - static_cast<qint64>(currentPos * 1000000.0 / speed);
     }
-    // Clear all queues to prevent stale frames from causing burst playback
-    // and to unblock the audio decode pipeline.
+
+    // Clear all queues to prevent stale frames from causing burst playback.
     if (m_videoFrameQueue)
         m_videoFrameQueue->clear();
     if (m_audioFrameQueue)
         m_audioFrameQueue->clear();
+    // Also drain the SDL audio FIFO so playback continues at the new rate.
+    m_audioOutput->reset();
+
     m_syncController->setSpeed(speed);
-    if (m_videoThread)
-        m_videoThread->setSpeed(speed);
     if (m_audioThread)
         m_audioThread->setSpeed(speed);
     emit speedChanged(m_speed);
@@ -514,6 +579,58 @@ bool MediaEngine::muted() const
     return m_muted;
 }
 
+void MediaEngine::onVideoRefresh()
+{
+    if (!m_videoFrameQueue)
+        return;
+
+    AVFrame *frame = m_videoFrameQueue->peek();
+    if (!frame)
+        return;
+
+    double pts = 0.0;
+    if (frame->pts != AV_NOPTS_VALUE)
+        pts = frame->pts * av_q2d(m_videoTimeBase);
+
+    double delay = m_syncController->computeFrameDelay(pts);
+
+    // When AudioMaster sync detects video behind audio, it sets delay=0 so
+    // the video catches up.  Without a floor this would dump frames at the
+    // 10ms timer rate (100fps), making playback look unreasonably fast.
+    // Clamp the effective delay to 1/30 s (~30fps max) to keep catch-up
+    // smooth while still allowing the video to close the gap promptly.
+    if (delay < 1.0 / 30.0)
+        delay = 1.0 / 30.0;
+
+    // Compare wall-clock elapsed time since the last displayed frame against
+    // the target delay.  This correctly handles the 10ms timer granularity:
+    // frames with a 33-40ms interval will be shown after ~3-4 timer ticks
+    // instead of being permanently blocked by the old "delay > 0.001" check.
+    qint64 now = av_gettime();
+    double elapsed = (now - m_lastFrameDisplayTimeUs) / 1000000.0;
+
+    if (elapsed + 0.001 < delay)
+        return;
+
+    frame = m_videoFrameQueue->tryPop(0);
+    if (!frame)
+        return;
+
+    // Update sync state only after we've committed to displaying this frame.
+    m_syncController->onFrameDisplayed(pts);
+    m_lastFrameDisplayTimeUs = now;
+
+    YUVFrame yuv;
+    AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
+    if (fmt == AV_PIX_FMT_NV12 || fmt == AV_PIX_FMT_NV21)
+        yuv = extractNV12(frame, frame->width, frame->height);
+    else
+        yuv = extractYUV420P(frame, frame->width, frame->height);
+
+    emit frameReady(yuv);
+    av_frame_free(&frame);
+}
+
 void MediaEngine::updatePosition()
 {
     if (m_paused || m_startTimeUs == 0)
@@ -541,16 +658,17 @@ void MediaEngine::updatePosition()
 
 void MediaEngine::startThreads()
 {
-    m_audioPacketQueue = new PacketQueue(64);
+    // Only allocate the audio packet queue when there is an audio stream.
+    if (m_audioCodecCtx) {
+        m_audioPacketQueue = new PacketQueue(64);
+        m_audioFrameQueue = new FrameQueue(kAudioFrameQueueSize);
+        m_audioOutput->setFrameQueue(m_audioFrameQueue);
+    }
 
     if (m_videoStreamIndex != -1) {
         m_videoPacketQueue = new PacketQueue(64);
         m_videoFrameQueue = new FrameQueue(24);
-    }
-
-    if (m_audioCodecCtx) {
-        m_audioFrameQueue = new FrameQueue(kAudioFrameQueueSize);
-        m_audioOutput->setFrameQueue(m_audioFrameQueue);
+        m_videoTimeBase = m_fmtCtx->streams[m_videoStreamIndex]->time_base;
     }
 
     if (m_subtitleCodecCtx) {
@@ -579,9 +697,7 @@ void MediaEngine::startThreads()
         m_videoThread->setCodecContext(m_videoCodecCtx);
         m_videoThread->setPacketQueue(m_videoPacketQueue);
         m_videoThread->setFrameQueue(m_videoFrameQueue);
-        m_videoThread->setTimeBase(m_fmtCtx->streams[m_videoStreamIndex]->time_base);
         m_videoThread->setPausedRef(m_paused);
-        connect(m_videoThread, &VideoDecodeThread::frameReady, this, &MediaEngine::frameReady);
 
 #ifdef ENABLE_HWACCEL
         if (m_useHardwareDecode && m_hwDeviceCtx) {
@@ -599,9 +715,6 @@ void MediaEngine::startThreads()
         m_audioThread->setTimeBase(m_fmtCtx->streams[m_audioStreamIndex]->time_base);
     }
 
-    if (m_videoFrameQueue)
-        m_frameQueueDrainTimer->start(100);
-
     m_demuxThread->start();
     if (m_videoThread)
         m_videoThread->start();
@@ -613,8 +726,6 @@ void MediaEngine::startThreads()
 
 void MediaEngine::stopThreads()
 {
-    m_frameQueueDrainTimer->stop();
-
     if (m_demuxThread) {
         m_demuxThread->stopRead();
         m_demuxThread->wait();

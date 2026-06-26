@@ -57,6 +57,6 @@ private:
 
     std::atomic<bool> m_speedDirty;
     double m_pendingSpeed;
-    double m_currentSpeed{1.0};
+    std::atomic<double> m_currentSpeed{1.0};
     std::mutex m_speedMutex;
 };

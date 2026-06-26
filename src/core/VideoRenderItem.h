@@ -31,5 +31,6 @@ protected:
 private:
     friend class VideoRenderItemRenderer;
     YUVFrame m_pendingFrame;
+    bool m_clearRequested{false};
     QMutex m_mutex;
 };

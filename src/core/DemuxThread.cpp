@@ -14,9 +14,7 @@ DemuxThread::DemuxThread(QObject *parent)
     , m_quit(false)
     , m_paused(nullptr)
 {
-}
-
-DemuxThread::~DemuxThread()
+}DemuxThread::~DemuxThread()
 {
     stopRead();
     wait();
@@ -31,7 +29,7 @@ void DemuxThread::setStreamIndices(int videoIdx, int audioIdx, int subtitleIdx)
 {
     m_videoStreamIdx = videoIdx;
     m_audioStreamIdx = audioIdx;
-    m_subtitleStreamIdx = subtitleIdx;
+    m_subtitleStreamIdx.store(subtitleIdx, std::memory_order_release);
 }
 
 void DemuxThread::setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQueue, PacketQueue *subtitleQueue)
@@ -98,7 +96,7 @@ void DemuxThread::run()
             m_videoQueue->push(pkt);
         } else if (pkt->stream_index == m_audioStreamIdx && m_audioQueue) {
             m_audioQueue->push(pkt);
-        } else if (pkt->stream_index == m_subtitleStreamIdx && m_subtitleQueue) {
+        } else if (pkt->stream_index == m_subtitleStreamIdx.load(std::memory_order_acquire) && m_subtitleQueue) {
             m_subtitleQueue->push(pkt);
         }
 

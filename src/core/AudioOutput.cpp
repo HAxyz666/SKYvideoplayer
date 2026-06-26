@@ -134,8 +134,8 @@ bool AudioOutput::muted() const
 
 double AudioOutput::getAudioClock() const
 {
-    if (m_syncController)
-        return m_syncController->getAudioClock();
+    // No longer exposed by AVSyncController; audio clock is internal to the
+    // sync controller and updated via updateAudioClock() from fillAudioFifo.
     return 0.0;
 }
 

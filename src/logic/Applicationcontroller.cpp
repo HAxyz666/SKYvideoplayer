@@ -122,8 +122,8 @@ void ApplicationController::playItem(int index)
     m_playlistModel->setCurrentIndex(index);
     QString filePath = m_playlistModel->itemAt(index).filePath;
     m_recentFiles->addFile(filePath);
-    m_mediaEngine->open(filePath);
-    emit playbackStateChanged(true);
+    bool ok = m_mediaEngine->open(filePath);
+    emit playbackStateChanged(ok);
 }
 
 void ApplicationController::playNext()
@@ -135,8 +135,8 @@ void ApplicationController::playNext()
     if (nextIdx >= 0) {
         m_playlistModel->setCurrentIndex(nextIdx);
         m_recentFiles->addFile(nextPath);
-        m_mediaEngine->open(nextPath);
-        emit playbackStateChanged(true);
+        bool ok = m_mediaEngine->open(nextPath);
+        emit playbackStateChanged(ok);
     }
 }
 
@@ -149,8 +149,8 @@ void ApplicationController::playPrev()
     if (prevIdx >= 0) {
         m_playlistModel->setCurrentIndex(prevIdx);
         m_recentFiles->addFile(prevPath);
-        m_mediaEngine->open(prevPath);
-        emit playbackStateChanged(true);
+        bool ok = m_mediaEngine->open(prevPath);
+        emit playbackStateChanged(ok);
     }
 }
 

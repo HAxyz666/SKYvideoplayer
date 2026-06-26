@@ -8,6 +8,7 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavutil/rational.h>
 #ifdef ENABLE_HWACCEL
 #include <libavutil/hwcontext.h>
 #endif
@@ -92,6 +93,7 @@ private:
     void startThreads();
     void stopThreads();
     void updatePosition();
+    void onVideoRefresh();
 
     QString m_filename;
 
@@ -117,7 +119,9 @@ private:
 
     AVSyncController *m_syncController;
     AudioOutput *m_audioOutput;
-    QTimer *m_frameQueueDrainTimer;
+    QTimer *m_videoRefreshTimer;
+
+    AVRational m_videoTimeBase{1, 90000};
 
     std::atomic<bool> m_paused;
 
@@ -127,6 +131,8 @@ private:
     qint64 m_pausedDurationUs;
     qint64 m_pauseStartUs;
     QTimer *m_positionTimer;
+
+    qint64 m_lastFrameDisplayTimeUs{0};
 
     double m_volume;
     bool m_muted;
