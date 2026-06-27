@@ -349,7 +349,6 @@ void AudioDecodeThread::applySpeed()
     double current = m_currentSpeed.load(std::memory_order_acquire);
     if (qFuzzyCompare(current, speed))
         return;
-    m_currentSpeed.store(speed, std::memory_order_release);
 
     if (m_filterGraph) {
         (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
@@ -360,6 +359,10 @@ void AudioDecodeThread::applySpeed()
                 av_frame_free(&filtered);
                 break;
             }
+            // atempo divided PTS by old tempo; multiply back to restore
+            // original timeline so fillAudioFifo gets consistent clock values.
+            if (filtered->pts != AV_NOPTS_VALUE && current > 0.0)
+                filtered->pts = filtered->pts * current;
             filtered = convertFrameToS16(filtered);
             if (filtered) {
                 m_frameQueue->push(filtered);
@@ -368,6 +371,7 @@ void AudioDecodeThread::applySpeed()
         }
     }
 
+    m_currentSpeed.store(speed, std::memory_order_release);
     destroyFilterGraph();
     if (qFuzzyCompare(speed, 1.0))
         return;
@@ -448,6 +452,10 @@ void AudioDecodeThread::run()
                         }
                         filtered = convertFrameToS16(filtered);
                         if (filtered) {
+                            // atempo divided PTS by tempo; restore original timeline.
+                            double spd = m_currentSpeed.load(std::memory_order_acquire);
+                            if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0)
+                                filtered->pts = filtered->pts * spd;
                             m_frameQueue->push(filtered);
                             av_frame_free(&filtered);
                         }
@@ -476,6 +484,9 @@ void AudioDecodeThread::run()
             }
             filtered = convertFrameToS16(filtered);
             if (filtered) {
+                double spd = m_currentSpeed.load(std::memory_order_acquire);
+                if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0)
+                    filtered->pts = filtered->pts * spd;
                 if (!m_quit)
                     m_frameQueue->push(filtered);
                 av_frame_free(&filtered);

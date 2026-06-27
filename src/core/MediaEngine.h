@@ -86,7 +86,7 @@ signals:
     void currentSubtitleStreamChanged(int index);
 
 private:
-    static constexpr int kAudioFrameQueueSize = 256;
+    static constexpr int kAudioFrameQueueSize = 32;
 
     bool initFFmpeg(const QString &filename);
     void cleanup();

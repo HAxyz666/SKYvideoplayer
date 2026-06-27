@@ -479,6 +479,7 @@ void MediaEngine::seek(double seconds)
 
     m_syncController->reset();
     m_syncController->setSpeed(m_speed);
+    m_syncController->updateAudioClock(seconds);
 
     qint64 now = av_gettime();
     m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(m_speed, 0.1));
@@ -489,6 +490,9 @@ void MediaEngine::seek(double seconds)
     emit positionChanged(m_position);
 
     startThreads();
+
+    if (m_audioThread && !qFuzzyCompare(m_speed, 1.0))
+        m_audioThread->setSpeed(m_speed);
 
     if (!m_paused)
         m_audioOutput->resume();
@@ -529,17 +533,14 @@ void MediaEngine::setSpeed(double speed)
                         - static_cast<qint64>(currentPos * 1000000.0 / speed);
     }
 
-    // Clear all queues to prevent stale frames from causing burst playback.
-    if (m_videoFrameQueue)
-        m_videoFrameQueue->clear();
-    if (m_audioFrameQueue)
-        m_audioFrameQueue->clear();
-    // Also drain the SDL audio FIFO so playback continues at the new rate.
-    m_audioOutput->reset();
+    // Do NOT clear audio queue or reset FIFO — old-speed frames have their
+    // PTS corrected in AudioDecodeThread, so they blend seamlessly into the
+    // new-speed stream.  No audio gap, no clock domain mismatch.
 
     m_syncController->setSpeed(speed);
     if (m_audioThread)
         m_audioThread->setSpeed(speed);
+    m_audioOutput->setSpeed(speed);
     emit speedChanged(m_speed);
 }
 
@@ -594,18 +595,6 @@ void MediaEngine::onVideoRefresh()
 
     double delay = m_syncController->computeFrameDelay(pts);
 
-    // When AudioMaster sync detects video behind audio, it sets delay=0 so
-    // the video catches up.  Without a floor this would dump frames at the
-    // 10ms timer rate (100fps), making playback look unreasonably fast.
-    // Clamp the effective delay to 1/30 s (~30fps max) to keep catch-up
-    // smooth while still allowing the video to close the gap promptly.
-    if (delay < 1.0 / 30.0)
-        delay = 1.0 / 30.0;
-
-    // Compare wall-clock elapsed time since the last displayed frame against
-    // the target delay.  This correctly handles the 10ms timer granularity:
-    // frames with a 33-40ms interval will be shown after ~3-4 timer ticks
-    // instead of being permanently blocked by the old "delay > 0.001" check.
     qint64 now = av_gettime();
     double elapsed = (now - m_lastFrameDisplayTimeUs) / 1000000.0;
 
@@ -624,8 +613,13 @@ void MediaEngine::onVideoRefresh()
     AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
     if (fmt == AV_PIX_FMT_NV12 || fmt == AV_PIX_FMT_NV21)
         yuv = extractNV12(frame, frame->width, frame->height);
-    else
+    else if (fmt == AV_PIX_FMT_YUV420P)
         yuv = extractYUV420P(frame, frame->width, frame->height);
+    else {
+        qWarning("Unsupported pixel format: %s, skipping frame", av_get_pix_fmt_name(fmt));
+        av_frame_free(&frame);
+        return;
+    }
 
     emit frameReady(yuv);
     av_frame_free(&frame);

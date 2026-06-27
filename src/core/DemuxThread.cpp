@@ -87,7 +87,9 @@ void DemuxThread::run()
                 emit eofReached();
                 break;
             }
-            emit errorOccurred(QString("av_read_frame error: %1").arg(ret));
+            char errbuf[128] = {0};
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            emit errorOccurred(QString("av_read_frame error: %1").arg(errbuf));
             msleep(10);
             continue;
         }

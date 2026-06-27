@@ -26,7 +26,7 @@ AudioOutput::~AudioOutput()
     if (m_audioFifo)
         av_fifo_freep2(&m_audioFifo);
     if (SDL_WasInit(SDL_INIT_AUDIO))
-        SDL_Quit();
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 bool AudioOutput::initialize(const SDL_AudioSpec &spec)
@@ -56,6 +56,7 @@ bool AudioOutput::initialize(const SDL_AudioSpec &spec)
     }
 
     m_audioSpec = obtainedSpec;
+    m_bytesPerSecond = obtainedSpec.freq * obtainedSpec.channels * sizeof(int16_t);
     qDebug("AudioOutput: wanted freq=%d got freq=%d samples=%d format=0x%x",
            wantedSpec.freq, obtainedSpec.freq,
            obtainedSpec.samples, obtainedSpec.format);
@@ -65,7 +66,11 @@ bool AudioOutput::initialize(const SDL_AudioSpec &spec)
 
 void AudioOutput::setFrameQueue(FrameQueue *queue)
 {
+    if (m_audioDeviceID != 0)
+        SDL_LockAudioDevice(m_audioDeviceID);
     m_frameQueue = queue;
+    if (m_audioDeviceID != 0)
+        SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::setSyncController(AVSyncController *ctrl)
@@ -103,13 +108,14 @@ void AudioOutput::stop()
 void AudioOutput::closeDevice()
 {
     if (m_audioDeviceID != 0) {
+        SDL_LockAudioDevice(m_audioDeviceID);
+        m_frameQueue = nullptr;
         SDL_CloseAudioDevice(m_audioDeviceID);
         m_audioDeviceID = 0;
     }
 
     if (m_audioFifo)
         av_fifo_reset2(m_audioFifo);
-    m_frameQueue = nullptr;
 }
 
 void AudioOutput::reset()
@@ -139,6 +145,11 @@ double AudioOutput::getAudioClock() const
     return 0.0;
 }
 
+void AudioOutput::setSpeed(double speed)
+{
+    m_speed.store(qBound(0.5, speed, 2.0), std::memory_order_relaxed);
+}
+
 void AudioOutput::fillAudioFifo()
 {
     if (!m_frameQueue || !m_audioFifo)
@@ -161,9 +172,22 @@ void AudioOutput::fillAudioFifo()
 
         av_fifo_write(m_audioFifo, frame->data[0], frameBytes);
 
-        if (m_syncController)
-            m_syncController->updateAudioClock(
-                frame->pts * av_q2d(frame->time_base));
+        if (m_syncController) {
+            double clock = frame->pts * av_q2d(frame->time_base);
+            // PTS is already in original timeline (corrected in AudioDecodeThread),
+            // no speed multiplication needed here.
+            if (m_bytesPerSecond > 0.0) {
+                double bufferedBytes = static_cast<double>(av_fifo_can_read(m_audioFifo));
+                // At non-1x speed, atempo stretches/compresses the PCM data,
+                // so bufferedBytes no longer maps 1:1 to original-timeline
+                // seconds at the hardware consumption rate.  Convert the
+                // wall-clock buffer duration back to original timeline by
+                // multiplying by speed (tempo).
+                double speed = m_speed.load(std::memory_order_relaxed);
+                clock -= bufferedBytes * speed / m_bytesPerSecond;
+            }
+            m_syncController->updateAudioClock(clock);
+        }
 
         av_frame_free(&frame);
     }

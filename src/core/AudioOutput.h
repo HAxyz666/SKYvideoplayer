@@ -35,6 +35,7 @@ public:
     double volume() const;
     bool muted() const;
     double getAudioClock() const;
+    void setSpeed(double speed);
 
 private:
     static void sdlAudioCallback(void *userdata, Uint8 *stream, int len);
@@ -48,5 +49,7 @@ private:
     AVSyncController *m_syncController;
 
     AVFifo *m_audioFifo;
-    static constexpr int kFifoSize = 4 * 1024 * 1024;
+    static constexpr int kFifoSize = 256 * 1024;
+    double m_bytesPerSecond = 0.0;
+    std::atomic<double> m_speed{1.0};
 };

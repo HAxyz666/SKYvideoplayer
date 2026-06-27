@@ -34,14 +34,14 @@ public:
     {
         if (m_initialUpdates)
             m_initialUpdates->release();
-        delete pipeline;     pipeline = nullptr;
-        delete srb;          srb = nullptr;
-        delete texY;         texY = nullptr;
-        delete texU;         texU = nullptr;
-        delete texV;         texV = nullptr;
-        delete samplerLinear;samplerLinear = nullptr;
-        delete vertexBuf;    vertexBuf = nullptr;
-        delete uniformBuf;   uniformBuf = nullptr;
+        if (pipeline) { pipeline->destroy(); delete pipeline; pipeline = nullptr; }
+        if (srb) { srb->destroy(); delete srb; srb = nullptr; }
+        if (texY) { texY->destroy(); delete texY; texY = nullptr; }
+        if (texU) { texU->destroy(); delete texU; texU = nullptr; }
+        if (texV) { texV->destroy(); delete texV; texV = nullptr; }
+        if (samplerLinear) { samplerLinear->destroy(); delete samplerLinear; samplerLinear = nullptr; }
+        if (vertexBuf) { vertexBuf->destroy(); delete vertexBuf; vertexBuf = nullptr; }
+        if (uniformBuf) { uniformBuf->destroy(); delete uniformBuf; uniformBuf = nullptr; }
     }
 
     void synchronize(QQuickRhiItem *item) override
@@ -113,13 +113,13 @@ public:
 
             if (texSize != pendingFrame.frameSize) {
                 texSize = pendingFrame.frameSize;
-                delete texY;
+                if (texY) { texY->destroy(); delete texY; }
                 texY = rhi->newTexture(QRhiTexture::R8, QSize(w, h), 1);
                 texY->create();
-                delete texU;
+                if (texU) { texU->destroy(); delete texU; }
                 texU = rhi->newTexture(QRhiTexture::R8, QSize(halfW, halfH), 1);
                 texU->create();
-                delete texV;
+                if (texV) { texV->destroy(); delete texV; }
                 texV = rhi->newTexture(QRhiTexture::R8, QSize(halfW, halfH), 1);
                 texV->create();
                 buildPipeline(rhi);
@@ -176,8 +176,8 @@ private:
 
     void buildPipeline(QRhi *rhi)
     {
-        delete srb;
-        delete pipeline;
+        if (srb) { srb->destroy(); delete srb; srb = nullptr; }
+        if (pipeline) { pipeline->destroy(); delete pipeline; pipeline = nullptr; }
 
         //周代森：获取当前渲染目标的渲染信息
         QRhiRenderPassDescriptor *rpDesc = renderTarget()->renderPassDescriptor();
