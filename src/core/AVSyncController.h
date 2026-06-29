@@ -42,9 +42,12 @@ public:
 
     void setSpeed(double speed);
     double speed() const;
+    double audioClock() const;
 
     void reset();
+    void resetFrameTracking();  // reset frame PTS history only, keep audio clock
     void setSyncMode(SyncMode mode);
+    SyncMode syncMode() const;
 
 signals:
     void speedChanged(double speed);
@@ -54,8 +57,9 @@ private:
     SyncMode m_syncMode{SyncMode::AudioMaster};
 
     double m_audioClock{0.0};      // pts (s) of audio currently playing
-    double m_frameLastPts{0.0};    // pts (s) of last displayed video frame
-    double m_frameLastDelay{0.04}; // last frame interval (s), for fallback
+    mutable double m_frameLastPts{0.0};    // pts (s) of last displayed video frame
+    mutable double m_frameLastDelay{0.04}; // last frame interval (s), for fallback
     double m_speed{1.0};
     bool m_firstFrame{true};
+    mutable qint64 m_speedChangeTimeUs{0};
 };

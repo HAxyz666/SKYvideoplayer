@@ -26,9 +26,11 @@ class VideoRenderItemRenderer : public QQuickRhiItemRenderer
 public:
     YUVFrame pendingFrame;
     QMutex &mutex;
+    VideoRenderItem *renderItem = nullptr;
     bool needsUpload = false;
 
-    explicit VideoRenderItemRenderer(QMutex &mtx) : mutex(mtx) {}
+    explicit VideoRenderItemRenderer(QMutex &mtx, VideoRenderItem *item)
+        : mutex(mtx), renderItem(item) {}
 
     ~VideoRenderItemRenderer()
     {
@@ -55,6 +57,8 @@ public:
         } else if (!ri->m_pendingFrame.yPlane.isEmpty()) {
             pendingFrame = ri->m_pendingFrame;
             needsUpload = true;
+            if (renderItem)
+                emit renderItem->frameRendered(pendingFrame.pts);
         }
         itemSize = item->size();
     }
@@ -241,7 +245,7 @@ VideoRenderItem::VideoRenderItem(QQuickItem *parent)
 
 QQuickRhiItemRenderer *VideoRenderItem::createRenderer()
 {
-    return new VideoRenderItemRenderer(m_mutex);
+    return new VideoRenderItemRenderer(m_mutex, this);
 }
 
 void VideoRenderItem::setYUVFrame(const YUVFrame &frame)

@@ -29,6 +29,7 @@ public:
     void stopDecode();
     void setPausedRef(const std::atomic<bool> &paused);
     void setSpeed(double speed);
+    void setOutputSampleRate(int rate);
 
 protected:
     void run() override;
@@ -59,4 +60,5 @@ private:
     double m_pendingSpeed;
     std::atomic<double> m_currentSpeed{1.0};
     std::mutex m_speedMutex;
+    std::atomic<int> m_outputSampleRate{0};
 };

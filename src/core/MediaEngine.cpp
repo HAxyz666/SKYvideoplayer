@@ -20,6 +20,7 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
+#include <libswscale/swscale.h>
 }
 
 // --- YUV plane extraction (runs on GUI thread inside onVideoRefresh) ---
@@ -157,9 +158,10 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_speed(1.0)
 {
     // Video display refresh: peeks m_videoFrameQueue and times frame delivery
-    // to VideoRenderItem via AVSyncController. 10ms granularity is fine for
-    // <=60fps content; the actual delay is driven by computeFrameDelay().
-    m_videoRefreshTimer->setInterval(10);
+    // to VideoRenderItem via AVSyncController. Uses a single-shot timer whose
+    // next timeout is computed from the frame interval, so high-fps content
+    // is scheduled correctly instead of being capped by a fixed 10 ms tick.
+    m_videoRefreshTimer->setSingleShot(true);
     connect(m_videoRefreshTimer, &QTimer::timeout, this, &MediaEngine::onVideoRefresh);
 
     m_positionTimer->setInterval(250);
@@ -350,12 +352,17 @@ void MediaEngine::start()
     m_audioOutputReady = false;
     m_syncController->reset();
     m_syncController->setSpeed(m_speed);
+    if (m_audioCodecCtx)
+        m_syncController->setSyncMode(SyncMode::AudioMaster);
+    else
+        m_syncController->setSyncMode(SyncMode::VideoMaster);
 
     m_position = 0.0;
     m_startTimeUs = av_gettime();
     m_pausedDurationUs = 0;
     m_pauseStartUs = 0;
     m_lastFrameDisplayTimeUs = 0;
+    m_lastVideoPts = 0.0;
 
     // Start threads first so audio decoder fills the FrameQueue
     startThreads();
@@ -364,20 +371,23 @@ void MediaEngine::start()
     if (m_audioCodecCtx) {
         SDL_AudioSpec spec;
         std::memset(&spec, 0, sizeof(spec));
-        spec.freq = 44100;
+        spec.freq = m_audioCodecCtx->sample_rate;
         spec.format = AUDIO_S16SYS;
-        spec.channels = 2;
+        spec.channels = m_audioCodecCtx->ch_layout.nb_channels;
         spec.samples = 1024;
 
         m_audioOutputReady = m_audioOutput->initialize(spec);
         if (m_audioOutputReady) {
             m_audioOutput->setSyncController(m_syncController);
+            if (m_audioThread)
+                m_audioThread->setOutputSampleRate(
+                    m_audioOutput->sampleRate());
         }
     }
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
-        m_videoRefreshTimer->start();
+        scheduleNextVideoRefresh(0);
 }
 
 void MediaEngine::stop()
@@ -411,6 +421,13 @@ bool MediaEngine::open(const QString &url)
     return m_fmtCtx != nullptr;
 }
 
+void MediaEngine::scheduleNextVideoRefresh(int delayMs)
+{
+    if (!m_videoRefreshTimer || m_paused)
+        return;
+    m_videoRefreshTimer->start(qMax(delayMs, 1));
+}
+
 void MediaEngine::pause()
 {
     if (m_paused.exchange(true))
@@ -429,7 +446,7 @@ void MediaEngine::resume()
     m_pausedDurationUs += av_gettime() - m_pauseStartUs;
     m_pauseStartUs = 0;
     if (m_videoFrameQueue)
-        m_videoRefreshTimer->start();
+        scheduleNextVideoRefresh(0);
     emit pausedChanged(false);
 }
 
@@ -495,10 +512,14 @@ void MediaEngine::seek(double seconds)
     m_pausedDurationUs = 0;
     m_pauseStartUs = 0;
     m_lastFrameDisplayTimeUs = 0;
+    m_lastVideoPts = seconds;
     m_position = seconds;
     emit positionChanged(m_position);
 
     startThreads();
+
+    if (m_audioThread)
+        m_audioThread->setOutputSampleRate(m_audioOutput->sampleRate());
 
     if (m_audioThread && !qFuzzyCompare(m_speed, 1.0))
         m_audioThread->setSpeed(m_speed);
@@ -508,7 +529,7 @@ void MediaEngine::seek(double seconds)
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
-        m_videoRefreshTimer->start();
+        scheduleNextVideoRefresh(0);
 }
 
 double MediaEngine::position() const
@@ -541,10 +562,6 @@ void MediaEngine::setSpeed(double speed)
         m_startTimeUs = refTime - m_pausedDurationUs
                         - static_cast<qint64>(currentPos * 1000000.0 / speed);
     }
-
-    // Do NOT clear audio queue or reset FIFO — old-speed frames have their
-    // PTS corrected in AudioDecodeThread, so they blend seamlessly into the
-    // new-speed stream.  No audio gap, no clock domain mismatch.
 
     m_syncController->setSpeed(speed);
     if (m_audioThread)
@@ -608,28 +625,37 @@ void MediaEngine::onVideoRefresh()
         return;
 
     AVFrame *frame = m_videoFrameQueue->peek();
-    if (!frame)
+    if (!frame) {
+        if (m_videoFrameQueue->isFinished())
+            return; // no more frames coming; don't busy-loop
+        scheduleNextVideoRefresh(1);
         return;
+    }
 
-    double pts = 0.0;
-    if (frame->pts != AV_NOPTS_VALUE)
-        pts = frame->pts * av_q2d(m_videoTimeBase);
+    double pts = frame->pts != AV_NOPTS_VALUE
+                     ? frame->pts * av_q2d(m_videoTimeBase)
+                     : 0.0;
 
     double delay = m_syncController->computeFrameDelay(pts);
 
     qint64 now = av_gettime();
     double elapsed = (now - m_lastFrameDisplayTimeUs) / 1000000.0;
 
-    if (elapsed + 0.001 < delay)
+    if (elapsed + 0.001 < delay) {
+        scheduleNextVideoRefresh(qMax(1, int((delay - elapsed) * 1000.0)));
         return;
+    }
 
     frame = m_videoFrameQueue->tryPop(0);
-    if (!frame)
+    if (!frame) {
+        scheduleNextVideoRefresh(1);
         return;
+    }
 
     // Update sync state only after we've committed to displaying this frame.
     m_syncController->onFrameDisplayed(pts);
     m_lastFrameDisplayTimeUs = now;
+    m_lastVideoPts = pts;
 
     YUVFrame yuv;
     AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
@@ -638,13 +664,72 @@ void MediaEngine::onVideoRefresh()
     else if (fmt == AV_PIX_FMT_YUV420P)
         yuv = extractYUV420P(frame, frame->width, frame->height);
     else {
-        qWarning("Unsupported pixel format: %s, skipping frame", av_get_pix_fmt_name(fmt));
-        av_frame_free(&frame);
-        return;
+        // Unsupported format — convert to YUV420P via swscale.
+        AVFrame *rgb = av_frame_alloc();
+        if (rgb) {
+            rgb->format = AV_PIX_FMT_YUV420P;
+            rgb->width = frame->width;
+            rgb->height = frame->height;
+            if (av_frame_get_buffer(rgb, 0) == 0) {
+                SwsContext *sws = sws_getContext(
+                    frame->width, frame->height, fmt,
+                    frame->width, frame->height, AV_PIX_FMT_YUV420P,
+                    SWS_BILINEAR, nullptr, nullptr, nullptr);
+                if (sws) {
+                    sws_scale(sws, frame->data, frame->linesize, 0,
+                              frame->height, rgb->data, rgb->linesize);
+                    sws_freeContext(sws);
+                    yuv = extractYUV420P(rgb, rgb->width, rgb->height);
+                }
+            }
+            av_frame_free(&rgb);
+        }
+        if (yuv.yPlane.isEmpty()) {
+            qWarning("Unsupported pixel format: %s, skipping frame",
+                     av_get_pix_fmt_name(fmt));
+            av_frame_free(&frame);
+            scheduleNextVideoRefresh(1);
+            return;
+        }
     }
 
+    yuv.pts = pts;
     emit frameReady(yuv);
     av_frame_free(&frame);
+
+    // Schedule the next refresh based on the next frame's required delay.
+    AVFrame *nextFrame = m_videoFrameQueue->peek();
+    if (nextFrame) {
+        double nextPts = nextFrame->pts != AV_NOPTS_VALUE
+                             ? nextFrame->pts * av_q2d(m_videoTimeBase)
+                             : 0.0;
+        double nextDelay = m_syncController->computeFrameDelay(nextPts);
+        scheduleNextVideoRefresh(qMax(1, int(nextDelay * 1000.0)));
+    } else if (m_videoFrameQueue->isFinished()) {
+        // No more frames; let the position timer catch up and stop.
+    } else {
+        scheduleNextVideoRefresh(1);
+    }
+}
+
+void MediaEngine::onFrameRendered(double pts)
+{
+    // For audio-master files the audio clock is the authoritative position.
+    // For video-only files we use the PTS of the frame that has actually been
+    // rendered, so the progress bar tracks the picture on screen instead of
+    // wall-clock time or the commit time.
+    m_lastVideoPts = pts;
+    if (m_syncController->syncMode() == SyncMode::AudioMaster)
+        return;
+
+    double pos = pts;
+    if (pos < 0) pos = 0;
+    if (m_duration > 0 && pos > m_duration) pos = m_duration;
+
+    if (qAbs(pos - m_position) > 0.01) {
+        m_position = pos;
+        emit positionChanged(m_position);
+    }
 }
 
 void MediaEngine::updatePosition()
@@ -652,7 +737,12 @@ void MediaEngine::updatePosition()
     if (m_paused || m_startTimeUs == 0)
         return;
 
-    double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs) * m_speed / 1000000.0;
+    double pos = 0.0;
+    if (m_syncController->syncMode() == SyncMode::AudioMaster)
+        pos = m_syncController->audioClock();
+    else
+        pos = m_lastVideoPts;
+
     if (pos < 0) pos = 0;
     if (m_duration > 0 && pos > m_duration) pos = m_duration;
 

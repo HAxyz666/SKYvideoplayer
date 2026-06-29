@@ -11,6 +11,7 @@ struct YUVFrame {
     QByteArray uPlane;
     QByteArray vPlane;
     QSize frameSize;
+    double pts = 0.0;
 };
 Q_DECLARE_METATYPE(YUVFrame)
 
@@ -24,6 +25,9 @@ public:
 
     Q_INVOKABLE void setYUVFrame(const YUVFrame &frame);
     Q_INVOKABLE void clearImage();
+
+signals:
+    void frameRendered(double pts);
 
 protected:
     QQuickRhiItemRenderer *createRenderer() override;
