@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QList>
 #include <atomic>
 
 extern "C" {
@@ -14,12 +15,13 @@ extern "C" {
 #endif
 }
 
+#include "SubtitleDecodeThread.h"   // SubtitleEntry（m_externalSubtitles 成员需要完整类型）
+
 struct YUVFrame;
 
 class DemuxThread;
 class VideoDecodeThread;
 class AudioDecodeThread;
-class SubtitleDecodeThread;
 class PacketQueue;
 class FrameQueue;
 class AVSyncController;
@@ -95,6 +97,12 @@ private:
     void updatePosition();
     void onVideoRefresh();
 
+    void updateSubtitle(double clockSeconds);
+
+    void detectExternalSubtitles(const QString &videoPath);
+
+    void activateExternalSubtitle(int infoIndex);
+
     QString m_filename;
 
     AVFormatContext *m_fmtCtx;
@@ -140,13 +148,20 @@ private:
     double m_speed;
 
     struct SubtitleStreamInfo {
-        int streamIndex;
+        int streamIndex = -1;
         QString language;
         QString title;
+        bool isExternal = false;
+        QString filePath;
+        QString label;
     };
     QVector<SubtitleStreamInfo> m_subtitleStreamsInfo;
     int m_currentSubtitleStreamIndex{-1};
     QString m_currentSubtitle;
+
+
+    bool m_externalMode{false};
+    QList<SubtitleEntry> m_externalSubtitles;
 
 #ifdef ENABLE_HWACCEL
     AVBufferRef *m_hwDeviceCtx{nullptr};

@@ -11,6 +11,8 @@
 
 #include <QDebug>
 #include <QFileInfo>
+#include <QDir>
+#include <QStringList>
 #include <cstring>
 
 extern "C" {
@@ -208,6 +210,8 @@ bool MediaEngine::initFFmpeg(const QString &filename)
         }
     }
 
+    detectExternalSubtitles(m_filename);
+
     if (m_videoStreamIndex != -1) {
         AVCodecParameters *videoPar = m_fmtCtx->streams[m_videoStreamIndex]->codecpar;
         const AVCodec *videoCodec = avcodec_find_decoder(videoPar->codec_id);
@@ -300,22 +304,27 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     m_subtitleStreamIndex = -1;
     if (!m_subtitleStreamsInfo.isEmpty()) {
         m_currentSubtitleStreamIndex = 0;
-        int selIdx = m_subtitleStreamsInfo[0].streamIndex;
-        AVCodecParameters *subPar = m_fmtCtx->streams[selIdx]->codecpar;
-        const AVCodec *subCodec = avcodec_find_decoder(subPar->codec_id);
-        if (subCodec) {
-            m_subtitleCodecCtx = avcodec_alloc_context3(subCodec);
-            if (m_subtitleCodecCtx) {
-                avcodec_parameters_to_context(m_subtitleCodecCtx, subPar);
-                if (avcodec_open2(m_subtitleCodecCtx, subCodec, nullptr) == 0) {
-                    m_subtitleStreamIndex = selIdx;
-                } else {
-                    avcodec_free_context(&m_subtitleCodecCtx);
+        if (m_subtitleStreamsInfo[0].isExternal) {
+            // 无内嵌字幕，仅有外挂：直接激活外挂字幕
+            activateExternalSubtitle(0);
+        } else {
+            int selIdx = m_subtitleStreamsInfo[0].streamIndex;
+            AVCodecParameters *subPar = m_fmtCtx->streams[selIdx]->codecpar;
+            const AVCodec *subCodec = avcodec_find_decoder(subPar->codec_id);
+            if (subCodec) {
+                m_subtitleCodecCtx = avcodec_alloc_context3(subCodec);
+                if (m_subtitleCodecCtx) {
+                    avcodec_parameters_to_context(m_subtitleCodecCtx, subPar);
+                    if (avcodec_open2(m_subtitleCodecCtx, subCodec, nullptr) == 0) {
+                        m_subtitleStreamIndex = selIdx;
+                    } else {
+                        avcodec_free_context(&m_subtitleCodecCtx);
+                    }
                 }
             }
+            if (m_subtitleStreamIndex < 0)
+                qWarning() << "Could not open subtitle codec";
         }
-        if (m_subtitleStreamIndex < 0)
-            qWarning() << "Could not open subtitle codec";
     }
 
     emit subtitleStreamsChanged();
@@ -582,6 +591,19 @@ bool MediaEngine::muted() const
 
 void MediaEngine::onVideoRefresh()
 {
+    // 字幕查询：10ms 粒度，与视频帧同源主时钟。放在所有早期返回之前，
+    // 保证即使帧队列空或未到显示时间，字幕仍按主时钟及时更新。
+    if (m_subtitleThread) {
+        double subTime = m_syncController->audioClock();
+        if (m_audioStreamIndex == -1 || subTime <= 0.0) {
+            double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs)
+                         * m_speed / 1000000.0;
+            if (pos < 0) pos = 0;
+            subTime = pos;
+        }
+        updateSubtitle(subTime);
+    }
+
     if (!m_videoFrameQueue)
         return;
 
@@ -639,14 +661,26 @@ void MediaEngine::updatePosition()
         emit positionChanged(m_position);
     }
 
-    // 字幕同步
-    if (m_subtitleThread) {
-        qint64 posUs = static_cast<qint64>(pos * 1000000);
-        QString sub = m_subtitleThread->getSubtitleAt(posUs);
-        if (sub != m_currentSubtitle) {
-            m_currentSubtitle = sub;
-            emit currentSubtitleChanged(m_currentSubtitle);
-        }
+    // 字幕同步：有视频流时由 onVideoRefresh() 以 10ms 粒度驱动；
+    // 无视频流（纯音频+字幕）时在此以 250ms 粒度兜底。
+    if (m_subtitleThread && !m_videoFrameQueue) {
+        double subTime = m_syncController->audioClock();
+        if (m_audioStreamIndex == -1 || subTime <= 0.0)
+            subTime = pos;
+        updateSubtitle(subTime);
+    }
+}
+
+void MediaEngine::updateSubtitle(double clockSeconds)
+{
+    if (!m_subtitleThread)
+        return;
+
+    qint64 posUs = static_cast<qint64>(clockSeconds * 1000000);
+    QString sub = m_subtitleThread->getSubtitleAt(posUs);
+    if (sub != m_currentSubtitle) {
+        m_currentSubtitle = sub;
+        emit currentSubtitleChanged(m_currentSubtitle);
     }
 }
 
@@ -671,6 +705,11 @@ void MediaEngine::startThreads()
         m_subtitleThread->setCodecContext(m_subtitleCodecCtx);
         m_subtitleThread->setPacketQueue(m_subtitlePacketQueue);
         m_subtitleThread->setTimeBase(m_fmtCtx->streams[m_subtitleStreamIndex]->time_base);
+        m_subtitleThread->setPausedRef(m_paused);
+    } else if (m_externalMode && !m_externalSubtitles.isEmpty()) {
+        // seek 后重建：外挂字幕无 codec，需重建被动线程
+        m_subtitleThread = new SubtitleDecodeThread(this);
+        m_subtitleThread->setExternalSubtitles(m_externalSubtitles);
         m_subtitleThread->setPausedRef(m_paused);
     }
 
@@ -714,7 +753,8 @@ void MediaEngine::startThreads()
         m_videoThread->start();
     if (m_audioThread)
         m_audioThread->start();
-    if (m_subtitleThread)
+    // 外挂字幕的被动线程不启动 run()（无 codec/queue，run 会立即返回）
+    if (m_subtitleThread && !m_externalMode)
         m_subtitleThread->start();
 }
 
@@ -790,6 +830,8 @@ void MediaEngine::cleanup()
     m_currentSubtitleStreamIndex = -1;
     m_subtitleStreamIndex = -1;
     m_subtitleStreamsInfo.clear();
+    m_externalMode = false;
+    m_externalSubtitles.clear();
     emit subtitleStreamsChanged();
 }
 
@@ -799,12 +841,15 @@ QVariantList MediaEngine::subtitleStreams() const
     int idx = 1;
     for (const auto &info : m_subtitleStreamsInfo) {
         QString label;
-        if (!info.language.isEmpty())
+        if (info.isExternal) {
+            label = info.label.isEmpty() ? QStringLiteral("外挂 #%1").arg(idx) : info.label;
+        } else if (!info.language.isEmpty()) {
             label = info.language;
-        else if (!info.title.isEmpty())
+        } else if (!info.title.isEmpty()) {
             label = info.title;
-        else
+        } else {
             label = QStringLiteral("Subtitle #%1").arg(idx);
+        }
         list << label;
         idx++;
     }
@@ -834,13 +879,13 @@ void MediaEngine::setCurrentSubtitleStream(int index)
         }
         m_subtitleStreamIndex = -1;
         m_currentSubtitleStreamIndex = -1;
+        m_externalMode = false;
+        m_externalSubtitles.clear();
         if (m_demuxThread)
             m_demuxThread->setSubtitleStreamIndex(-1);
         emit currentSubtitleStreamChanged(-1);
         return;
     }
-
-    int newStreamIdx = m_subtitleStreamsInfo[index].streamIndex;
 
     // 停止旧字幕线程
     m_currentSubtitle = QString();
@@ -860,8 +905,18 @@ void MediaEngine::setCurrentSubtitleStream(int index)
         m_subtitleCodecCtx = nullptr;
     }
     m_subtitleStreamIndex = -1;
+    m_externalMode = false;
+    m_externalSubtitles.clear();
+
+    // 分支：外挂字幕 vs 内嵌字幕
+    if (m_subtitleStreamsInfo[index].isExternal) {
+        activateExternalSubtitle(index);
+        emit currentSubtitleStreamChanged(index);
+        return;
+    }
 
     // 打开新字幕流解码器
+    int newStreamIdx = m_subtitleStreamsInfo[index].streamIndex;
     AVCodecParameters *subPar = m_fmtCtx->streams[newStreamIdx]->codecpar;
     const AVCodec *subCodec = avcodec_find_decoder(subPar->codec_id);
     if (!subCodec) {
@@ -902,4 +957,82 @@ void MediaEngine::setCurrentSubtitleStream(int index)
     m_subtitleThread->start();
 
     emit currentSubtitleStreamChanged(index);
+}
+
+void MediaEngine::detectExternalSubtitles(const QString &videoPath)
+{
+    if (videoPath.isEmpty())
+        return;
+
+    QFileInfo vfi(videoPath);
+    QDir dir = vfi.dir();
+    QString base = vfi.completeBaseName();
+
+    // 支持的扩展名
+    static const QStringList exts = { QStringLiteral("srt"), QStringLiteral("ass"), QStringLiteral("ssa") };
+
+    // 匹配 base.ext 和 base.*.ext
+    for (const QString &ext : exts) {
+        QStringList filters;
+        filters << (base + u'.' + ext)                  // movie.srt
+                << (base + u".*." + ext);               // movie.zh.srt
+        QStringList files = dir.entryList(filters, QDir::Files);
+        for (const QString &fname : files) {
+            QString absPath = dir.absoluteFilePath(fname);
+
+            // 跳过重复（同一文件被多个 filter 命中）
+            bool dup = false;
+            for (const auto &existing : m_subtitleStreamsInfo) {
+                if (existing.isExternal && existing.filePath == absPath) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (dup) continue;
+
+            // 从 movie.zh.srt 提取 "zh" 作为语言标签；否则用文件名
+            QString label;
+            QFileInfo ffi(fname);
+            QString fbase = ffi.completeBaseName();
+            if (fbase.size() > base.size() && fbase.startsWith(base + u'.'))
+                label = QStringLiteral("外挂: ") + fbase.mid(base.size() + 1);
+            else
+                label = QStringLiteral("外挂: ") + fname;
+
+            m_subtitleStreamsInfo.append({
+                -1,                 // streamIndex
+                QString(),          // language
+                QString(),          // title
+                true,               // isExternal
+                absPath,            // filePath
+                label               // label
+            });
+            qDebug() << "[extsub] detected:" << absPath;
+        }
+    }
+}
+
+void MediaEngine::activateExternalSubtitle(int infoIndex)
+{
+    if (infoIndex < 0 || infoIndex >= m_subtitleStreamsInfo.size())
+        return;
+    const SubtitleStreamInfo &info = m_subtitleStreamsInfo[infoIndex];
+    if (!info.isExternal)
+        return;
+
+    QList<SubtitleEntry> subs = SubtitleDecodeThread::loadFromFile(info.filePath);
+    m_externalSubtitles = subs;
+    m_externalMode = true;
+    m_subtitleStreamIndex = -1;
+    m_currentSubtitleStreamIndex = infoIndex;
+    if (m_demuxThread)
+        m_demuxThread->setSubtitleStreamIndex(-1);
+
+    // 创建被动 SubtitleDecodeThread（不启动线程，仅作查询容器）
+    m_subtitleThread = new SubtitleDecodeThread(this);
+    m_subtitleThread->setExternalSubtitles(m_externalSubtitles);
+    m_subtitleThread->setPausedRef(m_paused);
+
+    qDebug() << "[extsub] activated:" << info.filePath
+             << "entries:" << subs.size();
 }

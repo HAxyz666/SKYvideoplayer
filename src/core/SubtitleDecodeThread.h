@@ -39,6 +39,10 @@ public:
 
     QString getSubtitleAt(qint64 positionUs) const;
 
+
+    void setExternalSubtitles(const QList<SubtitleEntry> &subs); 
+    static QList<SubtitleEntry> loadFromFile(const QString &path);
+
 protected:
     void run() override;
 
@@ -51,4 +55,8 @@ private:
 
     mutable QMutex m_subMutex;
     QList<SubtitleEntry> m_subtitles;
+
+    // 外挂字幕解析实现
+    static QList<SubtitleEntry> loadSrt(const QString &path);
+    static QList<SubtitleEntry> loadAss(const QString &path);
 };

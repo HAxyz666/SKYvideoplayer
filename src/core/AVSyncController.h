@@ -35,6 +35,11 @@ public:
     // Called from audio output thread when a frame starts playing.
     void updateAudioClock(double pts);
 
+    // Returns the current audio-master clock (seconds, original timeline).
+    // Useful for components that need to align with the master clock without
+    // going through computeFrameDelay() (e.g. subtitle lookup).
+    double audioClock() const;
+
     void setSpeed(double speed);
     double speed() const;
 
