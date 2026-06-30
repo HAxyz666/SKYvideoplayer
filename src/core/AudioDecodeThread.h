@@ -37,8 +37,8 @@ protected:
 private:
     bool initSwrContext();
     AVFrame *resampleFrame(AVFrame *frame);
-    bool initFilterGraph(double tempo);
     void destroyFilterGraph();
+    void drainFilterGraph();
     void applySpeed();
 
     AVCodecContext *m_codecCtx;

@@ -1,6 +1,5 @@
 #include "AVSyncController.h"
 #include <QtGlobal>
-#include <cmath>
 
 extern "C" {
 #include <libavutil/time.h>
@@ -15,25 +14,24 @@ double AVSyncController::computeFrameDelay(double videoPts) const
 {
     QMutexLocker lock(&m_mutex);
 
-    // If this is the very first frame, display it immediately.
+    // 如果是第一帧，立即显示
     if (m_firstFrame)
         return 0.0;
 
     double delay = videoPts - m_frameLastPts;
     if (delay <= 0.0 || delay > 1.0) {
-        // pts discontinuity — fall back to last known interval
+        // pts 不连续——回退到上一个已知间隔
         delay = m_frameLastDelay;
     }
 
-    // Audio-master sync correction.
+    // 音频主时钟同步修正
     //
-    // At fractional speeds (< 1.0×) we skip video-ahead correction
-    // because the atempo filter lags by a constant pipeline offset.
-    // At ≥ 1.0× the latency is negligible; full bidirectional sync is safe.
+    // 在低倍速（< 1.0×）下跳过视频超前修正，
+    // 因为 atempo 滤镜有固定的管线偏移延迟。
+    // 在 ≥ 1.0× 时延迟可忽略，双向同步是安全的。
     //
-    // Speed-change desync is prevented upstream in MediaEngine::setSpeed()
-    // by delaying the video acceleration until the audio pipeline has
-    // finished switching.
+    // 速度变化导致的失同步由上游 MediaEngine::setSpeed()
+    // 通过延迟视频加速直到音频管线完成切换来防止。
     if (m_syncMode == SyncMode::AudioMaster) {
         double diff = videoPts - m_audioClock;
         // ffplay 风格的固定阈值（一帧）。delay/m_speed 那种"按倍速缩放"
@@ -41,16 +39,16 @@ double AVSyncController::computeFrameDelay(double videoPts) const
         // 持续推迟，导致画面"不到倍速"。
         double syncThreshold = 0.040;
 
-        // Audio clock jumped by more than 1 second — speed-change
-        // transient (atempo rebuild / first-frame PTS glitch).
-        // Reset frame tracking to re-sync from the current frame.
-        if (std::fabs(diff) > 1.0) {
+        // 音频时钟跳变超过 1 秒——速度变化瞬态
+        // （atempo 重建/首帧 PTS 异常）。
+        // 重置帧跟踪从当前帧重新同步。
+        if (qAbs(diff) > 1.0) {
             m_frameLastPts = videoPts;
             m_frameLastDelay = 0.04;
             return 0.0;
         }
 
-        if (std::fabs(diff) > syncThreshold) {
+        if (qAbs(diff) > syncThreshold) {
             if (diff < 0.0) {
                 // video 落后于音频 → 立即显示以追上
                 delay = 0.0;
@@ -65,23 +63,11 @@ double AVSyncController::computeFrameDelay(double videoPts) const
     if (m_speed > 0.0)
         delay /= m_speed;
 
-    // Safety cap: if A/V clocks diverge (e.g. audio underflow), don't
-    // let delay grow unboundedly — that would freeze the picture for
-    // seconds at a time.  500 ms is enough for any realistic catch-up.
+    // 安全上限：如果音视频时钟偏离（如音频欠载），
+    // 不让延迟无限增长——否则画面会冻结数秒。
+    // 500 ms 足够任何实际的追赶。
     if (delay > 0.5)
         delay = 0.5;
-
-    // DEBUG: log sync state every ~30 frames at non-1× speed
-    {
-        static int cnt = 0;
-        if (!qFuzzyCompare(m_speed, 1.0) && (++cnt % 30 == 0)) {
-            double d = videoPts - m_audioClock;
-            qDebug("[sync] spd=%.2f vPts=%.4f aClk=%.4f diff=%+.4f | thr=%.4f raw=%.4f final=%.4f",
-                   m_speed, videoPts, m_audioClock, d,
-                   (m_speed > 0 ? (videoPts - m_frameLastPts) / m_speed : 0),
-                   videoPts - m_frameLastPts, delay);
-        }
-    }
 
     return delay;
 }
@@ -118,26 +104,16 @@ double AVSyncController::audioClock() const
 
 void AVSyncController::setSpeed(double speed)
 {
-    {
-        QMutexLocker lock(&m_mutex);
-        if (qFuzzyCompare(m_speed, speed))
-            return;
-        m_speed = speed;
-        m_speedChangeTimeUs = av_gettime();
-    }
-    emit speedChanged(speed);
+    QMutexLocker lock(&m_mutex);
+    if (qFuzzyCompare(m_speed, speed))
+        return;
+    m_speed = speed;
 }
 
 double AVSyncController::speed() const
 {
     QMutexLocker lock(&m_mutex);
     return m_speed;
-}
-
-double AVSyncController::audioClock() const
-{
-    QMutexLocker lock(&m_mutex);
-    return m_audioClock;
 }
 
 void AVSyncController::reset()
@@ -147,15 +123,6 @@ void AVSyncController::reset()
     m_frameLastPts = 0.0;
     m_frameLastDelay = 0.04;
     m_firstFrame = true;
-}
-
-void AVSyncController::resetFrameTracking()
-{
-    QMutexLocker lock(&m_mutex);
-    m_frameLastPts = 0.0;
-    m_frameLastDelay = 0.04;
-    m_firstFrame = true;
-    // m_audioClock stays as-is
 }
 
 void AVSyncController::setSyncMode(SyncMode mode)

@@ -23,7 +23,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-// --- YUV plane extraction (runs on GUI thread inside onVideoRefresh) ---
+// --- YUV 平面提取（在 GUI 线程的 onVideoRefresh 中运行）---
 
 static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
 {
@@ -157,10 +157,10 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_audioOutputReady(false)
     , m_speed(1.0)
 {
-    // Video display refresh: peeks m_videoFrameQueue and times frame delivery
-    // to VideoRenderItem via AVSyncController. Uses a single-shot timer whose
-    // next timeout is computed from the frame interval, so high-fps content
-    // is scheduled correctly instead of being capped by a fixed 10 ms tick.
+    // 视频显示刷新：检查 m_videoFrameQueue 并通过 AVSyncController
+    // 定时将帧交付给 VideoRenderItem。使用单次触发定时器，
+    // 其下次超时时间根据帧间隔计算，因此高帧率内容
+    // 能正确调度，不会被固定 10ms 周期限制。
     m_videoRefreshTimer->setSingleShot(true);
     connect(m_videoRefreshTimer, &QTimer::timeout, this, &MediaEngine::onVideoRefresh);
 
@@ -364,10 +364,10 @@ void MediaEngine::start()
     m_lastFrameDisplayTimeUs = 0;
     m_lastVideoPts = 0.0;
 
-    // Start threads first so audio decoder fills the FrameQueue
+    // 先启动线程，让音频解码器填充 FrameQueue
     startThreads();
 
-    // Initialize SDL audio AFTER decoder has started, so FIFO can pre-fill
+    // 在解码器启动后再初始化 SDL 音频，以便 FIFO 可以预填充
     if (m_audioCodecCtx) {
         SDL_AudioSpec spec;
         std::memset(&spec, 0, sizeof(spec));
@@ -382,6 +382,8 @@ void MediaEngine::start()
             if (m_audioThread)
                 m_audioThread->setOutputSampleRate(
                     m_audioOutput->sampleRate());
+            if (m_audioThread && !qFuzzyCompare(m_speed, 1.0))
+                m_audioThread->setSpeed(m_speed);
         }
     }
 
@@ -395,8 +397,8 @@ void MediaEngine::stop()
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
 
-    // Report "not playing" only if something was actually playing; avoids
-    // spurious pausedChanged on the very first open() (no prior fmtCtx).
+    // 仅当确实有内容在播放时才报告"未播放"；
+    // 避免首次 open() 时（无前一个 fmtCtx）误发 pausedChanged 信号。
     const bool wasPlaying = !m_paused && m_fmtCtx != nullptr;
     m_paused = true;
 
@@ -471,7 +473,7 @@ void MediaEngine::seek(double seconds)
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
 
-    // Stop audio directly (no pausedChanged signal) to avoid UI flicker.
+    // 直接停止音频（不发 pausedChanged 信号）以避免 UI 闪烁。
     m_audioOutput->pause();
     m_audioOutput->reset();
     stopThreads();
@@ -546,16 +548,15 @@ double MediaEngine::duration() const
 
 void MediaEngine::setSpeed(double speed)
 {
-    // Match the audio atempo filter's working range so A/V stay in sync.
+    // 与音频 atempo 滤镜的工作范围匹配，以保持音画同步。
     speed = qBound(0.5, speed, 2.0);
     if (qFuzzyCompare(m_speed, speed))
         return;
     double oldSpeed = m_speed;
     m_speed = speed;
 
-    // Re-anchor the wall-clock start time so the displayed position is
-    // continuous across the speed change. When paused, anchor against the
-    // pause start moment so resume doesn't jump.
+    // 重新锚定壁钟开始时间，使得显示的进度在速度变化时连续。
+    // 暂停时锚定到暂停开始时刻，以便恢复时不跳变。
     if (m_startTimeUs != 0) {
         qint64 refTime = m_paused ? m_pauseStartUs : av_gettime();
         double currentPos = (refTime - m_startTimeUs - m_pausedDurationUs) * oldSpeed / 1000000.0;
@@ -563,10 +564,10 @@ void MediaEngine::setSpeed(double speed)
                         - static_cast<qint64>(currentPos * 1000000.0 / speed);
     }
 
-    m_syncController->setSpeed(speed);
     if (m_audioThread)
         m_audioThread->setSpeed(speed);
     m_audioOutput->setSpeed(speed);
+    m_syncController->setSpeed(speed);
     emit speedChanged(m_speed);
 }
 
@@ -627,7 +628,7 @@ void MediaEngine::onVideoRefresh()
     AVFrame *frame = m_videoFrameQueue->peek();
     if (!frame) {
         if (m_videoFrameQueue->isFinished())
-            return; // no more frames coming; don't busy-loop
+            return; // 没有更多帧了；不要忙循环
         scheduleNextVideoRefresh(1);
         return;
     }
@@ -652,7 +653,7 @@ void MediaEngine::onVideoRefresh()
         return;
     }
 
-    // Update sync state only after we've committed to displaying this frame.
+    // 仅在确定显示此帧后才更新同步状态。
     m_syncController->onFrameDisplayed(pts);
     m_lastFrameDisplayTimeUs = now;
     m_lastVideoPts = pts;
@@ -664,7 +665,7 @@ void MediaEngine::onVideoRefresh()
     else if (fmt == AV_PIX_FMT_YUV420P)
         yuv = extractYUV420P(frame, frame->width, frame->height);
     else {
-        // Unsupported format — convert to YUV420P via swscale.
+        // 不支持的格式——通过 swscale 转换为 YUV420P。
         AVFrame *rgb = av_frame_alloc();
         if (rgb) {
             rgb->format = AV_PIX_FMT_YUV420P;
@@ -697,7 +698,7 @@ void MediaEngine::onVideoRefresh()
     emit frameReady(yuv);
     av_frame_free(&frame);
 
-    // Schedule the next refresh based on the next frame's required delay.
+    // 根据下一帧所需的延迟调度下一次刷新。
     AVFrame *nextFrame = m_videoFrameQueue->peek();
     if (nextFrame) {
         double nextPts = nextFrame->pts != AV_NOPTS_VALUE
@@ -706,7 +707,7 @@ void MediaEngine::onVideoRefresh()
         double nextDelay = m_syncController->computeFrameDelay(nextPts);
         scheduleNextVideoRefresh(qMax(1, int(nextDelay * 1000.0)));
     } else if (m_videoFrameQueue->isFinished()) {
-        // No more frames; let the position timer catch up and stop.
+        // 没有更多帧了；让位置定时器赶上并停止。
     } else {
         scheduleNextVideoRefresh(1);
     }
@@ -714,10 +715,9 @@ void MediaEngine::onVideoRefresh()
 
 void MediaEngine::onFrameRendered(double pts)
 {
-    // For audio-master files the audio clock is the authoritative position.
-    // For video-only files we use the PTS of the frame that has actually been
-    // rendered, so the progress bar tracks the picture on screen instead of
-    // wall-clock time or the commit time.
+    // 对于音频主控文件，音频时钟是权威位置。
+    // 对于纯视频文件，我们使用实际已渲染帧的 PTS，
+    // 因此进度条跟踪屏幕上的画面，而不是壁钟时间或提交时间。
     m_lastVideoPts = pts;
     if (m_syncController->syncMode() == SyncMode::AudioMaster)
         return;
@@ -776,7 +776,7 @@ void MediaEngine::updateSubtitle(double clockSeconds)
 
 void MediaEngine::startThreads()
 {
-    // Only allocate the audio packet queue when there is an audio stream.
+    // 仅在存在音频流时分配音频包队列。
     if (m_audioCodecCtx) {
         m_audioPacketQueue = new PacketQueue(64);
         m_audioFrameQueue = new FrameQueue(kAudioFrameQueueSize);

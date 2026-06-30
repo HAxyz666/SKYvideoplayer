@@ -20,8 +20,8 @@ public:
     void setFormatContext(AVFormatContext *ctx);
     void setStreamIndices(int videoIdx, int audioIdx, int subtitleIdx);
     void setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQueue, PacketQueue *subtitleQueue);
-    // m_subtitleStreamIdx may change during playback (user switches subtitle
-    // track) from the GUI thread while run() reads it here — atomic needed.
+    // m_subtitleStreamIdx 可能在播放过程中变化（用户切换字幕轨）
+    // 从 GUI 线程修改，而 run() 在此读取——需要原子操作。
     void setSubtitleStreamIndex(int idx) { m_subtitleStreamIdx.store(idx, std::memory_order_release); }
     void stopRead();
     void setPausedRef(const std::atomic<bool> &paused);

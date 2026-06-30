@@ -2,7 +2,6 @@
 
 #include <QObject>
 #include <atomic>
-#include <cstdint>
 #include <deque>
 
 extern "C" {
@@ -61,9 +60,9 @@ private:
     // the PTS of the frame covering the current consumed position,
     // linearly interpolated by byte progress.  Independent of speed,
     // atempo compression ratio, and FIFO data mix.
-    struct Marker { double pts; int64_t byteOffset; };
+    struct Marker { double pts; qint64 byteOffset; };
     std::deque<Marker> m_markers;
-    int64_t m_bytesWritten{0};
+    qint64 m_bytesWritten{0};
 
     double m_lastClock{0.0};
     qint64 m_lastUpdateUs{0};

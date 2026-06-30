@@ -2,7 +2,6 @@
 #include "FrameQueue.h"
 #include "AVSyncController.h"
 #include <QDebug>
-#include <cstring>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -36,8 +35,7 @@ bool AudioOutput::initialize(const SDL_AudioSpec &spec)
     SDL_AudioSpec wantedSpec = spec;
     wantedSpec.callback = sdlAudioCallback;
     wantedSpec.userdata = this;
-    SDL_AudioSpec obtainedSpec;
-    std::memset(&obtainedSpec, 0, sizeof(obtainedSpec));
+    SDL_AudioSpec obtainedSpec{};
     m_audioDeviceID = SDL_OpenAudioDevice(nullptr, 0, &wantedSpec, &obtainedSpec,
                                           SDL_AUDIO_ALLOW_ANY_CHANGE);
     if (m_audioDeviceID == 0) {
@@ -123,8 +121,8 @@ void AudioOutput::updateAudioClock()
     if (!m_syncController || m_bytesPerSecond <= 0.0)
         return;
 
-    int64_t consumed = m_bytesWritten
-                       - static_cast<int64_t>(av_fifo_can_read(m_audioFifo));
+    qint64 consumed = m_bytesWritten
+                       - static_cast<qint64>(av_fifo_can_read(m_audioFifo));
     double clock = 0.0;
     bool    valid = false;
 
@@ -216,7 +214,7 @@ void AudioOutput::fillAudioFifo()
 
         m_markers.push_back({frame->pts * av_q2d(frame->time_base),
                              m_bytesWritten});
-        m_bytesWritten += static_cast<int64_t>(frameBytes);
+        m_bytesWritten += static_cast<qint64>(frameBytes);
         while (m_markers.size() > 16) m_markers.pop_front();
 
         av_frame_free(&frame);

@@ -106,9 +106,9 @@ public:
 
         const bool hasFrameData = !pendingFrame.yPlane.isEmpty();
 
-        // Upload must be attempted even when texY/pipeline are still null
-        // (first valid frame), otherwise textures and pipeline are never
-        // created and the screen stays black forever.
+        // 即使 texY/pipeline 仍为 null 也必须尝试上传
+        // （第一个有效帧），否则纹理和管线永远不会被创建，
+        // 屏幕将永远保持黑色。
         if (needsUpload && hasFrameData) {
             int w = pendingFrame.frameSize.width();
             int h = pendingFrame.frameSize.height();
@@ -147,9 +147,8 @@ public:
             batch->updateDynamicBuffer(uniformBuf, 0, 64, mvpMatrix().constData());
 
         //周代森：强制渲染当前画面，修复了暂停+按下全屏时的画面尺寸问题
-        // beginPass always clears to Qt::black, so an empty frame (e.g. after
-        // clearImage()) simply repaints the surface black instead of leaving
-        // the previous frame stuck on screen.
+        // beginPass 总是清除为 Qt::black，因此空帧（如 clearImage() 后）
+        // 只是将表面重新绘制为黑色，而不会将前一帧留在屏幕上。
         cb->beginPass(renderTarget(), Qt::black, QRhiDepthStencilClearValue(), batch);
         if (hasFrame) {
             QSize s = renderTarget()->pixelSize();

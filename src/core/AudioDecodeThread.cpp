@@ -2,8 +2,6 @@
 #include "PacketQueue.h"
 #include "FrameQueue.h"
 #include <QDebug>
-#include <cmath>
-#include <cstring>
 
 
 static AVFrame *convertFrameToS16(AVFrame *frame)
@@ -12,18 +10,18 @@ static AVFrame *convertFrameToS16(AVFrame *frame)
     const int channels = frame->ch_layout.nb_channels > 0
                              ? frame->ch_layout.nb_channels : 2;
 
-    // ── S16 interleaved (fallback / non-speed path) ──
+    // ── S16 交错（回退 / 非倍速路径）──
     if (frame->format == AV_SAMPLE_FMT_S16) {
         int16_t *s = (int16_t*)frame->data[0];
         const int total = nb_samples * channels;
 
         float peak = 0.0f;
         for (int i = 0; i < total; i++) {
-            float v = fabsf((float)s[i]);
+            float v = qAbs((float)s[i]);
             if (v > peak) peak = v;
         }
 
-        // Only scale down when near clipping; 0.99 headroom
+        // 仅在接近削波时缩小；0.99 余量
         const float scale = (peak > 32767.0f * 0.99f)
                                 ? (32767.0f * 0.99f / peak) : 1.0f;
         if (scale < 1.0f)
@@ -33,7 +31,7 @@ static AVFrame *convertFrameToS16(AVFrame *frame)
         return frame;
     }
 
-    // ── FLTP planar ── find full-frame peak, then convert + scale ──
+    // ── FLTP 平面格式——找全帧峰值，然后转换 + 缩放──
     if (frame->format == AV_SAMPLE_FMT_FLTP) {
         float *src[8];
         for (int c = 0; c < channels && c < 8; c++)
@@ -42,14 +40,14 @@ static AVFrame *convertFrameToS16(AVFrame *frame)
         float peak = 0.0f;
         for (int i = 0; i < nb_samples; i++)
             for (int c = 0; c < channels; c++) {
-                float v = fabsf(src[c][i]);
+                float v = qAbs(src[c][i]);
                 if (v > peak) peak = v;
             }
 
-        // Only scale down when > 1.0 (atempo OLA overshoot); keep 0.99 headroom
+        // 仅在 > 1.0 时缩小（atempo OLA 过冲）；保持 0.99 余量
         const float scale = (peak > 1.0f) ? (0.99f / peak) : 1.0f;
 
-        // 3. Allocate S16 frame and convert
+        // 3. 分配 S16 帧并转换
         AVFrame *out = av_frame_alloc();
         if (!out) { av_frame_free(&frame); return nullptr; }
 
@@ -160,7 +158,7 @@ void AudioDecodeThread::setOutputSampleRate(int rate)
     m_outputSampleRate.store(rate, std::memory_order_release);
 }
 
-// ── Resample (decode format ─> S16 44100Hz stereo) ──
+// ── 重采样（解码格式 → S16 44100Hz 立体声）──
 
 bool AudioDecodeThread::initSwrContext()
 {
@@ -240,92 +238,7 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
     return outFrame;
 }
 
-// ── Filter graph: abuffer(S16) → aresample(→FLTP) → atempo → aresample(→FLTP) → abuffersink → peak-norm(→S16) ──
-
-bool AudioDecodeThread::initFilterGraph(double tempo)
-{
-    int rate = m_outputSampleRate.load(std::memory_order_acquire);
-
-    m_filterGraph = avfilter_graph_alloc();
-    if (!m_filterGraph)
-        return false;
-
-    const AVFilter *abuffer = avfilter_get_by_name("abuffer");
-    const AVFilter *aresample = avfilter_get_by_name("aresample");
-    const AVFilter *atempo = avfilter_get_by_name("atempo");
-    const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
-
-    if (!abuffer || !aresample || !atempo || !abuffersink) {
-        qWarning() << "AudioDecodeThread: required filters not found";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    const QString args = QStringLiteral("time_base=1/%1:sample_rate=%1:sample_fmt=s16:channel_layout=stereo").arg(rate);
-    const QByteArray argsBuf = args.toUtf8();
-
-    if (avfilter_graph_create_filter(&m_abufferCtx, abuffer, "in", argsBuf.constData(), nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create abuffer filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    const QString aresampleArgs = QStringLiteral("osr=%1:out_chlayout=stereo:osf=fltp").arg(rate);
-    const QByteArray aresampleBuf = aresampleArgs.toUtf8();
-
-    if (avfilter_graph_create_filter(&m_aresampleInCtx, aresample, "aresample_in",
-                                     aresampleBuf.constData(), nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create input aresample filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    const QString tempoArg = QStringLiteral("tempo=%1").arg(tempo, 0, 'f', 4);
-    const QByteArray tempoArgBuf = tempoArg.toUtf8();
-    if (avfilter_graph_create_filter(&m_atempoCtx, atempo, "atempo", tempoArgBuf.constData(), nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create atempo filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_graph_create_filter(&m_aresampleOutCtx, aresample, "aresample_out",
-                                     aresampleBuf.constData(), nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create output aresample filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_graph_create_filter(&m_abuffersinkCtx, abuffersink, "out", nullptr, nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create abuffersink filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_link(m_abufferCtx, 0, m_aresampleInCtx, 0) < 0 ||
-        avfilter_link(m_aresampleInCtx, 0, m_atempoCtx, 0) < 0 ||
-        avfilter_link(m_atempoCtx, 0, m_aresampleOutCtx, 0) < 0 ||
-        avfilter_link(m_aresampleOutCtx, 0, m_abuffersinkCtx, 0) < 0) {
-        qWarning() << "AudioDecodeThread: failed to link filter graph";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_graph_config(m_filterGraph, nullptr) < 0) {
-        qWarning() << "AudioDecodeThread: failed to configure filter graph";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    return true;
-}
+// ── 滤镜图：abuffer(S16) → aresample(→FLTP) → atempo → aresample(→FLTP) → abuffersink → 峰值归一(→S16) ──
 
 void AudioDecodeThread::destroyFilterGraph()
 {
@@ -339,7 +252,26 @@ void AudioDecodeThread::destroyFilterGraph()
     }
 }
 
-// ── Speed ──
+// ── 速度控制 ──
+
+void AudioDecodeThread::drainFilterGraph()
+{
+    if (!m_filterGraph)
+        return;
+    (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
+    while (!m_quit) {
+        AVFrame *filtered = av_frame_alloc();
+        int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
+        if (r < 0) { av_frame_free(&filtered); break; }
+        filtered = convertFrameToS16(filtered);
+        if (filtered) {
+            int rate = m_outputSampleRate.load(std::memory_order_acquire);
+            filtered->time_base = (AVRational){1, rate};
+            m_frameQueue->push(filtered);
+            av_frame_free(&filtered);
+        }
+    }
+}
 
 void AudioDecodeThread::setSpeed(double speed)
 {
@@ -364,10 +296,10 @@ void AudioDecodeThread::applySpeed()
     if (qFuzzyCompare(current, speed))
         return;
 
-    // Build the new filter graph BEFORE tearing down the old one.
-    // If it fails we keep running at the old speed instead of
-    // silently falling back to 1.0× passthrough while the rest of
-    // the pipeline believes we're at 2× (→ permanent A/V offset).
+    // 在拆除旧滤镜图之前先构建新滤镜图。
+    // 如果构建失败则继续以旧速度运行，而不是
+    // 静默回退到 1.0× 直通而管线其他部分
+    // 以为在 2×（→ 永久音画偏移）。
     bool ok = qFuzzyCompare(speed, 1.0);
     AVFilterGraph *tmpGraph = nullptr;
     AVFilterContext *buf = nullptr, *arsIn = nullptr,
@@ -405,7 +337,7 @@ void AudioDecodeThread::applySpeed()
                     avfilter_link(atm, 0, arsOut, 0) >= 0 &&
                     avfilter_link(arsOut, 0, sink, 0) >= 0 &&
                     avfilter_graph_config(tmpGraph, nullptr) >= 0) {
-                    // Success — drain old filter, then swap.
+                    // 成功——排空旧滤镜，然后替换。
                     ok = true;
                 } else {
                     avfilter_graph_free(&tmpGraph);
@@ -419,28 +351,8 @@ void AudioDecodeThread::applySpeed()
                        << speed << "- staying at" << current;
             return;
         }
-        // Drain and destroy old filter graph, then install the new one.
-        if (m_filterGraph) {
-            (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
-            while (!m_quit) {
-                AVFrame *filtered = av_frame_alloc();
-                int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
-                if (r < 0) { av_frame_free(&filtered); break; }
-                // atempo outputs PTS on the media-time timeline. Skip the
-                // speed multiplication entirely at non-1.0× speeds so the
-                // audio clock (and progress bar) stays in sync with the
-                // real media time across seeks.
-                if (filtered->pts != AV_NOPTS_VALUE && current > 0.0
-                    && qFuzzyCompare(current, 1.0))
-                    filtered->pts = filtered->pts * current;
-                filtered = convertFrameToS16(filtered);
-                if (filtered) {
-                    filtered->time_base = (AVRational){1, rate};
-                    m_frameQueue->push(filtered);
-                    av_frame_free(&filtered);
-                }
-            }
-        }
+        // 排空并销毁旧滤镜图，然后安装新滤镜图。
+        drainFilterGraph();
         destroyFilterGraph();
         m_filterGraph = tmpGraph;
         m_abufferCtx = buf;
@@ -450,42 +362,21 @@ void AudioDecodeThread::applySpeed()
         m_abuffersinkCtx = sink;
         m_currentSpeed.store(speed, std::memory_order_release);
     } else {
-        // 1.0× passthrough — no filter needed.
-        if (m_filterGraph) {
-            (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
-            while (!m_quit) {
-                AVFrame *filtered = av_frame_alloc();
-                int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
-                if (r < 0) { av_frame_free(&filtered); break; }
-                // Drained frames were produced by the old (non-1.0×) filter.
-                // atempo's output PTS is on the media-time timeline, so skip
-                // the speed multiplication at non-1.0× speeds to keep the
-                // audio clock aligned with the real media time.
-                if (filtered->pts != AV_NOPTS_VALUE && current > 0.0
-                    && qFuzzyCompare(current, 1.0))
-                    filtered->pts = filtered->pts * current;
-                filtered = convertFrameToS16(filtered);
-                if (filtered) {
-                    int rate = m_outputSampleRate.load(std::memory_order_acquire);
-                    filtered->time_base = (AVRational){1, rate};
-                    m_frameQueue->push(filtered);
-                    av_frame_free(&filtered);
-                }
-            }
-        }
+        // 1.0× 直通——无需滤镜。
+        drainFilterGraph();
         destroyFilterGraph();
         m_currentSpeed.store(1.0, std::memory_order_release);
     }
 }
 
-// ── Main loop ──
+// ── 主循环 ──
 
 void AudioDecodeThread::run()
 {
     if (!m_codecCtx || !m_packetQueue || !m_frameQueue)
         return;
 
-    // Wait for MediaEngine to tell us the actual output sample rate.
+    // 等待 MediaEngine 告诉我们实际的输出采样率。
     while (m_outputSampleRate.load(std::memory_order_acquire) == 0
            && !m_quit) {
         msleep(1);
@@ -496,9 +387,6 @@ void AudioDecodeThread::run()
         qWarning() << "AudioDecodeThread: failed to init swr context";
         return;
     }
-
-    if (!qFuzzyCompare(m_currentSpeed.load(std::memory_order_acquire), 1.0))
-        initFilterGraph(m_currentSpeed.load(std::memory_order_acquire));
 
     AVFrame *frame = av_frame_alloc();
     if (!frame)
@@ -554,18 +442,10 @@ void AudioDecodeThread::run()
                         }
                         filtered = convertFrameToS16(filtered);
                         if (filtered) {
-                            // atempo outputs PTS on the media-time timeline.
-                            // Skip the speed multiplication at non-1.0× speeds
-                            // so the audio clock (and progress bar) stays in
-                            // sync with the real media time across seeks.
-                            double spd = m_currentSpeed.load(std::memory_order_acquire);
-                            if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0
-                                && qFuzzyCompare(spd, 1.0))
-                                filtered->pts = filtered->pts * spd;
-                            // Ensure consistent time_base after the filter chain.
-                            // The atempo/aresample/abuffersink combo may leave
-                            // time_base at an unexpected value, which would
-                            // corrupt the pts→seconds conversion in fillAudioFifo.
+                            // 确保滤镜链后的 time_base 一致。
+                            // atempo/aresample/abuffersink 组合可能留下
+                            // 意外的 time_base 值，这会破坏 fillAudioFifo
+                            // 中的 pts→秒 转换。
                             int rate = m_outputSampleRate.load(std::memory_order_acquire);
                             filtered->time_base = (AVRational){1, rate};
                             m_frameQueue->push(filtered);
@@ -585,29 +465,7 @@ void AudioDecodeThread::run()
         }
     }
 
-    if (m_filterGraph) {
-        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
-        while (true) {
-            AVFrame *filtered = av_frame_alloc();
-            int ret = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
-            if (ret < 0) {
-                av_frame_free(&filtered);
-                break;
-            }
-            filtered = convertFrameToS16(filtered);
-            if (filtered) {
-                double spd = m_currentSpeed.load(std::memory_order_acquire);
-                if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0
-                    && qFuzzyCompare(spd, 1.0))
-                    filtered->pts = filtered->pts * spd;
-                int rate = m_outputSampleRate.load(std::memory_order_acquire);
-                filtered->time_base = (AVRational){1, rate};
-                if (!m_quit)
-                    m_frameQueue->push(filtered);
-                av_frame_free(&filtered);
-            }
-        }
-    }
+    drainFilterGraph();
 
     av_frame_free(&frame);
 }
