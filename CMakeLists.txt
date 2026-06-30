@@ -54,6 +54,7 @@ set(LOGIC_SOURCES
     src/logic/Applicationcontroller.cpp
     src/logic/PlaylistModel.cpp
     src/logic/RecentFilesModel.cpp
+    src/logic/SettingsManager.cpp
 )
 
 set(LOGIC_HEADERS
@@ -62,6 +63,7 @@ set(LOGIC_HEADERS
     src/logic/PlaylistModel.h
     src/logic/PlaybackMode.h
     src/logic/RecentFilesModel.h
+    src/logic/SettingsManager.h
 )
 
 qt6_add_executable(SKYvideoplayer

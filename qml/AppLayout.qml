@@ -147,33 +147,37 @@ Item {
             visible: !controller.isAudioOnly
         }
 
-        // 字幕叠加层（文本）
+        // 字幕叠加层（文本）— 背景透明
         Item {
             id: subtitleOverlay
             anchors.fill: parent
             visible: !controller.isAudioOnly
             z: 10
 
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 90
-                width: subtitleText.implicitWidth + 24
-                height: subtitleText.implicitHeight + 12
-                radius: 6
-                color: "#c0000000"
-                visible: subtitleText.text.length > 0
-            }
-
             Text {
                 id: subtitleText
+
+                // 水平始终居中
                 anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 96
+
+                // 垂直位置由 settingsManager.subtitleStyle.position 控制
+                y: {
+                    var pos = settingsManager.subtitleStyle.position || "bottom"
+                    if (pos === "top")
+                        return 96
+                    if (pos === "center")
+                        return (parent.height - height) / 2
+                    return parent.height - height - 96   // bottom (默认)
+                }
+
                 text: appController.currentSubtitle
-                color: "white"
-                font.pixelSize: 20
+
+                // 样式来自 SettingsManager
+                color: settingsManager.subtitleStyle.color || "#FFFFFF"
+                font.family: settingsManager.subtitleStyle.fontFamily || "Sans Serif"
+                font.pixelSize: settingsManager.subtitleStyle.fontSize || 20
                 font.bold: true
+
                 horizontalAlignment: Text.Center
                 width: parent.width * 0.75
                 wrapMode: Text.Wrap

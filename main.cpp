@@ -1,5 +1,6 @@
 #include "Applicationcontroller.h"
 #include "MediaEngine.h"
+#include "SettingsManager.h"
 #include "VideoRenderItem.h"
 #include "PlaybackMode.h"
 
@@ -19,6 +20,7 @@ int main(int argc, char *argv[])
     ApplicationController controller;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("appController", &controller);
+    engine.rootContext()->setContextProperty("settingsManager", &SettingsManager::instance());
 
     engine.loadFromModule("SKYvideoplayer", "Main");
 
