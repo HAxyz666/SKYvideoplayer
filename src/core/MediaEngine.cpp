@@ -20,10 +20,9 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
-#include <libswscale/swscale.h>
 }
 
-// --- YUV 平面提取（在 GUI 线程的 onVideoRefresh 中运行）---
+// --- YUV plane extraction (runs on GUI thread inside onVideoRefresh) ---
 
 static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
 {
@@ -157,11 +156,10 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_audioOutputReady(false)
     , m_speed(1.0)
 {
-    // 视频显示刷新：检查 m_videoFrameQueue 并通过 AVSyncController
-    // 定时将帧交付给 VideoRenderItem。使用单次触发定时器，
-    // 其下次超时时间根据帧间隔计算，因此高帧率内容
-    // 能正确调度，不会被固定 10ms 周期限制。
-    m_videoRefreshTimer->setSingleShot(true);
+    // Video display refresh: peeks m_videoFrameQueue and times frame delivery
+    // to VideoRenderItem via AVSyncController. 10ms granularity is fine for
+    // <=60fps content; the actual delay is driven by computeFrameDelay().
+    m_videoRefreshTimer->setInterval(10);
     connect(m_videoRefreshTimer, &QTimer::timeout, this, &MediaEngine::onVideoRefresh);
 
     m_positionTimer->setInterval(250);
@@ -352,44 +350,34 @@ void MediaEngine::start()
     m_audioOutputReady = false;
     m_syncController->reset();
     m_syncController->setSpeed(m_speed);
-    if (m_audioCodecCtx)
-        m_syncController->setSyncMode(SyncMode::AudioMaster);
-    else
-        m_syncController->setSyncMode(SyncMode::VideoMaster);
 
     m_position = 0.0;
     m_startTimeUs = av_gettime();
     m_pausedDurationUs = 0;
     m_pauseStartUs = 0;
     m_lastFrameDisplayTimeUs = 0;
-    m_lastVideoPts = 0.0;
 
-    // 先启动线程，让音频解码器填充 FrameQueue
+    // Start threads first so audio decoder fills the FrameQueue
     startThreads();
 
-    // 在解码器启动后再初始化 SDL 音频，以便 FIFO 可以预填充
+    // Initialize SDL audio AFTER decoder has started, so FIFO can pre-fill
     if (m_audioCodecCtx) {
         SDL_AudioSpec spec;
         std::memset(&spec, 0, sizeof(spec));
-        spec.freq = m_audioCodecCtx->sample_rate;
+        spec.freq = 44100;
         spec.format = AUDIO_S16SYS;
-        spec.channels = m_audioCodecCtx->ch_layout.nb_channels;
+        spec.channels = 2;
         spec.samples = 1024;
 
         m_audioOutputReady = m_audioOutput->initialize(spec);
         if (m_audioOutputReady) {
             m_audioOutput->setSyncController(m_syncController);
-            if (m_audioThread)
-                m_audioThread->setOutputSampleRate(
-                    m_audioOutput->sampleRate());
-            if (m_audioThread && !qFuzzyCompare(m_speed, 1.0))
-                m_audioThread->setSpeed(m_speed);
         }
     }
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
-        scheduleNextVideoRefresh(0);
+        m_videoRefreshTimer->start();
 }
 
 void MediaEngine::stop()
@@ -397,8 +385,8 @@ void MediaEngine::stop()
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
 
-    // 仅当确实有内容在播放时才报告"未播放"；
-    // 避免首次 open() 时（无前一个 fmtCtx）误发 pausedChanged 信号。
+    // Report "not playing" only if something was actually playing; avoids
+    // spurious pausedChanged on the very first open() (no prior fmtCtx).
     const bool wasPlaying = !m_paused && m_fmtCtx != nullptr;
     m_paused = true;
 
@@ -423,13 +411,6 @@ bool MediaEngine::open(const QString &url)
     return m_fmtCtx != nullptr;
 }
 
-void MediaEngine::scheduleNextVideoRefresh(int delayMs)
-{
-    if (!m_videoRefreshTimer || m_paused)
-        return;
-    m_videoRefreshTimer->start(qMax(delayMs, 1));
-}
-
 void MediaEngine::pause()
 {
     if (m_paused.exchange(true))
@@ -448,7 +429,7 @@ void MediaEngine::resume()
     m_pausedDurationUs += av_gettime() - m_pauseStartUs;
     m_pauseStartUs = 0;
     if (m_videoFrameQueue)
-        scheduleNextVideoRefresh(0);
+        m_videoRefreshTimer->start();
     emit pausedChanged(false);
 }
 
@@ -473,7 +454,7 @@ void MediaEngine::seek(double seconds)
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
 
-    // 直接停止音频（不发 pausedChanged 信号）以避免 UI 闪烁。
+    // Stop audio directly (no pausedChanged signal) to avoid UI flicker.
     m_audioOutput->pause();
     m_audioOutput->reset();
     stopThreads();
@@ -483,15 +464,11 @@ void MediaEngine::seek(double seconds)
     if (m_duration > 0 && targetUs > static_cast<int64_t>(m_duration * AV_TIME_BASE))
         targetUs = static_cast<int64_t>(m_duration * AV_TIME_BASE);
 
-    int streamIdx = m_videoStreamIndex >= 0 ? m_videoStreamIndex : m_audioStreamIndex;
-    if (streamIdx >= 0) {
-        int64_t targetStreamTs = av_rescale_q(targetUs, AV_TIME_BASE_Q,
-                                              m_fmtCtx->streams[streamIdx]->time_base);
-        int ret = avformat_seek_file(m_fmtCtx, streamIdx,
-                                     INT64_MIN, targetStreamTs, targetStreamTs, 0);
-        if (ret < 0)
-            qWarning() << "Seek failed:" << ret;
-    }
+    int ret = avformat_seek_file(m_fmtCtx, -1,
+                                 INT64_MIN, targetUs, targetUs,
+                                 AVSEEK_FLAG_BACKWARD);
+    if (ret < 0)
+        qWarning() << "Seek failed:" << ret;
 
     if (m_videoCodecCtx)
         avcodec_flush_buffers(m_videoCodecCtx);
@@ -512,16 +489,12 @@ void MediaEngine::seek(double seconds)
     qint64 now = av_gettime();
     m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(m_speed, 0.1));
     m_pausedDurationUs = 0;
-    m_pauseStartUs = 0;
+    m_pauseStartUs = m_paused ? now : 0;
     m_lastFrameDisplayTimeUs = 0;
-    m_lastVideoPts = seconds;
     m_position = seconds;
     emit positionChanged(m_position);
 
     startThreads();
-
-    if (m_audioThread)
-        m_audioThread->setOutputSampleRate(m_audioOutput->sampleRate());
 
     if (m_audioThread && !qFuzzyCompare(m_speed, 1.0))
         m_audioThread->setSpeed(m_speed);
@@ -531,7 +504,7 @@ void MediaEngine::seek(double seconds)
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
-        scheduleNextVideoRefresh(0);
+        m_videoRefreshTimer->start();
 }
 
 double MediaEngine::position() const
@@ -548,15 +521,16 @@ double MediaEngine::duration() const
 
 void MediaEngine::setSpeed(double speed)
 {
-    // 与音频 atempo 滤镜的工作范围匹配，以保持音画同步。
+    // Match the audio atempo filter's working range so A/V stay in sync.
     speed = qBound(0.5, speed, 2.0);
     if (qFuzzyCompare(m_speed, speed))
         return;
     double oldSpeed = m_speed;
     m_speed = speed;
 
-    // 重新锚定壁钟开始时间，使得显示的进度在速度变化时连续。
-    // 暂停时锚定到暂停开始时刻，以便恢复时不跳变。
+    // Re-anchor the wall-clock start time so the displayed position is
+    // continuous across the speed change. When paused, anchor against the
+    // pause start moment so resume doesn't jump.
     if (m_startTimeUs != 0) {
         qint64 refTime = m_paused ? m_pauseStartUs : av_gettime();
         double currentPos = (refTime - m_startTimeUs - m_pausedDurationUs) * oldSpeed / 1000000.0;
@@ -564,10 +538,14 @@ void MediaEngine::setSpeed(double speed)
                         - static_cast<qint64>(currentPos * 1000000.0 / speed);
     }
 
+    // Do NOT clear audio queue or reset FIFO — old-speed frames have their
+    // PTS corrected in AudioDecodeThread, so they blend seamlessly into the
+    // new-speed stream.  No audio gap, no clock domain mismatch.
+
+    m_syncController->setSpeed(speed);
     if (m_audioThread)
         m_audioThread->setSpeed(speed);
     m_audioOutput->setSpeed(speed);
-    m_syncController->setSpeed(speed);
     emit speedChanged(m_speed);
 }
 
@@ -626,37 +604,28 @@ void MediaEngine::onVideoRefresh()
         return;
 
     AVFrame *frame = m_videoFrameQueue->peek();
-    if (!frame) {
-        if (m_videoFrameQueue->isFinished())
-            return; // 没有更多帧了；不要忙循环
-        scheduleNextVideoRefresh(1);
+    if (!frame)
         return;
-    }
 
-    double pts = frame->pts != AV_NOPTS_VALUE
-                     ? frame->pts * av_q2d(m_videoTimeBase)
-                     : 0.0;
+    double pts = 0.0;
+    if (frame->pts != AV_NOPTS_VALUE)
+        pts = frame->pts * av_q2d(m_videoTimeBase);
 
     double delay = m_syncController->computeFrameDelay(pts);
 
     qint64 now = av_gettime();
     double elapsed = (now - m_lastFrameDisplayTimeUs) / 1000000.0;
 
-    if (elapsed + 0.001 < delay) {
-        scheduleNextVideoRefresh(qMax(1, int((delay - elapsed) * 1000.0)));
+    if (elapsed + 0.001 < delay)
         return;
-    }
 
     frame = m_videoFrameQueue->tryPop(0);
-    if (!frame) {
-        scheduleNextVideoRefresh(1);
+    if (!frame)
         return;
-    }
 
-    // 仅在确定显示此帧后才更新同步状态。
+    // Update sync state only after we've committed to displaying this frame.
     m_syncController->onFrameDisplayed(pts);
     m_lastFrameDisplayTimeUs = now;
-    m_lastVideoPts = pts;
 
     YUVFrame yuv;
     AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
@@ -665,71 +634,13 @@ void MediaEngine::onVideoRefresh()
     else if (fmt == AV_PIX_FMT_YUV420P)
         yuv = extractYUV420P(frame, frame->width, frame->height);
     else {
-        // 不支持的格式——通过 swscale 转换为 YUV420P。
-        AVFrame *rgb = av_frame_alloc();
-        if (rgb) {
-            rgb->format = AV_PIX_FMT_YUV420P;
-            rgb->width = frame->width;
-            rgb->height = frame->height;
-            if (av_frame_get_buffer(rgb, 0) == 0) {
-                SwsContext *sws = sws_getContext(
-                    frame->width, frame->height, fmt,
-                    frame->width, frame->height, AV_PIX_FMT_YUV420P,
-                    SWS_BILINEAR, nullptr, nullptr, nullptr);
-                if (sws) {
-                    sws_scale(sws, frame->data, frame->linesize, 0,
-                              frame->height, rgb->data, rgb->linesize);
-                    sws_freeContext(sws);
-                    yuv = extractYUV420P(rgb, rgb->width, rgb->height);
-                }
-            }
-            av_frame_free(&rgb);
-        }
-        if (yuv.yPlane.isEmpty()) {
-            qWarning("Unsupported pixel format: %s, skipping frame",
-                     av_get_pix_fmt_name(fmt));
-            av_frame_free(&frame);
-            scheduleNextVideoRefresh(1);
-            return;
-        }
+        qWarning("Unsupported pixel format: %s, skipping frame", av_get_pix_fmt_name(fmt));
+        av_frame_free(&frame);
+        return;
     }
 
-    yuv.pts = pts;
     emit frameReady(yuv);
     av_frame_free(&frame);
-
-    // 根据下一帧所需的延迟调度下一次刷新。
-    AVFrame *nextFrame = m_videoFrameQueue->peek();
-    if (nextFrame) {
-        double nextPts = nextFrame->pts != AV_NOPTS_VALUE
-                             ? nextFrame->pts * av_q2d(m_videoTimeBase)
-                             : 0.0;
-        double nextDelay = m_syncController->computeFrameDelay(nextPts);
-        scheduleNextVideoRefresh(qMax(1, int(nextDelay * 1000.0)));
-    } else if (m_videoFrameQueue->isFinished()) {
-        // 没有更多帧了；让位置定时器赶上并停止。
-    } else {
-        scheduleNextVideoRefresh(1);
-    }
-}
-
-void MediaEngine::onFrameRendered(double pts)
-{
-    // 对于音频主控文件，音频时钟是权威位置。
-    // 对于纯视频文件，我们使用实际已渲染帧的 PTS，
-    // 因此进度条跟踪屏幕上的画面，而不是壁钟时间或提交时间。
-    m_lastVideoPts = pts;
-    if (m_syncController->syncMode() == SyncMode::AudioMaster)
-        return;
-
-    double pos = pts;
-    if (pos < 0) pos = 0;
-    if (m_duration > 0 && pos > m_duration) pos = m_duration;
-
-    if (qAbs(pos - m_position) > 0.01) {
-        m_position = pos;
-        emit positionChanged(m_position);
-    }
 }
 
 void MediaEngine::updatePosition()
@@ -737,12 +648,7 @@ void MediaEngine::updatePosition()
     if (m_paused || m_startTimeUs == 0)
         return;
 
-    double pos = 0.0;
-    if (m_syncController->syncMode() == SyncMode::AudioMaster)
-        pos = m_syncController->audioClock();
-    else
-        pos = m_lastVideoPts;
-
+    double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs) * m_speed / 1000000.0;
     if (pos < 0) pos = 0;
     if (m_duration > 0 && pos > m_duration) pos = m_duration;
 
@@ -776,7 +682,7 @@ void MediaEngine::updateSubtitle(double clockSeconds)
 
 void MediaEngine::startThreads()
 {
-    // 仅在存在音频流时分配音频包队列。
+    // Only allocate the audio packet queue when there is an audio stream.
     if (m_audioCodecCtx) {
         m_audioPacketQueue = new PacketQueue(64);
         m_audioFrameQueue = new FrameQueue(kAudioFrameQueueSize);

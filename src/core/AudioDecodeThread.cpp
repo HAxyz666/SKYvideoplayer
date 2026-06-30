@@ -2,6 +2,8 @@
 #include "PacketQueue.h"
 #include "FrameQueue.h"
 #include <QDebug>
+#include <cmath>
+#include <cstring>
 
 
 static AVFrame *convertFrameToS16(AVFrame *frame)
@@ -10,18 +12,18 @@ static AVFrame *convertFrameToS16(AVFrame *frame)
     const int channels = frame->ch_layout.nb_channels > 0
                              ? frame->ch_layout.nb_channels : 2;
 
-    // ── S16 交错（回退 / 非倍速路径）──
+    // ── S16 interleaved (fallback / non-speed path) ──
     if (frame->format == AV_SAMPLE_FMT_S16) {
         int16_t *s = (int16_t*)frame->data[0];
         const int total = nb_samples * channels;
 
         float peak = 0.0f;
         for (int i = 0; i < total; i++) {
-            float v = qAbs((float)s[i]);
+            float v = fabsf((float)s[i]);
             if (v > peak) peak = v;
         }
 
-        // 仅在接近削波时缩小；0.99 余量
+        // Only scale down when near clipping; 0.99 headroom
         const float scale = (peak > 32767.0f * 0.99f)
                                 ? (32767.0f * 0.99f / peak) : 1.0f;
         if (scale < 1.0f)
@@ -31,7 +33,7 @@ static AVFrame *convertFrameToS16(AVFrame *frame)
         return frame;
     }
 
-    // ── FLTP 平面格式——找全帧峰值，然后转换 + 缩放──
+    // ── FLTP planar ── find full-frame peak, then convert + scale ──
     if (frame->format == AV_SAMPLE_FMT_FLTP) {
         float *src[8];
         for (int c = 0; c < channels && c < 8; c++)
@@ -40,14 +42,14 @@ static AVFrame *convertFrameToS16(AVFrame *frame)
         float peak = 0.0f;
         for (int i = 0; i < nb_samples; i++)
             for (int c = 0; c < channels; c++) {
-                float v = qAbs(src[c][i]);
+                float v = fabsf(src[c][i]);
                 if (v > peak) peak = v;
             }
 
-        // 仅在 > 1.0 时缩小（atempo OLA 过冲）；保持 0.99 余量
+        // Only scale down when > 1.0 (atempo OLA overshoot); keep 0.99 headroom
         const float scale = (peak > 1.0f) ? (0.99f / peak) : 1.0f;
 
-        // 3. 分配 S16 帧并转换
+        // 3. Allocate S16 frame and convert
         AVFrame *out = av_frame_alloc();
         if (!out) { av_frame_free(&frame); return nullptr; }
 
@@ -153,12 +155,7 @@ void AudioDecodeThread::setPausedRef(const std::atomic<bool> &paused)
     m_paused = &paused;
 }
 
-void AudioDecodeThread::setOutputSampleRate(int rate)
-{
-    m_outputSampleRate.store(rate, std::memory_order_release);
-}
-
-// ── 重采样（解码格式 → S16 44100Hz 立体声）──
+// ── Resample (decode format ─> S16 44100Hz stereo) ──
 
 bool AudioDecodeThread::initSwrContext()
 {
@@ -176,8 +173,7 @@ bool AudioDecodeThread::initSwrContext()
 
     AVChannelLayout outChLayout = AV_CHANNEL_LAYOUT_STEREO;
     av_opt_set_chlayout(m_swrCtx, "out_chlayout", &outChLayout, 0);
-    int rate = m_outputSampleRate.load(std::memory_order_acquire);
-    av_opt_set_int(m_swrCtx, "out_sample_rate", rate, 0);
+    av_opt_set_int(m_swrCtx, "out_sample_rate", 44100, 0);
     av_opt_set_sample_fmt(m_swrCtx, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
 
     return swr_init(m_swrCtx) >= 0;
@@ -201,7 +197,7 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
     outFrame->format = AV_SAMPLE_FMT_S16;
     AVChannelLayout outChLayout = AV_CHANNEL_LAYOUT_STEREO;
     av_channel_layout_copy(&outFrame->ch_layout, &outChLayout);
-    outFrame->sample_rate = m_outputSampleRate.load(std::memory_order_acquire);
+    outFrame->sample_rate = 44100;
     outFrame->nb_samples = outSamples;
 
     if (av_frame_get_buffer(outFrame, 0) < 0) {
@@ -226,19 +222,96 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
                                                         converted, AV_SAMPLE_FMT_S16, 1);
 
     if (frame->pts != AV_NOPTS_VALUE) {
-        int rate = m_outputSampleRate.load(std::memory_order_acquire);
-        outFrame->pts = av_rescale_q(frame->pts, m_timeBase,
-                                     (AVRational){1, rate});
+        outFrame->pts = av_rescale_q(frame->pts, m_timeBase, (AVRational){1, 44100});
     } else {
         outFrame->pts = AV_NOPTS_VALUE;
     }
-    int rate = m_outputSampleRate.load(std::memory_order_acquire);
-    outFrame->time_base = (AVRational){1, rate};
+    outFrame->time_base = (AVRational){1, 44100};
 
     return outFrame;
 }
 
-// ── 滤镜图：abuffer(S16) → aresample(→FLTP) → atempo → aresample(→FLTP) → abuffersink → 峰值归一(→S16) ──
+// ── Filter graph: abuffer(S16) → aresample(→FLTP) → atempo → aresample(→FLTP) → abuffersink → peak-norm(→S16) ──
+
+bool AudioDecodeThread::initFilterGraph(double tempo)
+{
+    m_filterGraph = avfilter_graph_alloc();
+    if (!m_filterGraph)
+        return false;
+
+    const AVFilter *abuffer = avfilter_get_by_name("abuffer");
+    const AVFilter *aresample = avfilter_get_by_name("aresample");
+    const AVFilter *atempo = avfilter_get_by_name("atempo");
+    const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
+
+    if (!abuffer || !aresample || !atempo || !abuffersink) {
+        qWarning() << "AudioDecodeThread: required filters not found";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    const QString args = QStringLiteral("time_base=1/44100:sample_rate=44100:sample_fmt=s16:channel_layout=stereo");
+    const QByteArray argsBuf = args.toUtf8();
+
+    if (avfilter_graph_create_filter(&m_abufferCtx, abuffer, "in", argsBuf.constData(), nullptr, m_filterGraph) < 0) {
+        qWarning() << "AudioDecodeThread: failed to create abuffer filter";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    if (avfilter_graph_create_filter(&m_aresampleInCtx, aresample, "aresample_in",
+                                     "osr=44100:out_chlayout=stereo:osf=fltp", nullptr, m_filterGraph) < 0) {
+        qWarning() << "AudioDecodeThread: failed to create input aresample filter";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    const QString tempoArg = QStringLiteral("tempo=%1").arg(tempo, 0, 'f', 4);
+    const QByteArray tempoArgBuf = tempoArg.toUtf8();
+    if (avfilter_graph_create_filter(&m_atempoCtx, atempo, "atempo", tempoArgBuf.constData(), nullptr, m_filterGraph) < 0) {
+        qWarning() << "AudioDecodeThread: failed to create atempo filter";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    if (avfilter_graph_create_filter(&m_aresampleOutCtx, aresample, "aresample_out",
+                                     "osr=44100:out_chlayout=stereo:osf=fltp", nullptr, m_filterGraph) < 0) {
+        qWarning() << "AudioDecodeThread: failed to create output aresample filter";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    if (avfilter_graph_create_filter(&m_abuffersinkCtx, abuffersink, "out", nullptr, nullptr, m_filterGraph) < 0) {
+        qWarning() << "AudioDecodeThread: failed to create abuffersink filter";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    if (avfilter_link(m_abufferCtx, 0, m_aresampleInCtx, 0) < 0 ||
+        avfilter_link(m_aresampleInCtx, 0, m_atempoCtx, 0) < 0 ||
+        avfilter_link(m_atempoCtx, 0, m_aresampleOutCtx, 0) < 0 ||
+        avfilter_link(m_aresampleOutCtx, 0, m_abuffersinkCtx, 0) < 0) {
+        qWarning() << "AudioDecodeThread: failed to link filter graph";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    if (avfilter_graph_config(m_filterGraph, nullptr) < 0) {
+        qWarning() << "AudioDecodeThread: failed to configure filter graph";
+        avfilter_graph_free(&m_filterGraph);
+        m_filterGraph = nullptr;
+        return false;
+    }
+
+    return true;
+}
 
 void AudioDecodeThread::destroyFilterGraph()
 {
@@ -252,26 +325,7 @@ void AudioDecodeThread::destroyFilterGraph()
     }
 }
 
-// ── 速度控制 ──
-
-void AudioDecodeThread::drainFilterGraph()
-{
-    if (!m_filterGraph)
-        return;
-    (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
-    while (!m_quit) {
-        AVFrame *filtered = av_frame_alloc();
-        int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
-        if (r < 0) { av_frame_free(&filtered); break; }
-        filtered = convertFrameToS16(filtered);
-        if (filtered) {
-            int rate = m_outputSampleRate.load(std::memory_order_acquire);
-            filtered->time_base = (AVRational){1, rate};
-            m_frameQueue->push(filtered);
-            av_frame_free(&filtered);
-        }
-    }
-}
+// ── Speed ──
 
 void AudioDecodeThread::setSpeed(double speed)
 {
@@ -296,97 +350,53 @@ void AudioDecodeThread::applySpeed()
     if (qFuzzyCompare(current, speed))
         return;
 
-    // 在拆除旧滤镜图之前先构建新滤镜图。
-    // 如果构建失败则继续以旧速度运行，而不是
-    // 静默回退到 1.0× 直通而管线其他部分
-    // 以为在 2×（→ 永久音画偏移）。
-    bool ok = qFuzzyCompare(speed, 1.0);
-    AVFilterGraph *tmpGraph = nullptr;
-    AVFilterContext *buf = nullptr, *arsIn = nullptr,
-                    *atm = nullptr, *arsOut = nullptr, *sink = nullptr;
-    if (!ok) {
-        int rate = m_outputSampleRate.load(std::memory_order_acquire);
-        tmpGraph = avfilter_graph_alloc();
-        if (tmpGraph) {
-            const AVFilter *f_abuffer = avfilter_get_by_name("abuffer");
-            const AVFilter *f_aresample = avfilter_get_by_name("aresample");
-            const AVFilter *f_atempo = avfilter_get_by_name("atempo");
-            const AVFilter *f_abuffersink = avfilter_get_by_name("abuffersink");
-            if (f_abuffer && f_aresample && f_atempo && f_abuffersink) {
-                const QString args = QStringLiteral(
-                    "time_base=1/%1:sample_rate=%1:sample_fmt=s16:channel_layout=stereo")
-                    .arg(rate);
-                const QByteArray argsBuf = args.toUtf8();
-                const QString ars = QStringLiteral(
-                    "osr=%1:out_chlayout=stereo:osf=fltp").arg(rate);
-                const QByteArray arsBuf = ars.toUtf8();
-                const QString t = QStringLiteral("tempo=%1").arg(speed, 0, 'f', 4);
-                const QByteArray tBuf = t.toUtf8();
-                if (avfilter_graph_create_filter(&buf, f_abuffer, "in",
-                        argsBuf.constData(), nullptr, tmpGraph) >= 0 &&
-                    avfilter_graph_create_filter(&arsIn, f_aresample, "arsmp_in",
-                        arsBuf.constData(), nullptr, tmpGraph) >= 0 &&
-                    avfilter_graph_create_filter(&atm, f_atempo, "atempo",
-                        tBuf.constData(), nullptr, tmpGraph) >= 0 &&
-                    avfilter_graph_create_filter(&arsOut, f_aresample, "arsmp_out",
-                        arsBuf.constData(), nullptr, tmpGraph) >= 0 &&
-                    avfilter_graph_create_filter(&sink, f_abuffersink, "out",
-                        nullptr, nullptr, tmpGraph) >= 0 &&
-                    avfilter_link(buf, 0, arsIn, 0) >= 0 &&
-                    avfilter_link(arsIn, 0, atm, 0) >= 0 &&
-                    avfilter_link(atm, 0, arsOut, 0) >= 0 &&
-                    avfilter_link(arsOut, 0, sink, 0) >= 0 &&
-                    avfilter_graph_config(tmpGraph, nullptr) >= 0) {
-                    // 成功——排空旧滤镜，然后替换。
-                    ok = true;
-                } else {
-                    avfilter_graph_free(&tmpGraph);
-                }
-            } else {
-                avfilter_graph_free(&tmpGraph);
+    if (m_filterGraph) {
+        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
+        while (!m_quit) {
+            AVFrame *filtered = av_frame_alloc();
+            int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
+            if (r < 0) {
+                av_frame_free(&filtered);
+                break;
+            }
+            // atempo divided PTS by old tempo; multiply back to restore
+            // original timeline so fillAudioFifo gets consistent clock values.
+            if (filtered->pts != AV_NOPTS_VALUE && current > 0.0)
+                filtered->pts = filtered->pts * current;
+            filtered = convertFrameToS16(filtered);
+            if (filtered) {
+                m_frameQueue->push(filtered);
+                av_frame_free(&filtered);
             }
         }
-        if (!ok) {
-            qWarning() << "AudioDecodeThread: cannot build filter for tempo"
-                       << speed << "- staying at" << current;
-            return;
-        }
-        // 排空并销毁旧滤镜图，然后安装新滤镜图。
-        drainFilterGraph();
-        destroyFilterGraph();
-        m_filterGraph = tmpGraph;
-        m_abufferCtx = buf;
-        m_aresampleInCtx = arsIn;
-        m_atempoCtx = atm;
-        m_aresampleOutCtx = arsOut;
-        m_abuffersinkCtx = sink;
-        m_currentSpeed.store(speed, std::memory_order_release);
-    } else {
-        // 1.0× 直通——无需滤镜。
-        drainFilterGraph();
-        destroyFilterGraph();
+    }
+
+    m_currentSpeed.store(speed, std::memory_order_release);
+    destroyFilterGraph();
+    if (qFuzzyCompare(speed, 1.0))
+        return;
+    if (!initFilterGraph(speed)) {
+        qWarning() << "AudioDecodeThread: failed to recreate filter graph at tempo" << speed
+                   << "- falling back to 1.0x passthrough";
+        // Keep m_currentSpeed in sync with reality (no graph => 1.0x output).
         m_currentSpeed.store(1.0, std::memory_order_release);
     }
 }
 
-// ── 主循环 ──
+// ── Main loop ──
 
 void AudioDecodeThread::run()
 {
     if (!m_codecCtx || !m_packetQueue || !m_frameQueue)
         return;
 
-    // 等待 MediaEngine 告诉我们实际的输出采样率。
-    while (m_outputSampleRate.load(std::memory_order_acquire) == 0
-           && !m_quit) {
-        msleep(1);
-    }
-    if (m_quit) return;
-
     if (!initSwrContext()) {
         qWarning() << "AudioDecodeThread: failed to init swr context";
         return;
     }
+
+    if (!qFuzzyCompare(m_currentSpeed.load(std::memory_order_acquire), 1.0))
+        initFilterGraph(m_currentSpeed.load(std::memory_order_acquire));
 
     AVFrame *frame = av_frame_alloc();
     if (!frame)
@@ -442,12 +452,10 @@ void AudioDecodeThread::run()
                         }
                         filtered = convertFrameToS16(filtered);
                         if (filtered) {
-                            // 确保滤镜链后的 time_base 一致。
-                            // atempo/aresample/abuffersink 组合可能留下
-                            // 意外的 time_base 值，这会破坏 fillAudioFifo
-                            // 中的 pts→秒 转换。
-                            int rate = m_outputSampleRate.load(std::memory_order_acquire);
-                            filtered->time_base = (AVRational){1, rate};
+                            // atempo divided PTS by tempo; restore original timeline.
+                            double spd = m_currentSpeed.load(std::memory_order_acquire);
+                            if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0)
+                                filtered->pts = filtered->pts * spd;
                             m_frameQueue->push(filtered);
                             av_frame_free(&filtered);
                         }
@@ -465,7 +473,26 @@ void AudioDecodeThread::run()
         }
     }
 
-    drainFilterGraph();
+    if (m_filterGraph) {
+        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
+        while (true) {
+            AVFrame *filtered = av_frame_alloc();
+            int ret = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
+            if (ret < 0) {
+                av_frame_free(&filtered);
+                break;
+            }
+            filtered = convertFrameToS16(filtered);
+            if (filtered) {
+                double spd = m_currentSpeed.load(std::memory_order_acquire);
+                if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0)
+                    filtered->pts = filtered->pts * spd;
+                if (!m_quit)
+                    m_frameQueue->push(filtered);
+                av_frame_free(&filtered);
+            }
+        }
+    }
 
     av_frame_free(&frame);
 }

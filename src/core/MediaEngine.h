@@ -87,9 +87,6 @@ signals:
     void subtitleStreamsChanged();
     void currentSubtitleStreamChanged(int index);
 
-public slots:
-    void onFrameRendered(double pts);
-
 private:
     static constexpr int kAudioFrameQueueSize = 32;
 
@@ -99,7 +96,6 @@ private:
     void stopThreads();
     void updatePosition();
     void onVideoRefresh();
-    void scheduleNextVideoRefresh(int delayMs);
 
     void updateSubtitle(double clockSeconds);
 
@@ -145,7 +141,6 @@ private:
     QTimer *m_positionTimer;
 
     qint64 m_lastFrameDisplayTimeUs{0};
-    double m_lastVideoPts{0.0};
 
     double m_volume;
     bool m_muted;

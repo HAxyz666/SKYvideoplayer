@@ -29,7 +29,6 @@ public:
     void stopDecode();
     void setPausedRef(const std::atomic<bool> &paused);
     void setSpeed(double speed);
-    void setOutputSampleRate(int rate);
 
 protected:
     void run() override;
@@ -37,8 +36,8 @@ protected:
 private:
     bool initSwrContext();
     AVFrame *resampleFrame(AVFrame *frame);
+    bool initFilterGraph(double tempo);
     void destroyFilterGraph();
-    void drainFilterGraph();
     void applySpeed();
 
     AVCodecContext *m_codecCtx;
@@ -60,5 +59,4 @@ private:
     double m_pendingSpeed;
     std::atomic<double> m_currentSpeed{1.0};
     std::mutex m_speedMutex;
-    std::atomic<int> m_outputSampleRate{0};
 };

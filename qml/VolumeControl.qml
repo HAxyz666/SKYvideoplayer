@@ -36,9 +36,10 @@ Item {
             value: appController.volume
             stepSize: 1
 
-            // 用户拖拽时不要回写控制器——onMoved 处理此事。
-            // 仅使用绑定会在用户首次拖拽时失效，
-            // 因此通过 Connections 仅在滑块未按下时恢复值。
+            // Don't push back to the controller while the user is dragging —
+            // onMoved handles that. Using a binding alone breaks the first
+            // time the user drags, so we restore the value via Connections
+            // only when the slider is not actively pressed.
             onMoved: appController.volume = value
 
             Connections {

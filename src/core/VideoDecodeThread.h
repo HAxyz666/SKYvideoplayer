@@ -14,8 +14,9 @@ extern "C" {
 class PacketQueue;
 class FrameQueue;
 
-// 纯视频解码线程。尽可能快地解码包并将解码后的帧推入 FrameQueue。
-// 所有显示定时由 MediaEngine 视频刷新定时器 + AVSyncController 处理。
+// Pure video decoder thread. Decodes packets as fast as possible and pushes
+// decoded frames into the FrameQueue. All display timing is handled by the
+// MediaEngine video refresh timer + AVSyncController.
 class VideoDecodeThread : public QThread
 {
     Q_OBJECT

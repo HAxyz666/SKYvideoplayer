@@ -94,8 +94,8 @@ void VideoDecodeThread::run()
             }
 
 #ifdef ENABLE_HWACCEL
-            // 将硬件帧传输到系统内存中的 NV12，
-            // 以便显示侧无需接触硬件 API 即可提取 YUV 平面。
+            // Transfer HW frame to NV12 in system memory so the display
+            // side can extract YUV planes without touching HW APIs.
             if (m_hwPixFmt != AV_PIX_FMT_NONE && frame->format == m_hwPixFmt) {
                 AVFrame *swFrame = av_frame_alloc();
                 if (!swFrame) {
@@ -114,7 +114,8 @@ void VideoDecodeThread::run()
                 frame = swFrame;
             }
 #endif
-            // FrameQueue::push 会克隆帧，因此我们可以立即释放本地引用。
+            // FrameQueue::push clones the frame, so we can release our local
+            // reference immediately.
             m_frameQueue->push(frame);
             av_frame_free(&frame);
         }

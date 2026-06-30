@@ -25,12 +25,9 @@ int main(int argc, char *argv[])
     auto rootObjects = engine.rootObjects();
     if (!rootObjects.isEmpty()) {
         VideoRenderItem *display = rootObjects.first()->findChild<VideoRenderItem *>("videoRenderItem");
-        if (display) {
+        if (display)
             QObject::connect(controller.mediaEngine(), &MediaEngine::frameReady,
                              display, &VideoRenderItem::setYUVFrame);
-            QObject::connect(display, &VideoRenderItem::frameRendered,
-                             controller.mediaEngine(), &MediaEngine::onFrameRendered);
-        }
     }
 
     return app.exec();
