@@ -1032,3 +1032,39 @@ void MediaEngine::activateExternalSubtitle(int infoIndex)
     qDebug() << "[extsub] activated:" << info.filePath
              << "entries:" << subs.size();
 }
+
+// --- 画面旋转 (UC-07) ---
+
+void MediaEngine::setRotation(int angle)
+{
+    int normalized = angle % 360;
+    if (normalized < 0) normalized += 360;
+    if (m_rotation == normalized) return;
+    m_rotation = normalized;
+    emit rotationChanged(m_rotation);
+}
+
+void MediaEngine::rotateLeft()
+{
+    // 逆时针 90°
+    setRotation(m_rotation + 90);
+}
+
+void MediaEngine::rotateRight()
+{
+    // 顺时针 90° = 逆时针 -90°
+    setRotation(m_rotation - 90);
+}
+
+void MediaEngine::setFlipVertical(bool flip)
+{
+    if (m_flipVertical == flip) return;
+    m_flipVertical = flip;
+    emit flipVerticalChanged(m_flipVertical);
+}
+
+void MediaEngine::resetRotation()
+{
+    setRotation(0);
+    setFlipVertical(false);
+}

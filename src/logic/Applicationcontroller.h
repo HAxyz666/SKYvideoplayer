@@ -23,6 +23,8 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString currentSubtitle READ currentSubtitle NOTIFY currentSubtitleChanged)
     Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY subtitleStreamsChanged)
     Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream NOTIFY currentSubtitleStreamChanged)
+    Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
+    Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -41,6 +43,10 @@ public:
     Q_INVOKABLE void stepBackward();
     Q_INVOKABLE void stepForwardLarge();
     Q_INVOKABLE void stepBackwardLarge();
+    Q_INVOKABLE void rotateLeft();           // 画面左旋 90° (UC-07)
+    Q_INVOKABLE void rotateRight();          // 画面右旋 90° (UC-07)
+    Q_INVOKABLE void toggleFlipVertical();   // 切换垂直翻转 (UC-07)
+    Q_INVOKABLE void resetRotation();        // 重置画面旋转 (UC-07)
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;
@@ -57,6 +63,8 @@ public:
     QVariantList subtitleStreams() const;
     int currentSubtitleStream() const;
     Q_INVOKABLE void setCurrentSubtitleStream(int index);
+    int rotation() const;                   // 当前画面旋转角度
+    bool flipVertical() const;              // 当前垂直翻转状态
     QString theme() const;
     void setTheme(const QString &theme);
 
@@ -73,6 +81,8 @@ signals:
     void subtitleStreamsChanged();
     void currentSubtitleStreamChanged(int index);
     void themeChanged();
+    void rotationChanged(int angle);        // 画面旋转角度变化信号
+    void flipVerticalChanged(bool flip);    // 垂直翻转状态变化信号
 
 private:
     MediaEngine *m_mediaEngine;

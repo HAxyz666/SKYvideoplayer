@@ -35,6 +35,9 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::currentSubtitleChanged, this, &ApplicationController::currentSubtitleChanged);
     connect(m_mediaEngine, &MediaEngine::subtitleStreamsChanged, this, &ApplicationController::subtitleStreamsChanged);
     connect(m_mediaEngine, &MediaEngine::currentSubtitleStreamChanged, this, &ApplicationController::currentSubtitleStreamChanged);
+    // 转发 MediaEngine 画面旋转 / 翻转信号到 QML 层 (UC-07)
+    connect(m_mediaEngine, &MediaEngine::rotationChanged, this, &ApplicationController::rotationChanged);
+    connect(m_mediaEngine, &MediaEngine::flipVerticalChanged, this, &ApplicationController::flipVerticalChanged);
 }
 
 bool ApplicationController::openFile()
@@ -246,4 +249,36 @@ void ApplicationController::setCurrentSubtitleStream(int index)
 bool ApplicationController::isAudioOnly() const
 {
     return !m_mediaEngine->hasVideo();
+}
+
+// --- 画面旋转 (UC-07) ---
+
+int ApplicationController::rotation() const
+{
+    return m_mediaEngine->rotation();
+}
+
+bool ApplicationController::flipVertical() const
+{
+    return m_mediaEngine->flipVertical();
+}
+
+void ApplicationController::rotateLeft()
+{
+    m_mediaEngine->rotateLeft();
+}
+
+void ApplicationController::rotateRight()
+{
+    m_mediaEngine->rotateRight();
+}
+
+void ApplicationController::toggleFlipVertical()
+{
+    m_mediaEngine->setFlipVertical(!m_mediaEngine->flipVertical());
+}
+
+void ApplicationController::resetRotation()
+{
+    m_mediaEngine->resetRotation();
 }

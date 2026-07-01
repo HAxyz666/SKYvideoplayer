@@ -27,6 +27,8 @@ public:
     YUVFrame pendingFrame;
     QMutex &mutex;
     bool needsUpload = false;
+    int videoRotation = 0;
+    bool flipVertical = false;
 
     explicit VideoRenderItemRenderer(QMutex &mtx) : mutex(mtx) {}
 
@@ -56,6 +58,9 @@ public:
             pendingFrame = ri->m_pendingFrame;
             needsUpload = true;
         }
+        // 画面旋转 / 翻转状态同步到渲染线程
+        videoRotation = ri->m_videoRotation;
+        flipVertical = ri->m_flipVertical;
         itemSize = item->size();
     }
 
@@ -166,10 +171,22 @@ private:
         QMatrix4x4 mvp;
         QSizeF ts = pendingFrame.frameSize;
         if (ts.width() > 0 && ts.height() > 0 && itemSize.height() > 0) {
-            float ar = float(ts.width()) / ts.height();
+            // 旋转 90/270 后画面宽高互换，按旋转后的有效尺寸做适配计算
+            QSizeF effective = ts;
+            if (videoRotation == 90 || videoRotation == 270)
+                effective = QSizeF(ts.height(), ts.width());
+
+            float ar = float(effective.width()) / effective.height();
             float ir = float(itemSize.width()) / itemSize.height();
             if (ar > ir) mvp.scale(1.0f, ir / ar);
             else         mvp.scale(ar / ir, 1.0f);
+
+            // 变换作用于顶点顺序：翻转 → 旋转 → 适配缩放
+            if (videoRotation != 0)
+                mvp.rotate(float(videoRotation), 0.0f, 0.0f, 1.0f);
+
+            if (flipVertical)
+                mvp.scale(1.0f, -1.0f);
         }
         return mvp;
     }
@@ -257,6 +274,25 @@ void VideoRenderItem::clearImage()
     QMutexLocker lock(&m_mutex);
     m_pendingFrame = YUVFrame();
     m_clearRequested = true;
+    update();
+}
+
+void VideoRenderItem::setVideoRotation(int angle)
+{
+    // 规范到 [0, 360)
+    int normalized = angle % 360;
+    if (normalized < 0) normalized += 360;
+    if (m_videoRotation == normalized) return;
+    m_videoRotation = normalized;
+    emit videoRotationChanged();
+    update();
+}
+
+void VideoRenderItem::setFlipVertical(bool flip)
+{
+    if (m_flipVertical == flip) return;
+    m_flipVertical = flip;
+    emit flipVerticalChanged();
     update();
 }
 

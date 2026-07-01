@@ -39,6 +39,8 @@ class MediaEngine : public QObject
     Q_PROPERTY(QString currentSubtitle READ currentSubtitle NOTIFY currentSubtitleChanged)
     Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY subtitleStreamsChanged)
     Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream WRITE setCurrentSubtitleStream NOTIFY currentSubtitleStreamChanged)
+    Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
+    Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -73,6 +75,15 @@ public:
     void setSpeed(double speed);
     double speed() const;
 
+    // --- 画面旋转 (UC-07) ---
+    int rotation() const { return m_rotation; }
+    bool flipVertical() const { return m_flipVertical; }
+    Q_INVOKABLE void setRotation(int angle);          // 设置旋转角度 (0/90/180/270)
+    Q_INVOKABLE void rotateLeft();                    // 左旋 90° (逆时针)
+    Q_INVOKABLE void rotateRight();                   // 右旋 90° (顺时针)
+    Q_INVOKABLE void setFlipVertical(bool flip);      // 设置垂直翻转
+    Q_INVOKABLE void resetRotation();                 // 重置画面
+
 signals:
     void frameReady(const YUVFrame &frame);
     void playbackFinished();
@@ -86,6 +97,8 @@ signals:
     void currentSubtitleChanged(QString text);
     void subtitleStreamsChanged();
     void currentSubtitleStreamChanged(int index);
+    void rotationChanged(int angle);          // 画面旋转角度变化信号
+    void flipVerticalChanged(bool flip);      // 垂直翻转状态变化信号
 
 private:
     static constexpr int kAudioFrameQueueSize = 32;
@@ -146,6 +159,10 @@ private:
     bool m_muted;
     bool m_audioOutputReady;
     double m_speed;
+
+    // 画面旋转 / 翻转状态 (UC-07)
+    int m_rotation{0};
+    bool m_flipVertical{false};
 
     struct SubtitleStreamInfo {
         int streamIndex = -1;

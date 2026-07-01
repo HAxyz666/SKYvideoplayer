@@ -145,6 +145,9 @@ Item {
             objectName: "videoRenderItem"
             anchors.fill: parent
             visible: !controller.isAudioOnly
+            // 画面旋转 / 翻转绑定 (UC-07)
+            videoRotation: appController.rotation
+            flipVertical: appController.flipVertical
         }
 
         // 字幕叠加层（文本）— 背景透明
@@ -314,6 +317,41 @@ Item {
                     }
 
                     SubtitleSelector { }
+
+                    // 画面旋转入口 (UC-07)：底部「视频」按钮，菜单弹出在按钮上方
+                    Button {
+                        id: videoBtn
+                        text: qsTr("Video")
+                        onClicked: {
+                            // 首次显示前 height 为 0，用估算高度兜底；之后用真实高度
+                            var h = videoMenu.height > 0 ? videoMenu.height : 140
+                            videoMenu.popup(videoBtn, 0, -h)
+                        }
+                    }
+
+                    Menu {
+                        id: videoMenu
+
+                        MenuItem {
+                            text: qsTr("Rotate Left 90°")
+                            onTriggered: appController.rotateLeft()
+                        }
+                        MenuItem {
+                            text: qsTr("Rotate Right 90°")
+                            onTriggered: appController.rotateRight()
+                        }
+                        MenuItem {
+                            text: qsTr("Flip Vertical")
+                            checkable: true
+                            checked: appController.flipVertical
+                            onTriggered: appController.toggleFlipVertical()
+                        }
+                        MenuSeparator {}
+                        MenuItem {
+                            text: qsTr("Reset")
+                            onTriggered: appController.resetRotation()
+                        }
+                    }
 
                     Item { Layout.fillWidth: true }
 
