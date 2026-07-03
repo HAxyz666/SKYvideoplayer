@@ -27,13 +27,9 @@ public:
     void setMuted(bool muted);
     void pause();
     void resume();
-    void stop();
     void reset();
     void closeDevice();
 
-    double volume() const;
-    bool muted() const;
-    double getAudioClock() const;
     void setSpeed(double speed);
 
 private:

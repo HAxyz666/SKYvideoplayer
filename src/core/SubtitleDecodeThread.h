@@ -42,6 +42,7 @@ public:
 
     void setExternalSubtitles(const QList<SubtitleEntry> &subs); 
     static QList<SubtitleEntry> loadFromFile(const QString &path);
+    static QList<SubtitleEntry> loadLrc(const QString &path);
 
 protected:
     void run() override;

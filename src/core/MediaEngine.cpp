@@ -13,12 +13,12 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QStringList>
+#include <QBuffer>
 #include <cstring>
 
 extern "C" {
 #include <libavutil/avutil.h>
-#include <libavutil/opt.h>
-#include <libavutil/imgutils.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
 }
 
@@ -178,6 +178,9 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     m_subtitleStreamIndex = -1;
     m_subtitleStreamsInfo.clear();
     m_currentSubtitle = QString();
+    m_coverArtUrl = QString();
+    m_lyrics.clear();
+    m_currentLyric = QString();
 
     if (avformat_open_input(&m_fmtCtx, filename.toUtf8().constData(), nullptr, nullptr) != 0) {
         qCritical() << "Could not open file:" << filename;
@@ -192,9 +195,21 @@ bool MediaEngine::initFFmpeg(const QString &filename)
 
     for (unsigned int i = 0; i < m_fmtCtx->nb_streams; i++) {
         AVStream *st = m_fmtCtx->streams[i];
-        // 跳过封面/专辑封面（attached picture），防止误识别为视频流
-        if (st->disposition & AV_DISPOSITION_ATTACHED_PIC)
+        // 处理封面/专辑封面（attached picture）
+        if (st->disposition & AV_DISPOSITION_ATTACHED_PIC) {
+            AVPacket &pic = st->attached_pic;
+            if (pic.size > 0 && pic.data) {
+                QImage img;
+                if (img.loadFromData(pic.data, pic.size)) {
+                    QByteArray ba;
+                    QBuffer buffer(&ba);
+                    buffer.open(QIODevice::WriteOnly);
+                    img.save(&buffer, "JPEG");
+                    m_coverArtUrl = "data:image/jpeg;base64," + ba.toBase64();
+                }
+            }
             continue;
+        }
         if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && m_videoStreamIndex == -1) {
             m_videoStreamIndex = i;
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && m_audioStreamIndex == -1) {
@@ -211,6 +226,7 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     }
 
     detectExternalSubtitles(m_filename);
+    detectLyrics(m_filename);
 
     if (m_videoStreamIndex != -1) {
         AVCodecParameters *videoPar = m_fmtCtx->streams[m_videoStreamIndex]->codecpar;
@@ -345,6 +361,8 @@ void MediaEngine::start()
         return;
 
     emit hasVideoChanged();
+    emit coverArtChanged();
+    emit currentLyricChanged(m_currentLyric);
 
     m_paused = false;
     m_audioOutputReady = false;
@@ -441,11 +459,6 @@ void MediaEngine::togglePause()
         pause();
 }
 
-bool MediaEngine::isPaused() const
-{
-    return m_paused;
-}
-
 void MediaEngine::seek(double seconds)
 {
     if (!m_fmtCtx)
@@ -481,6 +494,8 @@ void MediaEngine::seek(double seconds)
     }
     m_currentSubtitle = QString();
     emit currentSubtitleChanged(m_currentSubtitle);
+    m_currentLyric = QString();
+    emit currentLyricChanged(m_currentLyric);
 
     m_syncController->reset();
     m_syncController->setSpeed(m_speed);
@@ -598,6 +613,7 @@ void MediaEngine::onVideoRefresh()
             subTime = pos;
         }
         updateSubtitle(subTime);
+        updateLyric(subTime);
     }
 
     if (!m_videoFrameQueue)
@@ -657,6 +673,14 @@ void MediaEngine::updatePosition()
         emit positionChanged(m_position);
     }
 
+    // 歌词同步：始终跟随播放位置
+    {
+        double lyricTime = m_syncController->audioClock();
+        if (m_audioStreamIndex == -1 || lyricTime <= 0.0)
+            lyricTime = pos;
+        updateLyric(lyricTime);
+    }
+
     // 字幕同步：有视频流时由 onVideoRefresh() 以 10ms 粒度驱动；
     // 无视频流（纯音频+字幕）时在此以 250ms 粒度兜底。
     if (m_subtitleThread && !m_videoFrameQueue) {
@@ -677,6 +701,46 @@ void MediaEngine::updateSubtitle(double clockSeconds)
     if (sub != m_currentSubtitle) {
         m_currentSubtitle = sub;
         emit currentSubtitleChanged(m_currentSubtitle);
+    }
+}
+
+void MediaEngine::updateLyric(double clockSeconds)
+{
+    if (m_lyrics.isEmpty())
+        return;
+
+    qint64 posUs = static_cast<qint64>(clockSeconds * 1000000);
+    QString lyric;
+    // 找到最后一个 startUs <= posUs 的条目
+    for (const auto &entry : m_lyrics) {
+        if (posUs >= entry.startUs && posUs < entry.endUs) {
+            lyric = entry.text;
+            break;
+        }
+    }
+    if (lyric != m_currentLyric) {
+        m_currentLyric = lyric;
+        emit currentLyricChanged(m_currentLyric);
+    }
+}
+
+void MediaEngine::detectLyrics(const QString &audioPath)
+{
+    if (audioPath.isEmpty())
+        return;
+
+    QFileInfo fi(audioPath);
+    QDir dir = fi.dir();
+    QString base = fi.completeBaseName();
+
+    // 查找同名 .lrc 文件：base.lrc
+    QString lrcPath = dir.absoluteFilePath(base + u".lrc");
+    if (QFileInfo::exists(lrcPath)) {
+        QList<SubtitleEntry> lyrics = SubtitleDecodeThread::loadLrc(lrcPath);
+        if (!lyrics.isEmpty()) {
+            m_lyrics = lyrics;
+            qDebug() << "[lyric] loaded:" << lrcPath;
+        }
     }
 }
 
@@ -821,6 +885,17 @@ void MediaEngine::cleanup()
     m_hwDeviceType = AV_HWDEVICE_TYPE_NONE;
     m_useHardwareDecode = false;
 #endif
+
+    if (!m_coverArtUrl.isEmpty()) {
+        m_coverArtUrl = QString();
+        emit coverArtChanged();
+    }
+
+    if (!m_currentLyric.isEmpty()) {
+        m_currentLyric = QString();
+        emit currentLyricChanged(m_currentLyric);
+    }
+    m_lyrics.clear();
 
     m_currentSubtitle = QString();
     emit currentSubtitleChanged(m_currentSubtitle);

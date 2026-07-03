@@ -3,10 +3,6 @@
 #include "FrameQueue.h"
 #include <QDebug>
 
-extern "C" {
-#include <libavutil/imgutils.h>
-}
-
 VideoDecodeThread::VideoDecodeThread(QObject *parent)
     : QThread(parent)
     , m_codecCtx(nullptr)

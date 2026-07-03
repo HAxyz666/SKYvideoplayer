@@ -9,6 +9,8 @@ ApplicationWindow {
     height: 720
     visible: true
     title: "Video Audio Sync Player"
+    //flags: Qt.Window | Qt.FramelessWindowHint
+
 
     function applyTheme() {
         var d = appController.theme === "dark"
@@ -24,6 +26,10 @@ ApplicationWindow {
     property string currentTheme: appController.theme
     onCurrentThemeChanged: applyTheme()
     Component.onCompleted: applyTheme()
+
+    readonly property color windowBtnColor: appController.theme === "dark" ? "#ffffff" : "#555555"
+    readonly property color windowBtnHover:  appController.theme === "dark" ? "#40ffffff" : "#40000000"
+    readonly property color windowBtnCloseHover: "#80e04040"
 
     property bool isFullscreen: false
     property real savedWidth: 1280
@@ -46,14 +52,6 @@ ApplicationWindow {
             savedY = window.y
             window.visibility = Window.FullScreen
             isFullscreen = true
-        }
-    }
-
-    function toggleMaximized() {
-        if (window.visibility === Window.Maximized) {
-            window.visibility = Window.Windowed
-        } else {
-            window.visibility = Window.Maximized
         }
     }
 
@@ -119,6 +117,64 @@ ApplicationWindow {
             font.pixelSize: 28
             font.bold: true
             color: "white"
+        }
+    }
+
+    // 右上角窗口控制按钮（简约风格）
+    Row {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 8
+        spacing: 6
+        z: 999
+
+        Rectangle {
+            width: 36; height: 28; radius: 5
+            color: minHover.hovered ? windowBtnHover : "transparent"
+            Behavior on color { ColorAnimation { duration: 150 } }
+            Text {
+                anchors.centerIn: parent
+                text: "\u2500"
+                color: windowBtnColor
+                font.pixelSize: 16
+            }
+            HoverHandler { id: minHover }
+            TapHandler { onTapped: window.showMinimized() }
+        }
+
+        Rectangle {
+            width: 36; height: 28; radius: 5
+            color: maxHover.hovered ? windowBtnHover : "transparent"
+            Behavior on color { ColorAnimation { duration: 150 } }
+            Text {
+                anchors.centerIn: parent
+                text: window.visibility === Window.Maximized ? "\u2750" : "\u25A1"
+                color: windowBtnColor
+                font.pixelSize: 16
+            }
+            HoverHandler { id: maxHover }
+            TapHandler {
+                onTapped: {
+                    if (window.visibility === Window.Maximized)
+                        window.showNormal()
+                    else
+                        window.showMaximized()
+                }
+            }
+        }
+
+        Rectangle {
+            width: 36; height: 28; radius: 5
+            color: closeHover.hovered ? windowBtnCloseHover : "transparent"
+            Behavior on color { ColorAnimation { duration: 150 } }
+            Text {
+                anchors.centerIn: parent
+                text: "\u2715"
+                color: windowBtnColor
+                font.pixelSize: 16
+            }
+            HoverHandler { id: closeHover }
+            TapHandler { onTapped: window.close() }
         }
     }
 }

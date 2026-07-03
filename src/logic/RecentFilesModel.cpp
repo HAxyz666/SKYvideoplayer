@@ -92,17 +92,6 @@ void RecentFilesModel::removeFile(int index)
     emit countChanged();
 }
 
-void RecentFilesModel::clear()
-{
-    if (m_items.isEmpty())
-        return;
-    beginResetModel();
-    m_items.clear();
-    endResetModel();
-    saveToSettings();
-    emit countChanged();
-}
-
 void RecentFilesModel::saveToSettings()
 {
     QSettings settings;

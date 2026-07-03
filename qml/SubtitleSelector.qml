@@ -48,7 +48,7 @@ Button {
                 delegate: Rectangle {
                     width: parent.width
                     height: 28
-                    color: mouse.containsMouse
+                    color: subHover.hovered
                         ? (appController.theme === "dark" ? "#30ffffff" : "#20000000")
                         : "transparent"
 
@@ -85,12 +85,9 @@ Button {
                         }
                     }
 
-                    MouseArea {
-                        id: mouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
+                    HoverHandler { id: subHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: {
                             appController.setCurrentSubtitleStream(index - 1)
                             subtitlePopup.close()
                         }
@@ -109,7 +106,7 @@ Button {
             Rectangle {
                 width: parent.width
                 height: 28
-                color: styleMouse.containsMouse
+                color: styleHover.hovered
                     ? (appController.theme === "dark" ? "#30ffffff" : "#20000000")
                     : "transparent"
 
@@ -122,12 +119,9 @@ Button {
                     color: appController.theme === "dark" ? "white" : "#333"
                 }
 
-                MouseArea {
-                    id: styleMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
+                HoverHandler { id: styleHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    onTapped: {
                         root.resetEditState()
                         subtitlePopup.close()
                         styleDialog.open()
@@ -248,10 +242,9 @@ Button {
                         border.width: root.textColor.toString().toUpperCase() === modelData.toUpperCase() ? 2 : 0
                         border.color: "#4a90d9"
 
-                        MouseArea {
-                            anchors.fill: parent
+                        TapHandler {
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.textColor = modelData
+                            onTapped: root.textColor = modelData
                         }
                     }
                 }

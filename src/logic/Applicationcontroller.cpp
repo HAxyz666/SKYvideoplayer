@@ -6,7 +6,6 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
-#include <QUrl>
 #include <QSettings>
 
 ApplicationController::ApplicationController(QObject *parent)
@@ -38,6 +37,8 @@ ApplicationController::ApplicationController(QObject *parent)
     // 转发 MediaEngine 画面旋转 / 翻转信号到 QML 层 (UC-07)
     connect(m_mediaEngine, &MediaEngine::rotationChanged, this, &ApplicationController::rotationChanged);
     connect(m_mediaEngine, &MediaEngine::flipVerticalChanged, this, &ApplicationController::flipVerticalChanged);
+    connect(m_mediaEngine, &MediaEngine::coverArtChanged, this, &ApplicationController::coverArtChanged);
+    connect(m_mediaEngine, &MediaEngine::currentLyricChanged, this, &ApplicationController::currentLyricChanged);
 }
 
 bool ApplicationController::openFile()
@@ -249,6 +250,16 @@ void ApplicationController::setCurrentSubtitleStream(int index)
 bool ApplicationController::isAudioOnly() const
 {
     return !m_mediaEngine->hasVideo();
+}
+
+QString ApplicationController::coverArtUrl() const
+{
+    return m_mediaEngine->coverArtUrl();
+}
+
+QString ApplicationController::currentLyric() const
+{
+    return m_mediaEngine->currentLyric();
 }
 
 // --- 画面旋转 (UC-07) ---

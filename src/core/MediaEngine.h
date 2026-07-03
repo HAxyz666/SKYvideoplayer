@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QList>
+#include <QImage>
 #include <atomic>
 
 extern "C" {
@@ -41,6 +42,8 @@ class MediaEngine : public QObject
     Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream WRITE setCurrentSubtitleStream NOTIFY currentSubtitleStreamChanged)
     Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
+    Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
+    Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -53,7 +56,6 @@ public:
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
     Q_INVOKABLE void seek(double seconds);
-    bool isPaused() const;
     bool hasVideo() const { return m_videoStreamIndex >= 0; }
 
     double position() const;
@@ -74,6 +76,12 @@ public:
     // --- 速度控制 ---
     void setSpeed(double speed);
     double speed() const;
+
+    // --- 封面艺术 ---
+    QString coverArtUrl() const { return m_coverArtUrl; }
+
+    // --- 歌词 ---
+    QString currentLyric() const { return m_currentLyric; }
 
     // --- 画面旋转 (UC-07) ---
     int rotation() const { return m_rotation; }
@@ -99,6 +107,8 @@ signals:
     void currentSubtitleStreamChanged(int index);
     void rotationChanged(int angle);          // 画面旋转角度变化信号
     void flipVerticalChanged(bool flip);      // 垂直翻转状态变化信号
+    void coverArtChanged();
+    void currentLyricChanged(QString lyric);
 
 private:
     static constexpr int kAudioFrameQueueSize = 32;
@@ -111,8 +121,10 @@ private:
     void onVideoRefresh();
 
     void updateSubtitle(double clockSeconds);
+    void updateLyric(double clockSeconds);
 
     void detectExternalSubtitles(const QString &videoPath);
+    void detectLyrics(const QString &audioPath);
 
     void activateExternalSubtitle(int infoIndex);
 
@@ -163,6 +175,11 @@ private:
     // 画面旋转 / 翻转状态 (UC-07)
     int m_rotation{0};
     bool m_flipVertical{false};
+
+    QString m_coverArtUrl;
+
+    QList<SubtitleEntry> m_lyrics;
+    QString m_currentLyric;
 
     struct SubtitleStreamInfo {
         int streamIndex = -1;

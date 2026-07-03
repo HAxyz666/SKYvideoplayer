@@ -31,7 +31,6 @@ public:
 
     Q_INVOKABLE void addFile(const QString &filePath);
     Q_INVOKABLE void removeFile(int index);
-    Q_INVOKABLE void clear();
 
     void saveToSettings();
     void loadFromSettings();

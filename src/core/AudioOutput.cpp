@@ -100,11 +100,6 @@ void AudioOutput::resume()
         SDL_PauseAudioDevice(m_audioDeviceID, 0);
 }
 
-void AudioOutput::stop()
-{
-    closeDevice();
-}
-
 void AudioOutput::closeDevice()
 {
     if (m_audioDeviceID != 0) {
@@ -126,21 +121,6 @@ void AudioOutput::reset()
         av_fifo_reset2(m_audioFifo);
     if (m_audioDeviceID != 0)
         SDL_UnlockAudioDevice(m_audioDeviceID);
-}
-
-double AudioOutput::volume() const
-{
-    return m_volume.load(std::memory_order_relaxed);
-}
-
-bool AudioOutput::muted() const
-{
-    return m_muted.load(std::memory_order_relaxed);
-}
-
-double AudioOutput::getAudioClock() const
-{
-    return 0.0;
 }
 
 void AudioOutput::setSpeed(double speed)

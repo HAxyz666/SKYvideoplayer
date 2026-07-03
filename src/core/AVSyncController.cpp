@@ -1,6 +1,5 @@
 #include "AVSyncController.h"
 #include <QtGlobal>
-#include <cmath>
 
 AVSyncController::AVSyncController(QObject *parent)
     : QObject(parent)
@@ -19,22 +18,20 @@ double AVSyncController::computeFrameDelay(double videoPts) const
         delay = m_frameLastDelay;
     }
 
-    if (m_syncMode == SyncMode::AudioMaster) {
-        double diff = videoPts - m_audioClock;
-        double syncThreshold = 0.040;
+    double diff = videoPts - m_audioClock;
+    double syncThreshold = 0.040;
 
-        if (qAbs(diff) > 1.0) {
-            m_frameLastPts = videoPts;
-            m_frameLastDelay = 0.04;
-            return 0.0;
-        }
+    if (qAbs(diff) > 1.0) {
+        m_frameLastPts = videoPts;
+        m_frameLastDelay = 0.04;
+        return 0.0;
+    }
 
-        if (qAbs(diff) > syncThreshold) {
-            if (diff < 0.0) {
-                delay = 0.0;
-            } else {
-                delay = diff;
-            }
+    if (qAbs(diff) > syncThreshold) {
+        if (diff < 0.0) {
+            delay = 0.0;
+        } else {
+            delay = diff;
         }
     }
 
@@ -88,12 +85,6 @@ void AVSyncController::setSpeed(double speed)
     emit speedChanged(speed);
 }
 
-double AVSyncController::speed() const
-{
-    QMutexLocker lock(&m_mutex);
-    return m_speed;
-}
-
 void AVSyncController::reset()
 {
     QMutexLocker lock(&m_mutex);
@@ -103,14 +94,3 @@ void AVSyncController::reset()
     m_firstFrame = true;
 }
 
-void AVSyncController::setSyncMode(SyncMode mode)
-{
-    QMutexLocker lock(&m_mutex);
-    m_syncMode = mode;
-}
-
-SyncMode AVSyncController::syncMode() const
-{
-    QMutexLocker lock(&m_mutex);
-    return m_syncMode;
-}

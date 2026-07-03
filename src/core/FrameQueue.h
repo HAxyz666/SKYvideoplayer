@@ -15,17 +15,11 @@ public:
     ~FrameQueue();
 
     void push(AVFrame *frame);
-    AVFrame *pop();
     AVFrame *tryPop(int timeoutMs = 100);
     AVFrame *peek();
-    int size() const;
-    bool isFull() const;
-    bool isEmpty() const;
     void clear();
     void setFinished(bool finished);
-    bool isFinished() const;
     void flush();
-    int serial() const;
 
 private:
     QQueue<AVFrame *> m_queue;

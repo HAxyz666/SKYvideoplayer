@@ -197,12 +197,51 @@ Item {
             color: "black"
             visible: controller.isAudioOnly
 
-            Label {
-                anchors.centerIn: parent
-                text: qsTr("正在播放音频")
-                color: "white"
-                font.pixelSize: 28
+            Image {
+                anchors.fill: parent
+                source: appController.coverArtUrl
+                fillMode: Image.PreserveAspectFit
+                visible: appController.coverArtUrl !== ""
             }
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                visible: appController.coverArtUrl === ""
+                spacing: 16
+
+                Label {
+                    text: "♪"
+                    font.pixelSize: 72
+                    color: "white"
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                Label {
+                    text: qsTr("正在播放音频")
+                    color: "white"
+                    font.pixelSize: 28
+                    Layout.alignment: Qt.AlignHCenter
+                }
+            }
+        }
+
+        // 歌词叠加层 — 覆盖在封面/视频之上
+        Text {
+            id: lyricText
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height - height - 120
+            width: parent.width * 0.8
+            z: 20
+            text: appController.currentLyric
+            color: "#FFFFFF"
+            font.pixelSize: 24
+            font.bold: true
+            horizontalAlignment: Text.Center
+            wrapMode: Text.Wrap
+            style: Text.Outline
+            styleColor: "#C0000000"
+            lineHeight: 1.4
+            visible: text.length > 0
         }
 
         // 左上角：返回按钮
@@ -306,12 +345,12 @@ Item {
                     // 播放速度选择
                     ComboBox {
                         id: speedSelector
-                        model: ["0.5x", "1.0x", "1.5x", "2.0x"]
-                        currentIndex: 1
+                        model: ["0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "2.0x"]
+                        currentIndex: 2
                         Layout.preferredWidth: 80
                         font.pixelSize: 12
                         onActivated: function(index) {
-                            var speeds = [0.5, 1.0, 1.5, 2.0];
+                            var speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
                             controller.setSpeed(speeds[index]);
                         }
                     }

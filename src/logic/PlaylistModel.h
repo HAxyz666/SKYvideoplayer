@@ -38,8 +38,6 @@ public:
 
     // --- 当前播放项 ---
     void setCurrentIndex(int index);             // 设置当前播放项，更新高亮
-    int currentIndex() const;                    // 获取当前播放索引
-    QString currentFilePath() const;             // 获取当前播放文件路径
 
     // --- 查询 ---
     int indexOf(const QString &filePath) const;  // 按路径查找索引

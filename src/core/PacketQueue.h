@@ -16,16 +16,9 @@ public:
 
     void push(AVPacket *pkt);
     AVPacket *pop();
-    AVPacket *tryPop(int timeoutMs = 100);
-    int size() const;
-    bool isFull() const;
-    bool isEmpty() const;
     void clear();
     void setFinished(bool finished);
-    bool isFinished() const;
     void flush();
-    int serial() const;
-    void incrementSerial();
 
 private:
     QQueue<AVPacket *> m_queue;

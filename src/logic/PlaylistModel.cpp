@@ -144,20 +144,6 @@ void PlaylistModel::setCurrentIndex(int index)
     emit dataChanged(createIndex(m_currentIndex, 0), createIndex(m_currentIndex, 0), { IsPlayingRole });
 }
 
-// 获取当前播放索引
-int PlaylistModel::currentIndex() const
-{
-    return m_currentIndex;
-}
-
-// 获取当前播放项的文件路径
-QString PlaylistModel::currentFilePath() const
-{
-    if (m_currentIndex < 0 || m_currentIndex >= m_items.size())
-        return {};
-    return m_items.at(m_currentIndex).filePath;
-}
-
 // 按文件路径查找索引，不存在返回 -1
 int PlaylistModel::indexOf(const QString &filePath) const
 {

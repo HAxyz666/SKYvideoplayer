@@ -3,7 +3,6 @@
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
-#include <QTextStream>
 #include <QRegularExpression>
 #include <QStringList>
 #include <algorithm>
@@ -346,6 +345,76 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadAss(const QString &path)
     return subs;
 }
 
+QList<SubtitleEntry> SubtitleDecodeThread::loadLrc(const QString &path)
+{
+    QList<SubtitleEntry> entries;
+    QString content = readAllText(path);
+    if (content.isEmpty())
+        return entries;
+
+    static const QRegularExpression tsRe(QStringLiteral(R"(\[(\d{1,3}):(\d{2})[.:](\d{2,3})\])"));
+    QStringList lines = content.split(QRegularExpression(QStringLiteral("\\r?\\n")));
+
+    for (const QString &line : lines) {
+        QString trimmed = line.trimmed();
+        if (trimmed.isEmpty())
+            continue;
+
+        // 跳过元数据标签 [ti:xxx], [ar:xxx], [al:xxx], [by:xxx], [offset:xxx]
+        if (trimmed.startsWith(u'[') && trimmed.contains(u':') && !trimmed[1].isDigit()) {
+            // 解析 offset（单位：毫秒）
+            if (trimmed.startsWith(u"[offset:", Qt::CaseInsensitive)) {
+                // 会在后面统一处理
+            }
+            continue;
+        }
+
+        // 收集所有时间戳
+        QList<qint64> timestamps;
+        QString text;
+        int pos = 0;
+        QRegularExpressionMatch match;
+        while ((match = tsRe.match(trimmed, pos)).hasMatch()) {
+            qint64 min = match.captured(1).toLongLong();
+            qint64 sec = match.captured(2).toLongLong();
+            QString fracStr = match.captured(3);
+            qint64 ms;
+            if (fracStr.length() == 2)
+                ms = fracStr.toLongLong() * 10;  // [mm:ss.xx]
+            else
+                ms = fracStr.toLongLong();        // [mm:ss.xxx]
+            timestamps.append((min * 60 + sec) * 1000 + ms);
+            pos = match.capturedEnd();
+        }
+
+        text = trimmed.mid(pos).trimmed();
+        if (timestamps.isEmpty() || text.isEmpty())
+            continue;
+
+        for (qint64 ts : timestamps) {
+            SubtitleEntry e;
+            e.startUs = ts * 1000;  // 转换为微秒
+            e.text = text;
+            entries.append(e);
+        }
+    }
+
+    // 按时间排序
+    std::stable_sort(entries.begin(), entries.end(),
+        [](const SubtitleEntry &a, const SubtitleEntry &b) { return a.startUs < b.startUs; });
+
+    // 设置 endUs 为下一条的开始时间（最后一条使用 INT64_MAX）
+    for (int i = 0; i < entries.size(); i++) {
+        if (i + 1 < entries.size())
+            entries[i].endUs = entries[i + 1].startUs;
+        else
+            entries[i].endUs = INT64_MAX;
+    }
+
+    qDebug() << "[lrc] loaded:" << entries.size() << "entries from" << QFileInfo(path).fileName();
+    return entries;
+}
+
 QList<SubtitleEntry> SubtitleDecodeThread::loadFromFile(const QString &path)
 {
     QString suffix = QFileInfo(path).suffix().toLower();
@@ -353,6 +422,8 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadFromFile(const QString &path)
         return loadSrt(path);
     if (suffix == u"ass" || suffix == u"ssa")
         return loadAss(path);
+    if (suffix == u"lrc")
+        return loadLrc(path);
     qWarning() << "[extsub] unsupported format:" << suffix;
     return {};
 }
