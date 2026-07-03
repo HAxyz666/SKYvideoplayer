@@ -11,25 +11,28 @@ double AVSyncController::computeFrameDelay(double videoPts) const
 {
     QMutexLocker lock(&m_mutex);
 
-    // If this is the very first frame, display it immediately.
     if (m_firstFrame)
         return 0.0;
 
     double delay = videoPts - m_frameLastPts;
     if (delay <= 0.0 || delay > 1.0) {
-        // pts discontinuity — fall back to last known interval
         delay = m_frameLastDelay;
     }
 
     if (m_syncMode == SyncMode::AudioMaster) {
         double diff = videoPts - m_audioClock;
-        double syncThreshold = qBound(0.04, delay, 0.1);
-        if (std::fabs(diff) > syncThreshold) {
+        double syncThreshold = 0.040;
+
+        if (qAbs(diff) > 1.0) {
+            m_frameLastPts = videoPts;
+            m_frameLastDelay = 0.04;
+            return 0.0;
+        }
+
+        if (qAbs(diff) > syncThreshold) {
             if (diff < 0.0) {
-                // Video lagging behind audio — display immediately to catch up
                 delay = 0.0;
             } else {
-                // Video ahead of audio — wait the difference
                 delay = diff;
             }
         }
@@ -37,6 +40,9 @@ double AVSyncController::computeFrameDelay(double videoPts) const
 
     if (m_speed > 0.0)
         delay /= m_speed;
+
+    if (delay > 0.5)
+        delay = 0.5;
 
     return delay;
 }
@@ -101,4 +107,10 @@ void AVSyncController::setSyncMode(SyncMode mode)
 {
     QMutexLocker lock(&m_mutex);
     m_syncMode = mode;
+}
+
+SyncMode AVSyncController::syncMode() const
+{
+    QMutexLocker lock(&m_mutex);
+    return m_syncMode;
 }

@@ -2,7 +2,6 @@
 
 #include <QObject>
 #include <atomic>
-#include <cstdint>
 
 extern "C" {
 #include <SDL2/SDL.h>

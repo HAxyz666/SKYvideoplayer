@@ -16,8 +16,10 @@ pkg_check_modules(AVCODEC REQUIRED IMPORTED_TARGET libavcodec)
 pkg_check_modules(AVFORMAT REQUIRED IMPORTED_TARGET libavformat)
 pkg_check_modules(AVUTIL REQUIRED IMPORTED_TARGET libavutil)
 pkg_check_modules(SWRESAMPLE REQUIRED IMPORTED_TARGET libswresample)
-pkg_check_modules(AVFILTER REQUIRED IMPORTED_TARGET libavfilter)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+
+find_library(LIBSONIC_LIBRARIES sonic REQUIRED)
+find_path(LIBSONIC_INCLUDE_DIRS sonic.h)
 
 if(UNIX AND NOT APPLE)
     pkg_check_modules(LIBVA IMPORTED_TARGET libva)
@@ -141,8 +143,12 @@ target_link_libraries(SKYvideoplayer PRIVATE
     PkgConfig::AVFORMAT
     PkgConfig::AVUTIL
     PkgConfig::SWRESAMPLE
-    PkgConfig::AVFILTER
     PkgConfig::SDL2
+    ${LIBSONIC_LIBRARIES}
+)
+
+target_include_directories(SKYvideoplayer PRIVATE
+    ${LIBSONIC_INCLUDE_DIRS}
 )
 
 if(UNIX AND NOT APPLE AND LIBVA_FOUND AND LIBDRM_FOUND)

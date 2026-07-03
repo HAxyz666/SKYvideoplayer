@@ -140,8 +140,6 @@ bool AudioOutput::muted() const
 
 double AudioOutput::getAudioClock() const
 {
-    // No longer exposed by AVSyncController; audio clock is internal to the
-    // sync controller and updated via updateAudioClock() from fillAudioFifo.
     return 0.0;
 }
 
@@ -174,15 +172,8 @@ void AudioOutput::fillAudioFifo()
 
         if (m_syncController) {
             double clock = frame->pts * av_q2d(frame->time_base);
-            // PTS is already in original timeline (corrected in AudioDecodeThread),
-            // no speed multiplication needed here.
             if (m_bytesPerSecond > 0.0) {
                 double bufferedBytes = static_cast<double>(av_fifo_can_read(m_audioFifo));
-                // At non-1x speed, atempo stretches/compresses the PCM data,
-                // so bufferedBytes no longer maps 1:1 to original-timeline
-                // seconds at the hardware consumption rate.  Convert the
-                // wall-clock buffer duration back to original timeline by
-                // multiplying by speed (tempo).
                 double speed = m_speed.load(std::memory_order_relaxed);
                 clock -= bufferedBytes * speed / m_bytesPerSecond;
             }
@@ -207,10 +198,8 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
     int volume = muted ? 0
         : static_cast<int>(vol / 100.0 * SDL_MIX_MAXVOLUME);
 
-    // Pre-fill FIFO from FrameQueue when running low
     output->fillAudioFifo();
 
-    // Read from FIFO and mix into stream
     uint8_t buf[4096];
     while (len > 0) {
         size_t available = av_fifo_can_read(output->m_audioFifo);

@@ -742,6 +742,7 @@ void MediaEngine::startThreads()
         m_audioThread->setFrameQueue(m_audioFrameQueue);
         m_audioThread->setPausedRef(m_paused);
         m_audioThread->setTimeBase(m_fmtCtx->streams[m_audioStreamIndex]->time_base);
+        m_audioThread->setOutputSampleRate(44100);
     }
 
     m_demuxThread->start();

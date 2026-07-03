@@ -2,90 +2,11 @@
 #include "PacketQueue.h"
 #include "FrameQueue.h"
 #include <QDebug>
-#include <cmath>
-#include <cstring>
-
-
-static AVFrame *convertFrameToS16(AVFrame *frame)
-{
-    const int nb_samples = frame->nb_samples;
-    const int channels = frame->ch_layout.nb_channels > 0
-                             ? frame->ch_layout.nb_channels : 2;
-
-    // ── S16 interleaved (fallback / non-speed path) ──
-    if (frame->format == AV_SAMPLE_FMT_S16) {
-        int16_t *s = (int16_t*)frame->data[0];
-        const int total = nb_samples * channels;
-
-        float peak = 0.0f;
-        for (int i = 0; i < total; i++) {
-            float v = fabsf((float)s[i]);
-            if (v > peak) peak = v;
-        }
-
-        // Only scale down when near clipping; 0.99 headroom
-        const float scale = (peak > 32767.0f * 0.99f)
-                                ? (32767.0f * 0.99f / peak) : 1.0f;
-        if (scale < 1.0f)
-            for (int i = 0; i < total; i++)
-                s[i] = (int16_t)(s[i] * scale);
-
-        return frame;
-    }
-
-    // ── FLTP planar ── find full-frame peak, then convert + scale ──
-    if (frame->format == AV_SAMPLE_FMT_FLTP) {
-        float *src[8];
-        for (int c = 0; c < channels && c < 8; c++)
-            src[c] = (float*)frame->data[c];
-
-        float peak = 0.0f;
-        for (int i = 0; i < nb_samples; i++)
-            for (int c = 0; c < channels; c++) {
-                float v = fabsf(src[c][i]);
-                if (v > peak) peak = v;
-            }
-
-        // Only scale down when > 1.0 (atempo OLA overshoot); keep 0.99 headroom
-        const float scale = (peak > 1.0f) ? (0.99f / peak) : 1.0f;
-
-        // 3. Allocate S16 frame and convert
-        AVFrame *out = av_frame_alloc();
-        if (!out) { av_frame_free(&frame); return nullptr; }
-
-        out->format      = AV_SAMPLE_FMT_S16;
-        out->sample_rate = frame->sample_rate;
-        out->nb_samples  = nb_samples;
-        out->pts         = frame->pts;
-        out->time_base   = frame->time_base;
-        av_channel_layout_copy(&out->ch_layout, &frame->ch_layout);
-
-        if (av_frame_get_buffer(out, 0) < 0) {
-            av_frame_free(&out);
-            av_frame_free(&frame);
-            return nullptr;
-        }
-
-        int16_t *dst = (int16_t*)out->data[0];
-        for (int i = 0; i < nb_samples; i++)
-            for (int c = 0; c < channels; c++)
-                *dst++ = (int16_t)(src[c][i] * scale * 32767.0f);
-
-        av_frame_free(&frame);
-        return out;
-    }
-
-    qWarning("AudioDecodeThread: unexpected frame format %d", frame->format);
-    return frame;
-}
 
 extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/samplefmt.h>
-#include <libavutil/time.h>
-#include <libavfilter/buffersrc.h>
-#include <libavfilter/buffersink.h>
 }
 
 AudioDecodeThread::AudioDecodeThread(QObject *parent)
@@ -97,14 +18,6 @@ AudioDecodeThread::AudioDecodeThread(QObject *parent)
     , m_quit(false)
     , m_paused(nullptr)
     , m_timeBase{1, 44100}
-    , m_filterGraph(nullptr)
-    , m_abufferCtx(nullptr)
-    , m_aresampleInCtx(nullptr)
-    , m_atempoCtx(nullptr)
-    , m_aresampleOutCtx(nullptr)
-    , m_abuffersinkCtx(nullptr)
-    , m_speedDirty(false)
-    , m_pendingSpeed(1.0)
 {
 }
 
@@ -112,7 +25,7 @@ AudioDecodeThread::~AudioDecodeThread()
 {
     stopDecode();
     wait();
-    destroyFilterGraph();
+    destroySonic();
     if (m_swrCtx)
         swr_free(&m_swrCtx);
 }
@@ -155,7 +68,16 @@ void AudioDecodeThread::setPausedRef(const std::atomic<bool> &paused)
     m_paused = &paused;
 }
 
-// ── Resample (decode format ─> S16 44100Hz stereo) ──
+void AudioDecodeThread::setOutputSampleRate(int rate)
+{
+    m_outputSampleRate.store(rate, std::memory_order_release);
+}
+
+void AudioDecodeThread::setSpeed(double speed)
+{
+    speed = qBound(0.5, speed, 2.0);
+    m_currentSpeed.store(speed, std::memory_order_release);
+}
 
 bool AudioDecodeThread::initSwrContext()
 {
@@ -173,7 +95,8 @@ bool AudioDecodeThread::initSwrContext()
 
     AVChannelLayout outChLayout = AV_CHANNEL_LAYOUT_STEREO;
     av_opt_set_chlayout(m_swrCtx, "out_chlayout", &outChLayout, 0);
-    av_opt_set_int(m_swrCtx, "out_sample_rate", 44100, 0);
+    int rate = m_outputSampleRate.load(std::memory_order_acquire);
+    av_opt_set_int(m_swrCtx, "out_sample_rate", rate, 0);
     av_opt_set_sample_fmt(m_swrCtx, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
 
     return swr_init(m_swrCtx) >= 0;
@@ -197,7 +120,7 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
     outFrame->format = AV_SAMPLE_FMT_S16;
     AVChannelLayout outChLayout = AV_CHANNEL_LAYOUT_STEREO;
     av_channel_layout_copy(&outFrame->ch_layout, &outChLayout);
-    outFrame->sample_rate = 44100;
+    outFrame->sample_rate = m_outputSampleRate.load(std::memory_order_acquire);
     outFrame->nb_samples = outSamples;
 
     if (av_frame_get_buffer(outFrame, 0) < 0) {
@@ -219,184 +142,91 @@ AVFrame *AudioDecodeThread::resampleFrame(AVFrame *frame)
 
     outFrame->nb_samples = converted;
     outFrame->linesize[0] = av_samples_get_buffer_size(nullptr, outFrame->ch_layout.nb_channels,
-                                                        converted, AV_SAMPLE_FMT_S16, 1);
+                                                         converted, AV_SAMPLE_FMT_S16, 1);
 
     if (frame->pts != AV_NOPTS_VALUE) {
-        outFrame->pts = av_rescale_q(frame->pts, m_timeBase, (AVRational){1, 44100});
+        int rate = m_outputSampleRate.load(std::memory_order_acquire);
+        outFrame->pts = av_rescale_q(frame->pts, m_timeBase,
+                                     (AVRational){1, rate});
     } else {
         outFrame->pts = AV_NOPTS_VALUE;
     }
-    outFrame->time_base = (AVRational){1, 44100};
+    int rate = m_outputSampleRate.load(std::memory_order_acquire);
+    outFrame->time_base = (AVRational){1, rate};
 
     return outFrame;
 }
 
-// ── Filter graph: abuffer(S16) → aresample(→FLTP) → atempo → aresample(→FLTP) → abuffersink → peak-norm(→S16) ──
-
-bool AudioDecodeThread::initFilterGraph(double tempo)
+void AudioDecodeThread::flushSonic()
 {
-    m_filterGraph = avfilter_graph_alloc();
-    if (!m_filterGraph)
-        return false;
-
-    const AVFilter *abuffer = avfilter_get_by_name("abuffer");
-    const AVFilter *aresample = avfilter_get_by_name("aresample");
-    const AVFilter *atempo = avfilter_get_by_name("atempo");
-    const AVFilter *abuffersink = avfilter_get_by_name("abuffersink");
-
-    if (!abuffer || !aresample || !atempo || !abuffersink) {
-        qWarning() << "AudioDecodeThread: required filters not found";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    const QString args = QStringLiteral("time_base=1/44100:sample_rate=44100:sample_fmt=s16:channel_layout=stereo");
-    const QByteArray argsBuf = args.toUtf8();
-
-    if (avfilter_graph_create_filter(&m_abufferCtx, abuffer, "in", argsBuf.constData(), nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create abuffer filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_graph_create_filter(&m_aresampleInCtx, aresample, "aresample_in",
-                                     "osr=44100:out_chlayout=stereo:osf=fltp", nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create input aresample filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    const QString tempoArg = QStringLiteral("tempo=%1").arg(tempo, 0, 'f', 4);
-    const QByteArray tempoArgBuf = tempoArg.toUtf8();
-    if (avfilter_graph_create_filter(&m_atempoCtx, atempo, "atempo", tempoArgBuf.constData(), nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create atempo filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_graph_create_filter(&m_aresampleOutCtx, aresample, "aresample_out",
-                                     "osr=44100:out_chlayout=stereo:osf=fltp", nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create output aresample filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_graph_create_filter(&m_abuffersinkCtx, abuffersink, "out", nullptr, nullptr, m_filterGraph) < 0) {
-        qWarning() << "AudioDecodeThread: failed to create abuffersink filter";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_link(m_abufferCtx, 0, m_aresampleInCtx, 0) < 0 ||
-        avfilter_link(m_aresampleInCtx, 0, m_atempoCtx, 0) < 0 ||
-        avfilter_link(m_atempoCtx, 0, m_aresampleOutCtx, 0) < 0 ||
-        avfilter_link(m_aresampleOutCtx, 0, m_abuffersinkCtx, 0) < 0) {
-        qWarning() << "AudioDecodeThread: failed to link filter graph";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    if (avfilter_graph_config(m_filterGraph, nullptr) < 0) {
-        qWarning() << "AudioDecodeThread: failed to configure filter graph";
-        avfilter_graph_free(&m_filterGraph);
-        m_filterGraph = nullptr;
-        return false;
-    }
-
-    return true;
-}
-
-void AudioDecodeThread::destroyFilterGraph()
-{
-    if (m_filterGraph) {
-        avfilter_graph_free(&m_filterGraph);
-        m_abufferCtx = nullptr;
-        m_aresampleInCtx = nullptr;
-        m_atempoCtx = nullptr;
-        m_aresampleOutCtx = nullptr;
-        m_abuffersinkCtx = nullptr;
-    }
-}
-
-// ── Speed ──
-
-void AudioDecodeThread::setSpeed(double speed)
-{
-    speed = qBound(0.5, speed, 2.0);
-    {
-        std::lock_guard lock(m_speedMutex);
-        m_pendingSpeed = speed;
-    }
-    m_speedDirty.store(true, std::memory_order_release);
-}
-
-void AudioDecodeThread::applySpeed()
-{
-    double speed;
-    {
-        std::lock_guard lock(m_speedMutex);
-        speed = m_pendingSpeed;
-    }
-    m_speedDirty.store(false, std::memory_order_relaxed);
-
-    double current = m_currentSpeed.load(std::memory_order_acquire);
-    if (qFuzzyCompare(current, speed))
+    if (!m_sonicStream)
         return;
-
-    if (m_filterGraph) {
-        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
-        while (!m_quit) {
-            AVFrame *filtered = av_frame_alloc();
-            int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
-            if (r < 0) {
-                av_frame_free(&filtered);
-                break;
-            }
-            // atempo divided PTS by old tempo; multiply back to restore
-            // original timeline so fillAudioFifo gets consistent clock values.
-            if (filtered->pts != AV_NOPTS_VALUE && current > 0.0)
-                filtered->pts = filtered->pts * current;
-            filtered = convertFrameToS16(filtered);
-            if (filtered) {
-                m_frameQueue->push(filtered);
-                av_frame_free(&filtered);
-            }
+    sonicFlushStream(m_sonicStream);
+    int rate = m_outputSampleRate.load(std::memory_order_acquire);
+    while (true) {
+        int avail = sonicSamplesAvailable(m_sonicStream);
+        if (avail <= 0)
+            break;
+        AVFrame *outFrame = av_frame_alloc();
+        if (!outFrame)
+            break;
+        outFrame->format = AV_SAMPLE_FMT_S16;
+        AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+        av_channel_layout_copy(&outFrame->ch_layout, &stereo);
+        outFrame->sample_rate = rate;
+        outFrame->nb_samples = qMin(avail + 64, 4096);
+        if (av_frame_get_buffer(outFrame, 0) < 0) {
+            av_frame_free(&outFrame);
+            break;
         }
-    }
+        int read = sonicReadShortFromStream(m_sonicStream,
+                                            (int16_t *)outFrame->data[0],
+                                            outFrame->nb_samples);
+        if (read <= 0) {
+            av_frame_free(&outFrame);
+            break;
+        }
+        outFrame->nb_samples = read;
+        outFrame->pts = static_cast<qint64>(m_sonicOutputPts * rate);
+        outFrame->time_base = (AVRational){1, rate};
+        m_sonicOutputPts += static_cast<double>(read) / rate;
 
-    m_currentSpeed.store(speed, std::memory_order_release);
-    destroyFilterGraph();
-    if (qFuzzyCompare(speed, 1.0))
-        return;
-    if (!initFilterGraph(speed)) {
-        qWarning() << "AudioDecodeThread: failed to recreate filter graph at tempo" << speed
-                   << "- falling back to 1.0x passthrough";
-        // Keep m_currentSpeed in sync with reality (no graph => 1.0x output).
-        m_currentSpeed.store(1.0, std::memory_order_release);
+        m_frameQueue->push(outFrame);
     }
 }
 
-// ── Main loop ──
+void AudioDecodeThread::destroySonic()
+{
+    if (m_sonicStream) {
+        sonicDestroyStream(m_sonicStream);
+        m_sonicStream = nullptr;
+    }
+}
 
 void AudioDecodeThread::run()
 {
     if (!m_codecCtx || !m_packetQueue || !m_frameQueue)
         return;
 
+    while (m_outputSampleRate.load(std::memory_order_acquire) == 0
+           && !m_quit) {
+        msleep(1);
+    }
+    if (m_quit) return;
+
     if (!initSwrContext()) {
         qWarning() << "AudioDecodeThread: failed to init swr context";
         return;
     }
 
-    if (!qFuzzyCompare(m_currentSpeed.load(std::memory_order_acquire), 1.0))
-        initFilterGraph(m_currentSpeed.load(std::memory_order_acquire));
+    int rate = m_outputSampleRate.load(std::memory_order_acquire);
+    m_sonicStream = sonicCreateStream(rate, 2);
+    if (!m_sonicStream) {
+        qWarning() << "AudioDecodeThread: failed to create sonic stream";
+        return;
+    }
+    m_lastSpeed = 1.0;
+    m_sonicOutputPts = 0.0;
 
     AVFrame *frame = av_frame_alloc();
     if (!frame)
@@ -410,8 +240,19 @@ void AudioDecodeThread::run()
             continue;
         }
 
-        if (m_speedDirty.load(std::memory_order_acquire))
-            applySpeed();
+        double speed = m_currentSpeed.load(std::memory_order_acquire);
+        if (!qFuzzyCompare(speed, m_lastSpeed)) {
+            if (m_lastSpeed != 1.0) {
+                sonicFlushStream(m_sonicStream);
+                short discard[4096];
+                while (sonicSamplesAvailable(m_sonicStream) > 0)
+                    sonicReadShortFromStream(m_sonicStream, discard, 2048);
+                m_sonicOutputPts = 0.0;
+            }
+            if (!qFuzzyCompare(speed, 1.0))
+                sonicSetSpeed(m_sonicStream, static_cast<float>(speed));
+            m_lastSpeed = speed;
+        }
 
         AVPacket *pkt = m_packetQueue->pop();
         if (!pkt)
@@ -436,36 +277,72 @@ void AudioDecodeThread::run()
                 continue;
             }
 
-            if (m_filterGraph && !qFuzzyCompare(m_currentSpeed.load(std::memory_order_acquire), 1.0)) {
-                int addRet = av_buffersrc_add_frame_flags(m_abufferCtx, resampled, 0);
-                if (addRet >= 0) {
-                    while (true) {
-                        AVFrame *filtered = av_frame_alloc();
-                        int r = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
-                        if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) {
-                            av_frame_free(&filtered);
-                            break;
-                        }
-                        if (r < 0) {
-                            av_frame_free(&filtered);
-                            break;
-                        }
-                        filtered = convertFrameToS16(filtered);
-                        if (filtered) {
-                            // atempo divided PTS by tempo; restore original timeline.
-                            double spd = m_currentSpeed.load(std::memory_order_acquire);
-                            if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0)
-                                filtered->pts = filtered->pts * spd;
-                            m_frameQueue->push(filtered);
-                            av_frame_free(&filtered);
-                        }
-                    }
-                } else if (addRet < 0) {
-                    qWarning() << "AudioDecodeThread: av_buffersrc_add_frame_flags failed:" << addRet;
-                }
-            } else {
+            speed = m_currentSpeed.load(std::memory_order_acquire);
+
+            if (qFuzzyCompare(speed, 1.0)) {
                 m_frameQueue->push(resampled);
                 resampled = nullptr;
+            } else {
+                double inputPtsSec = resampled->pts != AV_NOPTS_VALUE
+                    ? (double)resampled->pts / rate : m_sonicOutputPts;
+                if (m_sonicOutputPts < 1.0 && inputPtsSec > m_sonicOutputPts)
+                    m_sonicOutputPts = inputPtsSec;
+
+                double inputDuration = (double)resampled->nb_samples / rate;
+                double writePts = m_sonicOutputPts;
+
+                sonicWriteShortToStream(m_sonicStream,
+                                        (int16_t *)resampled->data[0],
+                                        resampled->nb_samples);
+
+                int totalRead = 0;
+                QVector<AVFrame *> outFrames;
+                while (true) {
+                    int avail = sonicSamplesAvailable(m_sonicStream);
+                    if (avail <= 0)
+                        break;
+
+                    AVFrame *outFrame = av_frame_alloc();
+                    if (!outFrame)
+                        break;
+                    outFrame->format = AV_SAMPLE_FMT_S16;
+                    AVChannelLayout stereo = AV_CHANNEL_LAYOUT_STEREO;
+                    av_channel_layout_copy(&outFrame->ch_layout, &stereo);
+                    outFrame->sample_rate = rate;
+                    outFrame->nb_samples = qMin(avail + 64, 4096);
+
+                    if (av_frame_get_buffer(outFrame, 0) < 0) {
+                        av_frame_free(&outFrame);
+                        break;
+                    }
+
+                    int read = sonicReadShortFromStream(
+                        m_sonicStream,
+                        (int16_t *)outFrame->data[0],
+                        outFrame->nb_samples);
+
+                    if (read <= 0) {
+                        av_frame_free(&outFrame);
+                        break;
+                    }
+
+                    outFrame->nb_samples = read;
+                    totalRead += read;
+                    outFrames.append(outFrame);
+                }
+
+                int soFar = 0;
+                for (auto *f : outFrames) {
+                    double frac = totalRead > 0
+                        ? (double)soFar / totalRead : 0.0;
+                    double pts = writePts + frac * inputDuration;
+                    f->pts = static_cast<qint64>(pts * rate);
+                    f->time_base = (AVRational){1, rate};
+                    m_frameQueue->push(f);
+                    soFar += f->nb_samples;
+                }
+
+                m_sonicOutputPts = writePts + inputDuration;
             }
 
             av_frame_free(&resampled);
@@ -473,26 +350,8 @@ void AudioDecodeThread::run()
         }
     }
 
-    if (m_filterGraph) {
-        (void)av_buffersrc_add_frame_flags(m_abufferCtx, nullptr, 0);
-        while (true) {
-            AVFrame *filtered = av_frame_alloc();
-            int ret = av_buffersink_get_frame(m_abuffersinkCtx, filtered);
-            if (ret < 0) {
-                av_frame_free(&filtered);
-                break;
-            }
-            filtered = convertFrameToS16(filtered);
-            if (filtered) {
-                double spd = m_currentSpeed.load(std::memory_order_acquire);
-                if (filtered->pts != AV_NOPTS_VALUE && spd > 0.0)
-                    filtered->pts = filtered->pts * spd;
-                if (!m_quit)
-                    m_frameQueue->push(filtered);
-                av_frame_free(&filtered);
-            }
-        }
-    }
+    if (!qFuzzyCompare(m_lastSpeed, 1.0))
+        flushSonic();
 
     av_frame_free(&frame);
 }
