@@ -16,6 +16,7 @@ pkg_check_modules(AVCODEC REQUIRED IMPORTED_TARGET libavcodec)
 pkg_check_modules(AVFORMAT REQUIRED IMPORTED_TARGET libavformat)
 pkg_check_modules(AVUTIL REQUIRED IMPORTED_TARGET libavutil)
 pkg_check_modules(SWRESAMPLE REQUIRED IMPORTED_TARGET libswresample)
+pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 
 find_library(LIBSONIC_LIBRARIES sonic REQUIRED)
@@ -103,6 +104,14 @@ qt6_add_resources(SKYvideoplayer "icons"
     FILES
         resources/logos/LogoD.svg
         resources/logos/LogoL.svg
+        resources/icons/exit_fullscreen.svg
+        resources/icons/play_list.svg
+        resources/icons/fullscreen.svg
+        resources/icons/exit_play.svg
+        resources/icons/pause.svg
+        resources/icons/play.svg
+        resources/icons/prev_file.svg
+        resources/icons/next_file.svg
 )
 
 qt6_add_shaders(SKYvideoplayer "shaders"
@@ -143,6 +152,7 @@ target_link_libraries(SKYvideoplayer PRIVATE
     PkgConfig::AVFORMAT
     PkgConfig::AVUTIL
     PkgConfig::SWRESAMPLE
+    PkgConfig::SWSCALE
     PkgConfig::SDL2
     ${LIBSONIC_LIBRARIES}
 )

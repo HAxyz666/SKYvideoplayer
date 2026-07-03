@@ -8,6 +8,7 @@ Item {
     id: appLayout
 
     property alias controller: controller
+    readonly property alias showControls: controlBar.showControls
 
     PlayerController { id: controller }
 
@@ -251,10 +252,18 @@ Item {
             anchors.left: parent.left
             anchors.margins: 12
             visible: controlBar.showControls
-            icon.name: "go-previous"
-            icon.width: 24
-            icon.height: 24
-            text: qsTr("Back to list")
+            icon.source: "qrc:/icons/icons/exit_play.svg"
+            icon.width: 20
+            icon.height: 20
+            icon.color: "transparent"
+            display: AbstractButton.IconOnly
+            flat: true
+            padding: 0
+            width: 32
+            height: 32
+            ToolTip.visible: hovered
+            ToolTip.text: qsTr("Back to list")
+            ToolTip.delay: 500
             onClicked: {
                 videoRenderItem.clearImage()
                 controller.closeFile()
@@ -265,6 +274,22 @@ Item {
         Item {
             anchors.bottom: parent.bottom
             width: parent.width
+            height: 80
+            HoverHandler {
+                onHoveredChanged: {
+                    if (hovered) {
+                        controlBar.showControls = true
+                        hideTimer.restart()
+                    }
+                }
+            }
+        }
+
+        // 左上角 hover 检测层（返回按钮区域，触发控制栏重新显示）
+        Item {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            width: 80
             height: 80
             HoverHandler {
                 onHoveredChanged: {
@@ -314,30 +339,54 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: 4
 
                     Button {
-                        icon.name: "media-skip-backward"
-                        icon.width: 24
-                        icon.height: 24
-                        text: qsTr("Prev")
+                        icon.source: "qrc:/icons/icons/prev_file.svg"
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: "transparent"
+                        display: AbstractButton.IconOnly
+                        flat: true
+                        padding: 0
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Prev")
+                        ToolTip.delay: 500
                         enabled: appController.playlistModel.hasPrev
                         onClicked: appController.playPrev()
                     }
 
                     Button {
-                        icon.name: controller.isPlaying ? "media-playback-pause" : "media-playback-start"
-                        icon.width: 24
-                        icon.height: 24
-                        text: controller.isPlaying ? qsTr("Pause") : qsTr("Play")
+                        icon.source: controller.isPlaying ? "qrc:/icons/icons/pause.svg" : "qrc:/icons/icons/play.svg"
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: "transparent"
+                        display: AbstractButton.IconOnly
+                        flat: true
+                        padding: 0
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: controller.isPlaying ? qsTr("Pause") : qsTr("Play")
+                        ToolTip.delay: 500
                         onClicked: controller.togglePlay()
                     }
 
                     Button {
-                        icon.name: "media-skip-forward"
-                        icon.width: 24
-                        icon.height: 24
-                        text: qsTr("Next")
+                        icon.source: "qrc:/icons/icons/next_file.svg"
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: "transparent"
+                        display: AbstractButton.IconOnly
+                        flat: true
+                        padding: 0
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Next")
+                        ToolTip.delay: 500
                         enabled: appController.playlistModel.hasNext
                         onClicked: appController.playNext()
                     }
@@ -361,6 +410,8 @@ Item {
                     Button {
                         id: videoBtn
                         text: qsTr("Video")
+                        Layout.preferredWidth: 48
+                        Layout.preferredHeight: 32
                         onClicked: {
                             // 首次显示前 height 为 0，用估算高度兜底；之后用真实高度
                             var h = videoMenu.height > 0 ? videoMenu.height : 140
@@ -401,18 +452,34 @@ Item {
                     }
 
                     Button {
-                        icon.name: "view-list-details"
-                        icon.width: 24
-                        icon.height: 24
-                        text: qsTr("Playlist")
+                        icon.source: "qrc:/icons/icons/play_list.svg"
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: "transparent"
+                        display: AbstractButton.IconOnly
+                        flat: true
+                        padding: 0
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Playlist")
+                        ToolTip.delay: 500
                         onClicked: playlistDrawer.opened ? playlistDrawer.close() : playlistDrawer.open()
                     }
 
                     Button {
-                        icon.name: window.isFullscreen ? "view-restore" : "view-fullscreen"
-                        icon.width: 24
-                        icon.height: 24
-                        text: window.isFullscreen ? qsTr("Exit Fullscreen") : qsTr("Fullscreen")
+                        icon.source: window.isFullscreen ? "qrc:/icons/icons/exit_fullscreen.svg" : "qrc:/icons/icons/fullscreen.svg"
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: "transparent"
+                        display: AbstractButton.IconOnly
+                        flat: true
+                        padding: 0
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: window.isFullscreen ? qsTr("Exit Fullscreen") : qsTr("Fullscreen")
+                        ToolTip.delay: 500
                         onClicked: window.toggleMaximize()
                     }
                 }

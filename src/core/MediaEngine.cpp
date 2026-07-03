@@ -20,6 +20,7 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
+#include <libswscale/swscale.h>
 }
 
 // --- YUV plane extraction (runs on GUI thread inside onVideoRefresh) ---
@@ -70,6 +71,32 @@ static YUVFrame extractNV12(AVFrame *frame, int width, int height)
     }
 
     return out;
+}
+
+static AVFrame *convertToYUV420P(AVFrame *src)
+{
+    AVFrame *dst = av_frame_alloc();
+    dst->format = AV_PIX_FMT_YUV420P;
+    dst->width = src->width;
+    dst->height = src->height;
+    if (av_frame_get_buffer(dst, 32) < 0) {
+        av_frame_free(&dst);
+        return nullptr;
+    }
+
+    struct SwsContext *sws = sws_getContext(
+        src->width, src->height, static_cast<AVPixelFormat>(src->format),
+        dst->width, dst->height, AV_PIX_FMT_YUV420P,
+        SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (!sws) {
+        av_frame_free(&dst);
+        return nullptr;
+    }
+
+    sws_scale(sws, src->data, src->linesize, 0, src->height,
+              dst->data, dst->linesize);
+    sws_freeContext(sws);
+    return dst;
 }
 
 #ifdef ENABLE_HWACCEL
@@ -644,19 +671,25 @@ void MediaEngine::onVideoRefresh()
     m_lastFrameDisplayTimeUs = now;
 
     YUVFrame yuv;
+    AVFrame *convFrame = nullptr;
     AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
-    if (fmt == AV_PIX_FMT_NV12 || fmt == AV_PIX_FMT_NV21)
-        yuv = extractNV12(frame, frame->width, frame->height);
-    else if (fmt == AV_PIX_FMT_YUV420P)
+    if (fmt == AV_PIX_FMT_YUV420P) {
         yuv = extractYUV420P(frame, frame->width, frame->height);
-    else {
-        qWarning("Unsupported pixel format: %s, skipping frame", av_get_pix_fmt_name(fmt));
-        av_frame_free(&frame);
-        return;
+    } else if (fmt == AV_PIX_FMT_NV12) {
+        yuv = extractNV12(frame, frame->width, frame->height);
+    } else {
+        convFrame = convertToYUV420P(frame);
+        if (!convFrame) {
+            qWarning("sws_scale conversion failed for: %s", av_get_pix_fmt_name(fmt));
+            av_frame_free(&frame);
+            return;
+        }
+        yuv = extractYUV420P(convFrame, convFrame->width, convFrame->height);
     }
 
     emit frameReady(yuv);
     av_frame_free(&frame);
+    av_frame_free(&convFrame);
 }
 
 void MediaEngine::updatePosition()

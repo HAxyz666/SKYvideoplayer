@@ -127,6 +127,7 @@ ApplicationWindow {
         anchors.margins: 8
         spacing: 6
         z: 999
+        visible: !appLayout.controller.hasMedia || appLayout.showControls
 
         Rectangle {
             width: 36; height: 28; radius: 5
