@@ -355,6 +355,10 @@ Item {
                         ToolTip.text: qsTr("Prev")
                         ToolTip.delay: 500
                         enabled: appController.playlistModel.hasPrev
+                        background: Rectangle {
+                            radius: 4
+                            color: parent.hovered ? "#30ffffff" : "transparent"
+                        }
                         onClicked: appController.playPrev()
                     }
 
@@ -371,6 +375,10 @@ Item {
                         ToolTip.visible: hovered
                         ToolTip.text: controller.isPlaying ? qsTr("Pause") : qsTr("Play")
                         ToolTip.delay: 500
+                        background: Rectangle {
+                            radius: 4
+                            color: parent.hovered ? "#30ffffff" : "transparent"
+                        }
                         onClicked: controller.togglePlay()
                     }
 
@@ -388,32 +396,83 @@ Item {
                         ToolTip.text: qsTr("Next")
                         ToolTip.delay: 500
                         enabled: appController.playlistModel.hasNext
+                        background: Rectangle {
+                            radius: 4
+                            color: parent.hovered ? "#30ffffff" : "transparent"
+                        }
                         onClicked: appController.playNext()
                     }
 
                     // 播放速度选择
-                    ComboBox {
-                        id: speedSelector
-                        model: ["0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "2.0x"]
-                        currentIndex: 2
-                        Layout.preferredWidth: 80
+                    Button {
+                        id: speedBtn
+                        text: controller.speed + "x"
+                        flat: true
+                        padding: 0
+                        Layout.preferredWidth: 48
+                        Layout.preferredHeight: 32
                         font.pixelSize: 12
-                        onActivated: function(index) {
-                            var speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-                            controller.setSpeed(speeds[index]);
+                        contentItem: Text {
+                            text: speedBtn.text
+                            font: speedBtn.font
+                            color: "white"
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            radius: 4
+                            color: speedBtn.hovered ? "#30ffffff" : "transparent"
+                        }
+                        onClicked: {
+                            var h = speedMenu.height > 0 ? speedMenu.height : 200
+                            speedMenu.popup(speedBtn, 0, -h)
+                        }
+                    }
+
+                    Menu {
+                        id: speedMenu
+
+                        Repeater {
+                            model: [
+                                { label: "0.5x",  value: 0.5 },
+                                { label: "0.75x", value: 0.75 },
+                                { label: "1.0x",  value: 1.0 },
+                                { label: "1.25x", value: 1.25 },
+                                { label: "1.5x",  value: 1.5 },
+                                { label: "2.0x",  value: 2.0 }
+                            ]
+
+                            MenuItem {
+                                text: modelData.label
+                                checkable: true
+                                checked: controller.speed === modelData.value
+                                onTriggered: controller.setSpeed(modelData.value)
+                            }
                         }
                     }
 
                     SubtitleSelector { }
 
-                    // 画面旋转入口 (UC-07)：底部「视频」按钮，菜单弹出在按钮上方
+                    // 画面旋转入口：底部「画面」按钮，菜单弹出在按钮上方
                     Button {
                         id: videoBtn
-                        text: qsTr("Video")
-                        Layout.preferredWidth: 48
+                        icon.source: "qrc:/icons/icons/video_adjust.svg"
+                        icon.width: 20
+                        icon.height: 20
+                        icon.color: "transparent"
+                        display: AbstractButton.IconOnly
+                        flat: true
+                        padding: 0
+                        Layout.preferredWidth: 32
                         Layout.preferredHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Video")
+                        ToolTip.delay: 500
+                        background: Rectangle {
+                            radius: 4
+                            color: videoBtn.hovered ? "#30ffffff" : "transparent"
+                        }
                         onClicked: {
-                            // 首次显示前 height 为 0，用估算高度兜底；之后用真实高度
                             var h = videoMenu.height > 0 ? videoMenu.height : 140
                             videoMenu.popup(videoBtn, 0, -h)
                         }
@@ -464,6 +523,10 @@ Item {
                         ToolTip.visible: hovered
                         ToolTip.text: qsTr("Playlist")
                         ToolTip.delay: 500
+                        background: Rectangle {
+                            radius: 4
+                            color: parent.hovered ? "#30ffffff" : "transparent"
+                        }
                         onClicked: playlistDrawer.opened ? playlistDrawer.close() : playlistDrawer.open()
                     }
 
@@ -480,6 +543,10 @@ Item {
                         ToolTip.visible: hovered
                         ToolTip.text: window.isFullscreen ? qsTr("Exit Fullscreen") : qsTr("Fullscreen")
                         ToolTip.delay: 500
+                        background: Rectangle {
+                            radius: 4
+                            color: parent.hovered ? "#30ffffff" : "transparent"
+                        }
                         onClicked: window.toggleMaximize()
                     }
                 }

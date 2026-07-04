@@ -22,6 +22,11 @@ Item {
                                                  : "audio-volume-low"))
             icon.width: 20
             icon.height: 20
+            flat: true
+            background: Rectangle {
+                radius: 4
+                color: muteBtn.hovered ? "#30ffffff" : "transparent"
+            }
             onClicked: appController.toggleMute()
         }
 

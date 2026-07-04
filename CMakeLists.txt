@@ -112,6 +112,7 @@ qt6_add_resources(SKYvideoplayer "icons"
         resources/icons/play.svg
         resources/icons/prev_file.svg
         resources/icons/next_file.svg
+        resources/icons/video_adjust.svg
 )
 
 qt6_add_shaders(SKYvideoplayer "shaders"

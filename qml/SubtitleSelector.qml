@@ -8,6 +8,11 @@ Button {
     text: qsTr("Subtitles")
     visible: appController.subtitleStreams.length > 0
     onClicked: subtitlePopup.open()
+    flat: true
+    background: Rectangle {
+        radius: 4
+        color: root.hovered ? "#30ffffff" : "transparent"
+    }
 
     // 取当前设置作为编辑副本，确定后写回 settingsManager
     property string fontFamily: settingsManager.subtitleStyle.fontFamily || "Sans Serif"

@@ -6,6 +6,7 @@ QtObject {
     property bool hasMedia: false
     property bool isPlaying: false
     property bool isAudioOnly: appController.isAudioOnly
+    property double speed: 1.0
 
     function openFile(url) {
         var ok = appController.loadFile(url);
@@ -21,5 +22,8 @@ QtObject {
 
     function togglePlay() { appController.togglePlayback(); }
 
-    function setSpeed(v) { appController.setSpeed(v); }
+    function setSpeed(v) {
+        speed = v;
+        appController.setSpeed(v);
+    }
 }
