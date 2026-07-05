@@ -88,7 +88,9 @@ qt6_add_qml_module(SKYvideoplayer
         qml/Main.qml
         qml/AppLayout.qml
         qml/AppSidebar.qml
+        qml/ControlBar.qml
         qml/PlayerController.qml
+        qml/PlayerView.qml
         qml/ProgressBar.qml
         qml/PlaylistPanel.qml
         qml/RecentHistory.qml
