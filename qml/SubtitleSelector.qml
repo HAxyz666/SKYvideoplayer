@@ -9,6 +9,13 @@ Button {
     visible: appController.subtitleStreams.length > 0
     onClicked: subtitlePopup.open()
     flat: true
+    contentItem: Text {
+        text: root.text
+        font: root.font
+        color: "white"
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+    }
     background: Rectangle {
         radius: 4
         color: root.hovered ? "#30ffffff" : "transparent"

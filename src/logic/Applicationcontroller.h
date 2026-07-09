@@ -7,6 +7,7 @@
 #include "RecentFilesModel.h"
 
 class MediaEngine;
+class QTimer;
 
 class ApplicationController : public QObject
 {
@@ -27,6 +28,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
     Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
+    Q_PROPERTY(QString currentFilePath READ currentFilePath NOTIFY currentFilePathChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -49,6 +51,7 @@ public:
     Q_INVOKABLE void rotateRight();          // 画面右旋 90° (UC-07)
     Q_INVOKABLE void toggleFlipVertical();   // 切换垂直翻转 (UC-07)
     Q_INVOKABLE void resetRotation();        // 重置画面旋转 (UC-07)
+    Q_INVOKABLE void resumeFromBeginning();  // 从头播放（跳过恢复位置）
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;
@@ -69,6 +72,7 @@ public:
     bool flipVertical() const;              // 当前垂直翻转状态
     QString coverArtUrl() const;
     QString currentLyric() const;
+    QString currentFilePath() const;
     QString theme() const;
     void setTheme(const QString &theme);
 
@@ -89,10 +93,18 @@ signals:
     void flipVerticalChanged(bool flip);    // 垂直翻转状态变化信号
     void coverArtChanged();
     void currentLyricChanged(QString lyric);
+    void resumePositionFound(const QString &filePath, double position);
+    void currentFilePathChanged();
 
 private:
     MediaEngine *m_mediaEngine;
     PlaylistModel *m_playlistModel;
     RecentFilesModel *m_recentFiles;
     QString m_theme;
+    QString m_currentFilePath;
+    double m_lastPosition{0.0};
+    QTimer *m_saveTimer{nullptr};
+
+    bool openAndResume(const QString &filePath);
+    void saveCurrentProgress();
 };

@@ -14,6 +14,12 @@ Rectangle {
 
     property alias showControls: controlBar.showControls
 
+    function formatTime(seconds) {
+        var m = Math.floor(seconds / 60)
+        var s = Math.floor(seconds % 60)
+        return m + ":" + (s < 10 ? "0" : "") + s
+    }
+
     color: "black"
 
     onVisibleChanged: {
@@ -221,5 +227,70 @@ Rectangle {
         isFullscreen: playerView.isFullscreen
         onToggleFullscreen: playerView.toggleFullscreen()
         onUserInteracted: playerView.userInteracted()
+    }
+
+    // 恢复播放提示条
+    Rectangle {
+        id: resumeToast
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: 12
+        width: resumeRow.width + 32
+        height: 36
+        radius: 18
+        color: "#90000000"
+        visible: false
+        z: 100
+
+        property double savedPosition: 0
+
+        Row {
+            id: resumeRow
+            anchors.centerIn: parent
+            spacing: 8
+
+            Label {
+                text: qsTr("上次播放到 ") + playerView.formatTime(resumeToast.savedPosition)
+                color: "white"
+                font.pixelSize: 13
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Label {
+                text: qsTr("从头播放")
+                color: "#4FC3F7"
+                font.pixelSize: 13
+                font.bold: true
+                anchors.verticalCenter: parent.verticalCenter
+
+                TapHandler {
+                    onTapped: {
+                        appController.resumeFromBeginning()
+                        resumeToast.visible = false
+                        resumeHideTimer.stop()
+                    }
+                }
+            }
+        }
+
+        Timer {
+            id: resumeHideTimer
+            interval: 3000
+            onTriggered: resumeToast.visible = false
+        }
+
+        function show(pos) {
+            savedPosition = pos
+            visible = true
+            resumeHideTimer.restart()
+        }
+    }
+
+    Connections {
+        target: appController
+        function onResumePositionFound(path, position) {
+            if (position > 5.0)
+                resumeToast.show(position)
+        }
     }
 }

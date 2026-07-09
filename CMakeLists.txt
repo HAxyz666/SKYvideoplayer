@@ -55,6 +55,7 @@ set(CORE_HEADERS
 
 set(LOGIC_SOURCES
     src/logic/Applicationcontroller.cpp
+    src/logic/PlaybackHistory.cpp
     src/logic/PlaylistModel.cpp
     src/logic/RecentFilesModel.cpp
     src/logic/SettingsManager.cpp
@@ -62,6 +63,7 @@ set(LOGIC_SOURCES
 
 set(LOGIC_HEADERS
     src/logic/Applicationcontroller.h
+    src/logic/PlaybackHistory.h
     src/logic/PlaylistItem.h
     src/logic/PlaylistModel.h
     src/logic/PlaybackMode.h

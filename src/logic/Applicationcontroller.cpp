@@ -1,5 +1,6 @@
 #include "Applicationcontroller.h"
 #include "MediaEngine.h"
+#include "PlaybackHistory.h"
 #include "PlaylistModel.h"
 #include "RecentFilesModel.h"
 
@@ -7,6 +8,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
+#include <QTimer>
 
 ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
@@ -39,6 +41,14 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::flipVerticalChanged, this, &ApplicationController::flipVerticalChanged);
     connect(m_mediaEngine, &MediaEngine::coverArtChanged, this, &ApplicationController::coverArtChanged);
     connect(m_mediaEngine, &MediaEngine::currentLyricChanged, this, &ApplicationController::currentLyricChanged);
+
+    // 播放进度自动保存
+    m_saveTimer = new QTimer(this);
+    m_saveTimer->setInterval(5000);
+    connect(m_saveTimer, &QTimer::timeout, this, &ApplicationController::saveCurrentProgress);
+    connect(m_mediaEngine, &MediaEngine::positionChanged, this, [this](double pos) {
+        m_lastPosition = pos;
+    });
 }
 
 bool ApplicationController::openFile()
@@ -74,7 +84,7 @@ bool ApplicationController::loadFile(const QString &path)
     m_playlistModel->clear();
     scanDirectoryFiles(m_playlistModel, fi.absolutePath());
     m_playlistModel->setCurrentIndex(m_playlistModel->indexOf(filePath));
-    bool ok = m_mediaEngine->open(filePath);
+    bool ok = openAndResume(filePath);
     emit playbackStateChanged(ok);
     return ok;
 }
@@ -101,6 +111,8 @@ double ApplicationController::duration() const
 
 void ApplicationController::stop()
 {
+    saveCurrentProgress();
+    m_saveTimer->stop();
     m_mediaEngine->stop();
 }
 
@@ -126,7 +138,7 @@ void ApplicationController::playItem(int index)
     m_playlistModel->setCurrentIndex(index);
     QString filePath = m_playlistModel->itemAt(index).filePath;
     m_recentFiles->addFile(filePath);
-    bool ok = m_mediaEngine->open(filePath);
+    bool ok = openAndResume(filePath);
     emit playbackStateChanged(ok);
 }
 
@@ -139,7 +151,7 @@ void ApplicationController::playNext()
     if (nextIdx >= 0) {
         m_playlistModel->setCurrentIndex(nextIdx);
         m_recentFiles->addFile(nextPath);
-        bool ok = m_mediaEngine->open(nextPath);
+        bool ok = openAndResume(nextPath);
         emit playbackStateChanged(ok);
     }
 }
@@ -153,7 +165,7 @@ void ApplicationController::playPrev()
     if (prevIdx >= 0) {
         m_playlistModel->setCurrentIndex(prevIdx);
         m_recentFiles->addFile(prevPath);
-        bool ok = m_mediaEngine->open(prevPath);
+        bool ok = openAndResume(prevPath);
         emit playbackStateChanged(ok);
     }
 }
@@ -292,4 +304,60 @@ void ApplicationController::toggleFlipVertical()
 void ApplicationController::resetRotation()
 {
     m_mediaEngine->resetRotation();
+}
+
+// --- 播放进度记忆 (UC-AF-05) ---
+
+bool ApplicationController::openAndResume(const QString &filePath)
+{
+    // 保存上一个文件的进度
+    if (!m_currentFilePath.isEmpty())
+        saveCurrentProgress();
+
+    bool ok = m_mediaEngine->open(filePath);
+    if (ok) {
+        m_currentFilePath = filePath;
+        m_lastPosition = 0.0;
+        emit currentFilePathChanged();
+
+        // 检查是否有保存的播放位置
+        double savedPos = PlaybackHistory::instance().getPosition(filePath);
+        double dur = m_mediaEngine->duration();
+        if (savedPos > 5.0 && dur > 0 && savedPos < dur * 0.95) {
+            m_mediaEngine->seek(savedPos);
+            emit resumePositionFound(filePath, savedPos);
+        } else {
+            emit resumePositionFound(filePath, 0.0);
+        }
+
+        m_saveTimer->start();
+    } else {
+        m_currentFilePath.clear();
+        m_saveTimer->stop();
+    }
+    return ok;
+}
+
+void ApplicationController::saveCurrentProgress()
+{
+    if (m_currentFilePath.isEmpty())
+        return;
+    double dur = m_mediaEngine->duration();
+    if (dur <= 0)
+        return;
+    PlaybackHistory::instance().savePosition(m_currentFilePath, m_lastPosition, dur);
+}
+
+void ApplicationController::resumeFromBeginning()
+{
+    if (m_mediaEngine->duration() > 0) {
+        m_mediaEngine->seek(0.0);
+        // 清除该文件的保存进度，避免下次又恢复
+        PlaybackHistory::instance().removeEntry(m_currentFilePath);
+    }
+}
+
+QString ApplicationController::currentFilePath() const
+{
+    return m_currentFilePath;
 }
