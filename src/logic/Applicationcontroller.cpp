@@ -49,6 +49,9 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::positionChanged, this, [this](double pos) {
         m_lastPosition = pos;
     });
+
+    connect(m_mediaEngine, &MediaEngine::isNetworkStreamChanged, this, &ApplicationController::isNetworkStreamChanged);
+    connect(m_mediaEngine, &MediaEngine::isLiveStreamChanged, this, &ApplicationController::isLiveStreamChanged);
 }
 
 bool ApplicationController::openFile()
@@ -78,6 +81,18 @@ bool ApplicationController::loadFile(const QString &path)
     QString filePath = path;
     if (filePath.startsWith("file://"))
         filePath = filePath.mid(7);
+
+    // 网络流：跳过目录扫描和播放列表操作
+    if (filePath.startsWith("http://") || filePath.startsWith("https://") ||
+        filePath.startsWith("rtmp://") || filePath.startsWith("rtmps://") ||
+        filePath.startsWith("rtsp://") || filePath.startsWith("rtsps://") ||
+        filePath.startsWith("mms://") || filePath.startsWith("mmsh://") ||
+        filePath.startsWith("udp://") || filePath.startsWith("tcp://")) {
+        m_playlistModel->clear();
+        bool ok = m_mediaEngine->open(filePath);
+        emit playbackStateChanged(ok);
+        return ok;
+    }
 
     QFileInfo fi(filePath);
     m_recentFiles->addFile(filePath);
@@ -360,4 +375,21 @@ void ApplicationController::resumeFromBeginning()
 QString ApplicationController::currentFilePath() const
 {
     return m_currentFilePath;
+}
+
+bool ApplicationController::openNetworkStream(const QString &url)
+{
+    if (url.isEmpty())
+        return false;
+    return loadFile(url);
+}
+
+bool ApplicationController::isNetworkStream() const
+{
+    return m_mediaEngine->isNetworkStream();
+}
+
+bool ApplicationController::isLiveStream() const
+{
+    return m_mediaEngine->isLiveStream();
 }

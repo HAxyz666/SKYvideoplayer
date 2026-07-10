@@ -7,6 +7,7 @@ Rectangle {
     color: appController.theme === "dark" ? "#2a2a2a" : "#e0e0e0"
 
     signal openFileTriggered()
+    signal openNetworkTriggered()
 
     ColumnLayout {
         anchors.fill: parent
@@ -60,6 +61,11 @@ Rectangle {
             MenuButton {
                 text: "open file"
                 onClicked: openFileTriggered()
+            }
+
+            MenuButton {
+                text: "open network"
+                onClicked: openNetworkTriggered()
             }
             // ...
 

@@ -18,20 +18,27 @@ double AVSyncController::computeFrameDelay(double videoPts) const
         delay = m_frameLastDelay;
     }
 
-    double diff = videoPts - m_audioClock;
-    double syncThreshold = 0.040;
+    // 如果音频时钟超过 1 秒没更新（网络流缓冲中），跳过音视频同步，
+    // 直接用帧间间隔驱动，避免视频因等待音频而极度变慢。
+    qint64 now = av_gettime();
+    bool audioClockStale = (now - m_lastAudioClockUpdateUs) > 1000000; // 1 秒
 
-    if (qAbs(diff) > 1.0) {
-        m_frameLastPts = videoPts;
-        m_frameLastDelay = 0.04;
-        return 0.0;
-    }
+    if (!audioClockStale) {
+        double diff = videoPts - m_audioClock;
+        double syncThreshold = 0.040;
 
-    if (qAbs(diff) > syncThreshold) {
-        if (diff < 0.0) {
-            delay = 0.0;
-        } else {
-            delay = diff;
+        if (qAbs(diff) > 1.0) {
+            m_frameLastPts = videoPts;
+            m_frameLastDelay = 0.04;
+            return 0.0;
+        }
+
+        if (qAbs(diff) > syncThreshold) {
+            if (diff < 0.0) {
+                delay = 0.0;
+            } else {
+                delay = diff;
+            }
         }
     }
 
@@ -40,6 +47,8 @@ double AVSyncController::computeFrameDelay(double videoPts) const
 
     if (delay > 0.5)
         delay = 0.5;
+    if (delay < 0.005)
+        delay = 0.005;
 
     return delay;
 }
@@ -66,6 +75,7 @@ void AVSyncController::updateAudioClock(double pts)
 {
     QMutexLocker lock(&m_mutex);
     m_audioClock = pts;
+    m_lastAudioClockUpdateUs = av_gettime();
 }
 
 double AVSyncController::audioClock() const
@@ -89,8 +99,8 @@ void AVSyncController::reset()
 {
     QMutexLocker lock(&m_mutex);
     m_audioClock = 0.0;
+    m_lastAudioClockUpdateUs = av_gettime();
     m_frameLastPts = 0.0;
     m_frameLastDelay = 0.04;
     m_firstFrame = true;
 }
-

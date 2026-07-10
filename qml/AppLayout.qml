@@ -32,6 +32,7 @@ Item {
             Layout.fillHeight: true
             Layout.preferredWidth: 160
             onOpenFileTriggered: appController.openFile()
+            onOpenNetworkTriggered: networkDialog.open()
         }
 
         Rectangle {
@@ -112,5 +113,52 @@ Item {
             qsTr("audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)")
         ]
         onAccepted: controller.openFile(selectedFile)
+    }
+
+    Dialog {
+        id: networkDialog
+        title: qsTr("Open Network Stream")
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        width: 500
+
+        property alias url: urlInput.text
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+
+            Label {
+                text: qsTr("Enter network URL:")
+                font.pixelSize: 14
+                color: appController.theme === "dark" ? "#ffffff" : "#333333"
+            }
+
+            TextField {
+                id: urlInput
+                Layout.fillWidth: true
+                placeholderText: "http://example.com/video.mp4"
+                font.pixelSize: 14
+                selectByMouse: true
+                onAccepted: networkDialog.accept()
+            }
+
+            Label {
+                text: qsTr("Supported: HTTP, HTTPS, RTMP, RTSP, UDP, TCP")
+                font.pixelSize: 11
+                color: appController.theme === "dark" ? "#888888" : "#666666"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+
+        onAccepted: {
+            if (urlInput.text.trim().length > 0)
+                controller.openFile(urlInput.text.trim())
+            urlInput.text = ""
+        }
+
+        onClosed: urlInput.text = ""
     }
 }

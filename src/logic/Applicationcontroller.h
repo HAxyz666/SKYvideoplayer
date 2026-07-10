@@ -29,6 +29,8 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
     Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
     Q_PROPERTY(QString currentFilePath READ currentFilePath NOTIFY currentFilePathChanged)
+    Q_PROPERTY(bool isNetworkStream READ isNetworkStream NOTIFY isNetworkStreamChanged)
+    Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY isLiveStreamChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -52,6 +54,7 @@ public:
     Q_INVOKABLE void toggleFlipVertical();   // 切换垂直翻转 (UC-07)
     Q_INVOKABLE void resetRotation();        // 重置画面旋转 (UC-07)
     Q_INVOKABLE void resumeFromBeginning();  // 从头播放（跳过恢复位置）
+    Q_INVOKABLE bool openNetworkStream(const QString &url); // 打开网络流
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;
@@ -73,6 +76,8 @@ public:
     QString coverArtUrl() const;
     QString currentLyric() const;
     QString currentFilePath() const;
+    bool isNetworkStream() const;
+    bool isLiveStream() const;
     QString theme() const;
     void setTheme(const QString &theme);
 
@@ -95,6 +100,8 @@ signals:
     void currentLyricChanged(QString lyric);
     void resumePositionFound(const QString &filePath, double position);
     void currentFilePathChanged();
+    void isNetworkStreamChanged(bool isNetwork);
+    void isLiveStreamChanged(bool isLive);
 
 private:
     MediaEngine *m_mediaEngine;

@@ -8,6 +8,7 @@
 #include "AVSyncController.h"
 #include "AudioOutput.h"
 #include "VideoRenderItem.h"
+#include "NetworkStreamManager.h"
 
 #include <QDebug>
 #include <QFileInfo>
@@ -20,6 +21,7 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
+#include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
 
@@ -182,6 +184,7 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_muted(false)        // 默认非静音
     , m_audioOutputReady(false)
     , m_speed(1.0)
+    , m_networkManager(new NetworkStreamManager(this))
 {
     // Video display refresh: peeks m_videoFrameQueue and times frame delivery
     // to VideoRenderItem via AVSyncController. 10ms granularity is fine for
@@ -209,15 +212,34 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     m_lyrics.clear();
     m_currentLyric = QString();
 
-    if (avformat_open_input(&m_fmtCtx, filename.toUtf8().constData(), nullptr, nullptr) != 0) {
-        qCritical() << "Could not open file:" << filename;
+    m_networkManager->reset();
+
+    AVDictionary *options = nullptr;
+    if (NetworkStreamManager::isNetworkUrl(filename)) {
+        m_networkManager->buildOpenOptions(&options, filename);
+    }
+
+    int ret = avformat_open_input(&m_fmtCtx, filename.toUtf8().constData(), nullptr, &options);
+    av_dict_free(&options);
+    if (ret != 0) {
+        char errbuf[128] = {0};
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        qCritical() << "Could not open input:" << filename << errbuf;
         return false;
+    }
+
+    if (m_networkManager->isNetworkUrl(filename)) {
+        m_fmtCtx->max_analyze_duration = 5 * AV_TIME_BASE;
     }
 
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
         qCritical() << "Could not find stream info";
         avformat_close_input(&m_fmtCtx);
         return false;
+    }
+
+    if (NetworkStreamManager::isNetworkUrl(filename)) {
+        m_networkManager->detectLiveStream(m_fmtCtx);
     }
 
     for (unsigned int i = 0; i < m_fmtCtx->nb_streams; i++) {
@@ -377,7 +399,10 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     m_duration = m_fmtCtx->duration != AV_NOPTS_VALUE
         ? m_fmtCtx->duration / (double)AV_TIME_BASE
         : 0.0;
+
     emit durationChanged(m_duration);
+    emit isNetworkStreamChanged(m_networkManager->isNetworkStream());
+    emit isLiveStreamChanged(m_networkManager->isLiveStream());
 
     return true;
 }
@@ -406,23 +431,29 @@ void MediaEngine::start()
     startThreads();
 
     // Initialize SDL audio AFTER decoder has started, so FIFO can pre-fill
-    if (m_audioCodecCtx) {
-        SDL_AudioSpec spec;
-        std::memset(&spec, 0, sizeof(spec));
-        spec.freq = 44100;
-        spec.format = AUDIO_S16SYS;
-        spec.channels = 2;
-        spec.samples = 1024;
-
-        m_audioOutputReady = m_audioOutput->initialize(spec);
-        if (m_audioOutputReady) {
-            m_audioOutput->setSyncController(m_syncController);
-        }
-    }
+    initAudioOutput();
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
         m_videoRefreshTimer->start();
+}
+
+void MediaEngine::initAudioOutput()
+{
+    if (!m_audioCodecCtx || m_audioOutputReady)
+        return;
+
+    SDL_AudioSpec spec;
+    std::memset(&spec, 0, sizeof(spec));
+    spec.freq = 44100;
+    spec.format = AUDIO_S16SYS;
+    spec.channels = 2;
+    spec.samples = 1024;
+
+    m_audioOutputReady = m_audioOutput->initialize(spec);
+    if (m_audioOutputReady) {
+        m_audioOutput->setSyncController(m_syncController);
+    }
 }
 
 void MediaEngine::stop()
@@ -491,6 +522,10 @@ void MediaEngine::seek(double seconds)
     if (!m_fmtCtx)
         return;
 
+    // 直播流不支持 seek
+    if (m_networkManager->isLiveStream())
+        return;
+
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
 
@@ -557,6 +592,16 @@ double MediaEngine::position() const
 double MediaEngine::duration() const
 {
     return m_duration;
+}
+
+bool MediaEngine::isNetworkStream() const
+{
+    return m_networkManager && m_networkManager->isNetworkStream();
+}
+
+bool MediaEngine::isLiveStream() const
+{
+    return m_networkManager && m_networkManager->isLiveStream();
 }
 
 // --- 速度控制 ---
@@ -856,7 +901,12 @@ void MediaEngine::stopThreads()
 {
     if (m_demuxThread) {
         m_demuxThread->stopRead();
-        m_demuxThread->wait();
+        // 使用超时等待，避免网络 I/O 阻塞主线程（seek 时调用）
+        if (!m_demuxThread->wait(3000)) {
+            qWarning() << "DemuxThread did not exit in time, terminating";
+            m_demuxThread->terminate();
+            m_demuxThread->wait(1000);
+        }
         delete m_demuxThread;
         m_demuxThread = nullptr;
     }
@@ -938,6 +988,12 @@ void MediaEngine::cleanup()
     m_externalMode = false;
     m_externalSubtitles.clear();
     emit subtitleStreamsChanged();
+
+    if (m_networkManager->isNetworkStream() || m_networkManager->isLiveStream()) {
+        m_networkManager->reset();
+        emit isNetworkStreamChanged(false);
+        emit isLiveStreamChanged(false);
+    }
 }
 
 QVariantList MediaEngine::subtitleStreams() const

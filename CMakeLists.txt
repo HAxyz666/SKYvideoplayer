@@ -38,6 +38,7 @@ set(CORE_SOURCES
     src/core/VideoDecodeThread.cpp
     src/core/AudioDecodeThread.cpp
     src/core/SubtitleDecodeThread.cpp
+    src/core/NetworkStreamManager.cpp
 )
 
 set(CORE_HEADERS
@@ -51,6 +52,7 @@ set(CORE_HEADERS
     src/core/VideoDecodeThread.h
     src/core/AudioDecodeThread.h
     src/core/SubtitleDecodeThread.h
+    src/core/NetworkStreamManager.h
 )
 
 set(LOGIC_SOURCES

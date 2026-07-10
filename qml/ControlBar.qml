@@ -36,8 +36,11 @@ Rectangle {
             Layout.fillWidth: true
             position: appController.position
             duration: appController.duration
+            enabled: !controller.isLiveStream
+            opacity: controller.isLiveStream ? 0.3 : 1.0
             onSeekRequested: function(pos) {
-                appController.seekTo(pos)
+                if (!controller.isLiveStream)
+                    appController.seekTo(pos)
             }
         }
 

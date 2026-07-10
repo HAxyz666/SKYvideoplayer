@@ -87,12 +87,20 @@ void DemuxThread::run()
                 emit eofReached();
                 break;
             }
+            m_consecutiveErrors++;
+            if (m_consecutiveErrors > 50) {
+                qWarning() << "DemuxThread: too many consecutive errors, stopping";
+                emit errorOccurred("Too many consecutive read errors");
+                break;
+            }
             char errbuf[128] = {0};
             av_strerror(ret, errbuf, sizeof(errbuf));
             emit errorOccurred(QString("av_read_frame error: %1").arg(errbuf));
             msleep(10);
             continue;
         }
+
+        m_consecutiveErrors = 0;
 
         if (pkt->stream_index == m_videoStreamIdx && m_videoQueue) {
             m_videoQueue->push(pkt);

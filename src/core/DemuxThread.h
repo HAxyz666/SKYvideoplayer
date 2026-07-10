@@ -44,4 +44,5 @@ private:
 
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;
+    int m_consecutiveErrors{0};
 };

@@ -27,6 +27,7 @@ class PacketQueue;
 class FrameQueue;
 class AVSyncController;
 class AudioOutput;
+class NetworkStreamManager;
 
 class MediaEngine : public QObject
 {
@@ -44,6 +45,8 @@ class MediaEngine : public QObject
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
     Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
+    Q_PROPERTY(bool isNetworkStream READ isNetworkStream NOTIFY isNetworkStreamChanged)
+    Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY isLiveStreamChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -83,6 +86,10 @@ public:
     // --- 歌词 ---
     QString currentLyric() const { return m_currentLyric; }
 
+    // --- 网络流 ---
+    bool isNetworkStream() const;
+    bool isLiveStream() const;
+
     // --- 画面旋转 (UC-07) ---
     int rotation() const { return m_rotation; }
     bool flipVertical() const { return m_flipVertical; }
@@ -109,6 +116,8 @@ signals:
     void flipVerticalChanged(bool flip);      // 垂直翻转状态变化信号
     void coverArtChanged();
     void currentLyricChanged(QString lyric);
+    void isNetworkStreamChanged(bool isNetwork);
+    void isLiveStreamChanged(bool isLive);
 
 private:
     static constexpr int kAudioFrameQueueSize = 32;
@@ -117,6 +126,7 @@ private:
     void cleanup();
     void startThreads();
     void stopThreads();
+    void initAudioOutput();
     void updatePosition();
     void onVideoRefresh();
 
@@ -177,6 +187,8 @@ private:
     bool m_flipVertical{false};
 
     QString m_coverArtUrl;
+
+    NetworkStreamManager *m_networkManager{nullptr};
 
     QList<SubtitleEntry> m_lyrics;
     QString m_currentLyric;

@@ -6,6 +6,7 @@ QtObject {
     property bool hasMedia: false
     property bool isPlaying: false
     property bool isAudioOnly: appController.isAudioOnly
+    property bool isLiveStream: appController.isLiveStream
     property double speed: 1.0
 
     function openFile(url) {
