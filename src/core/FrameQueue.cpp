@@ -95,3 +95,9 @@ void FrameQueue::flush()
     m_notEmpty.notify_all();
     m_notFull.notify_all();
 }
+
+int FrameQueue::size() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_queue.size();
+}

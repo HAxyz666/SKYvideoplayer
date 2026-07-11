@@ -195,6 +195,10 @@ MediaEngine::MediaEngine(QObject *parent)
 
     m_positionTimer->setInterval(250);
     connect(m_positionTimer, &QTimer::timeout, this, &MediaEngine::updatePosition);
+
+    m_bufferCheckTimer = new QTimer(this);
+    m_bufferCheckTimer->setInterval(500);
+    connect(m_bufferCheckTimer, &QTimer::timeout, this, &MediaEngine::checkBufferState);
 }
 
 MediaEngine::~MediaEngine()
@@ -209,10 +213,6 @@ int MediaEngine::interruptCallback(void *ctx)
     auto *ictx = static_cast<InterruptContext*>(ctx);
     // 如果被标记为中断，返回 1 中断 av_read_frame
     if (ictx->interrupted.load()) {
-        return 1;
-    }
-    // 检查是否超时（10秒无响应）
-    if (ictx->lastReadTime.elapsed() > 10000) {
         return 1;
     }
     return 0;
@@ -468,6 +468,14 @@ void MediaEngine::startPlayback()
     m_positionTimer->start();
     if (m_videoFrameQueue)
         m_videoRefreshTimer->start();
+
+    // 网络流启用缓冲检测（启动后临时抑制，等待初始队列填充）
+    if (m_networkManager->isNetworkStream()) {
+        m_bufferState = BufferPlaying;
+        m_bufferSuppressed = true;
+        m_bufferCheckTimer->start();
+        QTimer::singleShot(3000, this, [this]() { m_bufferSuppressed = false; });
+    }
 }
 
 // 网络流初始化完成后调用，跳过 initFFmpeg
@@ -493,6 +501,9 @@ void MediaEngine::stop()
 {
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
+    m_bufferCheckTimer->stop();
+    m_bufferState = BufferPlaying;
+    m_bufferSuppressed = false;
 
     // 仅在实际播放时才报告"未播放"状态，避免首次 open() 时触发虚假的 pausedChanged。
     const bool wasPlaying = !m_paused && m_fmtCtx != nullptr;
@@ -691,6 +702,15 @@ void MediaEngine::seek(double seconds)
                 m_positionTimer->start();
                 if (m_videoFrameQueue)
                     m_videoRefreshTimer->start();
+
+                // seek 后临时抑制缓冲检测，等待队列填充
+                if (m_networkManager->isNetworkStream()) {
+                    m_bufferState = BufferPlaying;
+                    m_bufferSuppressed = true;
+                    m_bufferCheckTimer->start();
+                    // 3 秒后解除抑制
+                    QTimer::singleShot(3000, this, [this]() { m_bufferSuppressed = false; });
+                }
 
                 m_isLoading = false;
                 m_loadingText.clear();
@@ -936,6 +956,34 @@ void MediaEngine::updatePosition()
         if (m_audioStreamIndex == -1 || subTime <= 0.0)
             subTime = pos;
         updateSubtitle(subTime);
+    }
+}
+
+void MediaEngine::checkBufferState()
+{
+    if (m_paused.load() || m_startTimeUs == 0)
+        return;
+
+    if (m_bufferSuppressed)
+        return;
+
+    bool videoFrameLow = (m_videoFrameQueue != nullptr && m_videoFrameQueue->size() < 3);
+    bool audioFrameLow = (m_audioFrameQueue != nullptr && m_audioFrameQueue->size() < 5);
+    bool hasVideo = (m_videoFrameQueue != nullptr);
+    bool hasAudio = (m_audioFrameQueue != nullptr);
+
+    bool low = hasVideo ? videoFrameLow : (hasAudio && audioFrameLow);
+
+    if (low) {
+        if (m_bufferState != BufferBuffering) {
+            m_bufferState = BufferBuffering;
+            emit bufferStateChanged(static_cast<int>(m_bufferState));
+        }
+    } else {
+        if (m_bufferState != BufferPlaying) {
+            m_bufferState = BufferPlaying;
+            emit bufferStateChanged(static_cast<int>(m_bufferState));
+        }
     }
 }
 

@@ -33,6 +33,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY isLiveStreamChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
     Q_PROPERTY(QString loadingText READ loadingText NOTIFY loadingTextChanged)
+    Q_PROPERTY(int bufferState READ bufferState NOTIFY bufferStateChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -82,6 +83,7 @@ public:
     bool isLiveStream() const;
     bool isLoading() const;
     QString loadingText() const;
+    int bufferState() const;
     QString theme() const;
     void setTheme(const QString &theme);
 
@@ -109,6 +111,7 @@ signals:
     void isLoadingChanged(bool loading);
     void loadingTextChanged(QString text);
     void errorOccurred(QString message, bool isNetworkRelated);
+    void bufferStateChanged(int state);
 
 private:
     MediaEngine *m_mediaEngine;

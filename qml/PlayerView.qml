@@ -79,7 +79,7 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         color: "black"
-        visible: appController.isLoading
+        visible: appController.isLoading || appController.bufferState === 1
         z: 5
 
         Column {
@@ -88,12 +88,12 @@ Rectangle {
 
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
-                running: appController.isLoading
+                running: appController.isLoading || appController.bufferState === 1
                 width: 48; height: 48
             }
 
             Text {
-                text: appController.loadingText
+                text: appController.isLoading ? appController.loadingText : "缓冲中..."
                 color: "white"
                 font.pixelSize: 16
                 anchors.horizontalCenter: parent.horizontalCenter

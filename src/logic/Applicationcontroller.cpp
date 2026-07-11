@@ -55,6 +55,7 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::isLoadingChanged, this, &ApplicationController::isLoadingChanged);
     connect(m_mediaEngine, &MediaEngine::loadingTextChanged, this, &ApplicationController::loadingTextChanged);
     connect(m_mediaEngine, &MediaEngine::errorOccurred, this, &ApplicationController::errorOccurred);
+    connect(m_mediaEngine, &MediaEngine::bufferStateChanged, this, &ApplicationController::bufferStateChanged);
 }
 
 bool ApplicationController::openFile()
@@ -405,4 +406,9 @@ bool ApplicationController::isLoading() const
 QString ApplicationController::loadingText() const
 {
     return m_mediaEngine->loadingText();
+}
+
+int ApplicationController::bufferState() const
+{
+    return m_mediaEngine->bufferState();
 }

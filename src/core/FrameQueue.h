@@ -21,6 +21,7 @@ public:
     void clear();
     void setFinished(bool finished);
     void flush();
+    int size() const;
 
     // 设置退出标志，唤醒所有等待的线程
     void requestQuit();

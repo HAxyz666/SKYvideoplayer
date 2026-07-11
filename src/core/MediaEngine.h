@@ -50,6 +50,7 @@ class MediaEngine : public QObject
     Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY isLiveStreamChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
     Q_PROPERTY(QString loadingText READ loadingText NOTIFY loadingTextChanged)
+    Q_PROPERTY(int bufferState READ bufferState NOTIFY bufferStateChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
@@ -96,6 +97,10 @@ public:
     bool isLoading() const { return m_isLoading; }
     QString loadingText() const { return m_loadingText; }
 
+    enum BufferState { BufferPlaying = 0, BufferBuffering = 1 };
+    Q_ENUM(BufferState)
+    int bufferState() const { return static_cast<int>(m_bufferState); }
+
     // --- 画面旋转 (UC-07) ---
     int rotation() const { return m_rotation; }
     bool flipVertical() const { return m_flipVertical; }
@@ -127,6 +132,7 @@ signals:
     void isLoadingChanged(bool loading);
     void loadingTextChanged(QString text);
     void errorOccurred(QString message, bool isNetworkRelated);  // 错误信号
+    void bufferStateChanged(int state);
 
 private:
     static constexpr int kAudioFrameQueueSize = 32;
@@ -153,6 +159,9 @@ private:
     // 中断回调相关
     static int interruptCallback(void *ctx);
     void setupInterruptCallback();
+
+    // 缓冲检测
+    void checkBufferState();
 
     QString m_filename;
 
@@ -232,6 +241,11 @@ private:
 
     // 网络流异步初始化
     QFutureWatcher<bool> *m_networkInitWatcher{nullptr};
+
+    // 缓冲状态管理
+    BufferState m_bufferState{BufferPlaying};
+    QTimer *m_bufferCheckTimer{nullptr};
+    bool m_bufferSuppressed{false}; // seek 后临时抑制缓冲检测
 
     bool m_externalMode{false};
     QList<SubtitleEntry> m_externalSubtitles;
