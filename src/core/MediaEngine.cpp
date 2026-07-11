@@ -505,11 +505,34 @@ void MediaEngine::stop()
     m_bufferState = BufferPlaying;
     m_bufferSuppressed = false;
 
+    // 取消进行中的网络初始化
+    if (m_networkInitWatcher) {
+        m_networkInitWatcher->cancel();
+        m_networkInitWatcher->deleteLater();
+        m_networkInitWatcher = nullptr;
+    }
+
+    // 重置加载状态，防止切换文件后遮罩残留
+    if (m_isLoading) {
+        m_isLoading = false;
+        m_loadingText.clear();
+        emit isLoadingChanged(false);
+        emit loadingTextChanged(m_loadingText);
+    }
+
     // 仅在实际播放时才报告"未播放"状态，避免首次 open() 时触发虚假的 pausedChanged。
     const bool wasPlaying = !m_paused && m_fmtCtx != nullptr;
     m_paused = true;
 
     stopThreads();
+
+    // 等待后台 seek 完成，避免 use-after-free
+    int waitMs = 0;
+    while (m_seekInProgress.load() && waitMs < 5000) {
+        QThread::msleep(10);
+        waitMs += 10;
+    }
+
     cleanup();
     m_position = 0.0;
     m_duration = 0.0;
@@ -633,6 +656,7 @@ void MediaEngine::seek(double seconds)
         bool wasPaused = m_paused;
         double speed = m_speed;
 
+        m_seekInProgress.store(true);
         (void)QtConcurrent::run([this, seconds, wasPaused, speed]() {
             // 停止线程
             if (m_interruptCtx)
@@ -671,6 +695,9 @@ void MediaEngine::seek(double seconds)
                 avcodec_flush_buffers(m_audioCodecCtx);
             if (m_subtitleCodecCtx)
                 avcodec_flush_buffers(m_subtitleCodecCtx);
+
+            // 后台工作完成，允许 stop() 继续
+            m_seekInProgress.store(false);
 
             // 回到主线程完成后续操作
             QMetaObject::invokeMethod(this, [this, seconds, wasPaused, speed]() {

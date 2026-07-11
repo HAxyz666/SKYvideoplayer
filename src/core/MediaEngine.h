@@ -247,6 +247,8 @@ private:
     QTimer *m_bufferCheckTimer{nullptr};
     bool m_bufferSuppressed{false}; // seek 后临时抑制缓冲检测
 
+    std::atomic<bool> m_seekInProgress{false}; // 后台 seek 进行中标志
+
     bool m_externalMode{false};
     QList<SubtitleEntry> m_externalSubtitles;
 
