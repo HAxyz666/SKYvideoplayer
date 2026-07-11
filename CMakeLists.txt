@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui Concurrent)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Svg ShaderTools)
 
 qt_standard_project_setup(REQUIRES 6.5)
@@ -155,6 +155,7 @@ target_link_libraries(SKYvideoplayer PRIVATE
     Qt6::Quick
     Qt6::Gui
     Qt6::Svg
+    Qt6::Concurrent
     PkgConfig::AVCODEC
     PkgConfig::AVFORMAT
     PkgConfig::AVUTIL

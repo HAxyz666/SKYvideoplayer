@@ -52,6 +52,9 @@ ApplicationController::ApplicationController(QObject *parent)
 
     connect(m_mediaEngine, &MediaEngine::isNetworkStreamChanged, this, &ApplicationController::isNetworkStreamChanged);
     connect(m_mediaEngine, &MediaEngine::isLiveStreamChanged, this, &ApplicationController::isLiveStreamChanged);
+    connect(m_mediaEngine, &MediaEngine::isLoadingChanged, this, &ApplicationController::isLoadingChanged);
+    connect(m_mediaEngine, &MediaEngine::loadingTextChanged, this, &ApplicationController::loadingTextChanged);
+    connect(m_mediaEngine, &MediaEngine::errorOccurred, this, &ApplicationController::errorOccurred);
 }
 
 bool ApplicationController::openFile()
@@ -392,4 +395,14 @@ bool ApplicationController::isNetworkStream() const
 bool ApplicationController::isLiveStream() const
 {
     return m_mediaEngine->isLiveStream();
+}
+
+bool ApplicationController::isLoading() const
+{
+    return m_mediaEngine->isLoading();
+}
+
+QString ApplicationController::loadingText() const
+{
+    return m_mediaEngine->loadingText();
 }

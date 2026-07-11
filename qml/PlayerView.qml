@@ -76,6 +76,31 @@ Rectangle {
         flipVertical: appController.flipVertical
     }
 
+    Rectangle {
+        anchors.fill: parent
+        color: "black"
+        visible: appController.isLoading
+        z: 5
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 16
+
+            BusyIndicator {
+                anchors.horizontalCenter: parent.horizontalCenter
+                running: appController.isLoading
+                width: 48; height: 48
+            }
+
+            Text {
+                text: appController.loadingText
+                color: "white"
+                font.pixelSize: 16
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
+    }
+
     Item {
         id: subtitleOverlay
         anchors.fill: parent
@@ -170,6 +195,7 @@ Rectangle {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.margins: 12
+        z: 10
         visible: controlBar.showControls
         icon.source: "qrc:/icons/icons/exit_play.svg"
         icon.width: 20
@@ -222,6 +248,7 @@ Rectangle {
         id: controlBar
         anchors.bottom: parent.bottom
         width: parent.width
+        z: 10
         controller: playerView.controller
         playlistDrawer: playerView.playlistDrawer
         isFullscreen: playerView.isFullscreen

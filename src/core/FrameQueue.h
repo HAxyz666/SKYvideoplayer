@@ -3,6 +3,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <QQueue>
+#include <atomic>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -21,6 +22,9 @@ public:
     void setFinished(bool finished);
     void flush();
 
+    // 设置退出标志，唤醒所有等待的线程
+    void requestQuit();
+
 private:
     QQueue<AVFrame *> m_queue;
     mutable std::mutex m_mutex;
@@ -29,4 +33,5 @@ private:
     int m_maxSize;
     bool m_finished;
     int m_serial;
+    std::atomic<bool> m_quitRequested{false};
 };

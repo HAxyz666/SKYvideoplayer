@@ -42,15 +42,19 @@ void DemuxThread::setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQue
 void DemuxThread::stopRead()
 {
     m_quit = true;
+    // 请求所有队列退出，唤醒阻塞的 push() 调用
     if (m_videoQueue) {
+        m_videoQueue->requestQuit();
         m_videoQueue->flush();
         m_videoQueue->setFinished(true);
     }
     if (m_audioQueue) {
+        m_audioQueue->requestQuit();
         m_audioQueue->flush();
         m_audioQueue->setFinished(true);
     }
     if (m_subtitleQueue) {
+        m_subtitleQueue->requestQuit();
         m_subtitleQueue->flush();
         m_subtitleQueue->setFinished(true);
     }
@@ -85,6 +89,11 @@ void DemuxThread::run()
             av_packet_unref(pkt);
             if (ret == AVERROR_EOF) {
                 emit eofReached();
+                break;
+            }
+            // 检查是否被中断（网络超时或主动中断）
+            if (ret == AVERROR_EXIT) {
+                qWarning() << "DemuxThread: av_read_frame interrupted";
                 break;
             }
             m_consecutiveErrors++;

@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QList>
 #include <QImage>
+#include <QFutureWatcher>
 #include <atomic>
 
 extern "C" {
@@ -47,12 +48,15 @@ class MediaEngine : public QObject
     Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
     Q_PROPERTY(bool isNetworkStream READ isNetworkStream NOTIFY isNetworkStreamChanged)
     Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY isLiveStreamChanged)
+    Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+    Q_PROPERTY(QString loadingText READ loadingText NOTIFY loadingTextChanged)
 
 public:
     explicit MediaEngine(QObject *parent = nullptr);
     ~MediaEngine();
 
     void start();
+    void startPlayback();   // 启动播放线程（initFFmpeg 之后调用）
     Q_INVOKABLE void stop();
     Q_INVOKABLE bool open(const QString &url);
     Q_INVOKABLE void pause();
@@ -89,6 +93,8 @@ public:
     // --- 网络流 ---
     bool isNetworkStream() const;
     bool isLiveStream() const;
+    bool isLoading() const { return m_isLoading; }
+    QString loadingText() const { return m_loadingText; }
 
     // --- 画面旋转 (UC-07) ---
     int rotation() const { return m_rotation; }
@@ -118,6 +124,9 @@ signals:
     void currentLyricChanged(QString lyric);
     void isNetworkStreamChanged(bool isNetwork);
     void isLiveStreamChanged(bool isLive);
+    void isLoadingChanged(bool loading);
+    void loadingTextChanged(QString text);
+    void errorOccurred(QString message, bool isNetworkRelated);  // 错误信号
 
 private:
     static constexpr int kAudioFrameQueueSize = 32;
@@ -137,6 +146,13 @@ private:
     void detectLyrics(const QString &audioPath);
 
     void activateExternalSubtitle(int infoIndex);
+
+    // 网络流异步初始化完成回调
+    void onNetworkInitFinished();
+
+    // 中断回调相关
+    static int interruptCallback(void *ctx);
+    void setupInterruptCallback();
 
     QString m_filename;
 
@@ -181,6 +197,8 @@ private:
     bool m_muted;
     bool m_audioOutputReady;
     double m_speed;
+    bool m_isLoading{false};
+    QString m_loadingText;
 
     // 画面旋转 / 翻转状态 (UC-07)
     int m_rotation{0};
@@ -205,6 +223,15 @@ private:
     int m_currentSubtitleStreamIndex{-1};
     QString m_currentSubtitle;
 
+    // 中断回调上下文
+    struct InterruptContext {
+        std::atomic<bool> interrupted{false};
+        QElapsedTimer lastReadTime;
+    };
+    InterruptContext *m_interruptCtx{nullptr};
+
+    // 网络流异步初始化
+    QFutureWatcher<bool> *m_networkInitWatcher{nullptr};
 
     bool m_externalMode{false};
     QList<SubtitleEntry> m_externalSubtitles;

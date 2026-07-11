@@ -20,15 +20,27 @@ void FrameQueue::push(AVFrame *frame)
         return;
 
     std::unique_lock lock(m_mutex);
-    m_notFull.wait(lock, [this]() { return m_queue.size() < m_maxSize || m_finished; });
+    // 使用 wait_for 每 100ms 检查一次退出标志
+    m_notFull.wait_for(lock, std::chrono::milliseconds(100), [this]() {
+        return m_queue.size() < m_maxSize || m_finished || m_quitRequested.load();
+    });
 
-    if (m_finished) {
+    if (m_finished || m_quitRequested.load()) {
         av_frame_free(&newFrame);
         return;
     }
 
     m_queue.enqueue(newFrame);
     m_notEmpty.notify_one();
+}
+
+void FrameQueue::requestQuit()
+{
+    m_quitRequested.store(true);
+    // 唤醒所有等待的线程
+    std::lock_guard lock(m_mutex);
+    m_notEmpty.notify_all();
+    m_notFull.notify_all();
 }
 
 AVFrame *FrameQueue::tryPop(int timeoutMs)

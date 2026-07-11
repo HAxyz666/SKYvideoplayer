@@ -15,6 +15,7 @@
 #include <QDir>
 #include <QStringList>
 #include <QBuffer>
+#include <QtConcurrent>
 #include <cstring>
 
 extern "C" {
@@ -25,7 +26,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-// --- YUV plane extraction (runs on GUI thread inside onVideoRefresh) ---
+// --- YUV 平面提取（在 GUI 线程的 onVideoRefresh 中执行）---
 
 static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
 {
@@ -185,10 +186,10 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_audioOutputReady(false)
     , m_speed(1.0)
     , m_networkManager(new NetworkStreamManager(this))
+    , m_interruptCtx(new InterruptContext())
 {
-    // Video display refresh: peeks m_videoFrameQueue and times frame delivery
-    // to VideoRenderItem via AVSyncController. 10ms granularity is fine for
-    // <=60fps content; the actual delay is driven by computeFrameDelay().
+    // 视频显示刷新：从 m_videoFrameQueue 取帧，通过 AVSyncController 定时送显。
+    // 10ms 粒度对 <=60fps 内容足够；实际延迟由 computeFrameDelay() 驱动。
     m_videoRefreshTimer->setInterval(10);
     connect(m_videoRefreshTimer, &QTimer::timeout, this, &MediaEngine::onVideoRefresh);
 
@@ -199,6 +200,33 @@ MediaEngine::MediaEngine(QObject *parent)
 MediaEngine::~MediaEngine()
 {
     stop();
+    delete m_interruptCtx;
+}
+
+// 中断回调函数 - 用于中断 av_read_frame 的网络阻塞
+int MediaEngine::interruptCallback(void *ctx)
+{
+    auto *ictx = static_cast<InterruptContext*>(ctx);
+    // 如果被标记为中断，返回 1 中断 av_read_frame
+    if (ictx->interrupted.load()) {
+        return 1;
+    }
+    // 检查是否超时（10秒无响应）
+    if (ictx->lastReadTime.elapsed() > 10000) {
+        return 1;
+    }
+    return 0;
+}
+
+// 设置中断回调
+void MediaEngine::setupInterruptCallback()
+{
+    if (m_fmtCtx && m_interruptCtx) {
+        m_interruptCtx->interrupted.store(false);
+        m_interruptCtx->lastReadTime.start();
+        m_fmtCtx->interrupt_callback.callback = interruptCallback;
+        m_fmtCtx->interrupt_callback.opaque = m_interruptCtx;
+    }
 }
 
 bool MediaEngine::initFFmpeg(const QString &filename)
@@ -225,10 +253,13 @@ bool MediaEngine::initFFmpeg(const QString &filename)
         char errbuf[128] = {0};
         av_strerror(ret, errbuf, sizeof(errbuf));
         qCritical() << "Could not open input:" << filename << errbuf;
+        emit errorOccurred(QString("无法打开输入: %1").arg(errbuf), NetworkStreamManager::isNetworkUrl(filename));
         return false;
     }
 
-    if (m_networkManager->isNetworkUrl(filename)) {
+    // 为网络流设置中断回调
+    if (NetworkStreamManager::isNetworkUrl(filename)) {
+        setupInterruptCallback();
         m_fmtCtx->max_analyze_duration = 5 * AV_TIME_BASE;
     }
 
@@ -411,7 +442,11 @@ void MediaEngine::start()
 {
     if (!initFFmpeg(m_filename))
         return;
+    startPlayback();
+}
 
+void MediaEngine::startPlayback()
+{
     emit hasVideoChanged();
     emit coverArtChanged();
     emit currentLyricChanged(m_currentLyric);
@@ -427,10 +462,7 @@ void MediaEngine::start()
     m_pauseStartUs = 0;
     m_lastFrameDisplayTimeUs = 0;
 
-    // Start threads first so audio decoder fills the FrameQueue
     startThreads();
-
-    // Initialize SDL audio AFTER decoder has started, so FIFO can pre-fill
     initAudioOutput();
 
     m_positionTimer->start();
@@ -438,6 +470,7 @@ void MediaEngine::start()
         m_videoRefreshTimer->start();
 }
 
+// 网络流初始化完成后调用，跳过 initFFmpeg
 void MediaEngine::initAudioOutput()
 {
     if (!m_audioCodecCtx || m_audioOutputReady)
@@ -461,8 +494,7 @@ void MediaEngine::stop()
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
 
-    // Report "not playing" only if something was actually playing; avoids
-    // spurious pausedChanged on the very first open() (no prior fmtCtx).
+    // 仅在实际播放时才报告"未播放"状态，避免首次 open() 时触发虚假的 pausedChanged。
     const bool wasPlaying = !m_paused && m_fmtCtx != nullptr;
     m_paused = true;
 
@@ -483,8 +515,55 @@ bool MediaEngine::open(const QString &url)
     if (path.startsWith("file://"))
         path = path.mid(7);
     m_filename = path;
+
+    // 网络流：异步初始化，避免阻塞主线程
+    if (NetworkStreamManager::isNetworkUrl(path)) {
+        // 取消旧的初始化（如果正在进行）
+        if (m_networkInitWatcher) {
+            m_networkInitWatcher->cancel();
+            m_networkInitWatcher->deleteLater();
+            m_networkInitWatcher = nullptr;
+        }
+
+        m_isLoading = true;
+        m_loadingText = QStringLiteral("加载中...");
+        emit isLoadingChanged(true);
+        emit loadingTextChanged(m_loadingText);
+
+        m_networkInitWatcher = new QFutureWatcher<bool>(this);
+        connect(m_networkInitWatcher, &QFutureWatcher<bool>::finished,
+                this, &MediaEngine::onNetworkInitFinished);
+        m_networkInitWatcher->setFuture(
+            QtConcurrent::run([this, path]() { return initFFmpeg(path); }));
+
+        return true;
+    }
+
+    // 本地文件：同步初始化
     start();
     return m_fmtCtx != nullptr;
+}
+
+void MediaEngine::onNetworkInitFinished()
+{
+    if (!m_networkInitWatcher)
+        return;
+
+    bool success = m_networkInitWatcher->result();
+    m_networkInitWatcher->deleteLater();
+    m_networkInitWatcher = nullptr;
+
+    m_isLoading = false;
+    m_loadingText.clear();
+    emit isLoadingChanged(false);
+    emit loadingTextChanged(m_loadingText);
+
+    if (!success) {
+        emit errorOccurred("无法打开网络流", true);
+        return;
+    }
+
+    startPlayback();
 }
 
 void MediaEngine::pause()
@@ -522,14 +601,107 @@ void MediaEngine::seek(double seconds)
     if (!m_fmtCtx)
         return;
 
-    // 直播流不支持 seek
     if (m_networkManager->isLiveStream())
         return;
 
     m_positionTimer->stop();
     m_videoRefreshTimer->stop();
 
-    // Stop audio directly (no pausedChanged signal) to avoid UI flicker.
+    // 网络流：后台 seek，避免阻塞主线程
+    if (m_networkManager->isNetworkStream()) {
+        m_isLoading = true;
+        m_loadingText = QStringLiteral("缓冲中...");
+        emit isLoadingChanged(true);
+        emit loadingTextChanged(m_loadingText);
+
+        // 更新位置显示
+        m_position = seconds;
+        emit positionChanged(m_position);
+
+        // 保存需要的上下文
+        bool wasPaused = m_paused;
+        double speed = m_speed;
+
+        (void)QtConcurrent::run([this, seconds, wasPaused, speed]() {
+            // 停止线程
+            if (m_interruptCtx)
+                m_interruptCtx->interrupted.store(true);
+            if (m_demuxThread) {
+                m_demuxThread->stopRead();
+                m_demuxThread->wait(3000);
+            }
+            if (m_videoThread) {
+                m_videoThread->stopDecode();
+                m_videoThread->wait(1000);
+            }
+            if (m_audioThread) {
+                m_audioThread->stopDecode();
+                m_audioThread->wait(1000);
+            }
+
+            m_audioOutput->pause();
+            m_audioOutput->reset();
+
+            // 执行 seek
+            int64_t targetUs = static_cast<int64_t>(seconds * AV_TIME_BASE);
+            if (targetUs < 0) targetUs = 0;
+            if (m_duration > 0 && targetUs > static_cast<int64_t>(m_duration * AV_TIME_BASE))
+                targetUs = static_cast<int64_t>(m_duration * AV_TIME_BASE);
+
+            int ret = avformat_seek_file(m_fmtCtx, -1,
+                                         INT64_MIN, targetUs, targetUs,
+                                         AVSEEK_FLAG_BACKWARD);
+            if (ret < 0)
+                qWarning() << "Seek failed:" << ret;
+
+            if (m_videoCodecCtx)
+                avcodec_flush_buffers(m_videoCodecCtx);
+            if (m_audioCodecCtx)
+                avcodec_flush_buffers(m_audioCodecCtx);
+            if (m_subtitleCodecCtx)
+                avcodec_flush_buffers(m_subtitleCodecCtx);
+
+            // 回到主线程完成后续操作
+            QMetaObject::invokeMethod(this, [this, seconds, wasPaused, speed]() {
+                m_syncController->reset();
+                m_syncController->setSpeed(speed);
+                m_syncController->updateAudioClock(seconds);
+
+                qint64 now = av_gettime();
+                m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(speed, 0.1));
+                m_pausedDurationUs = 0;
+                m_pauseStartUs = wasPaused ? now : 0;
+                m_lastFrameDisplayTimeUs = 0;
+
+                // 清理线程指针
+                delete m_demuxThread; m_demuxThread = nullptr;
+                delete m_videoThread; m_videoThread = nullptr;
+                delete m_audioThread; m_audioThread = nullptr;
+                if (m_subtitleThread) {
+                    delete m_subtitleThread; m_subtitleThread = nullptr;
+                }
+
+                // 重新启动
+                startThreads();
+                if (m_audioThread && !qFuzzyCompare(speed, 1.0))
+                    m_audioThread->setSpeed(speed);
+                if (!wasPaused)
+                    m_audioOutput->resume();
+
+                m_positionTimer->start();
+                if (m_videoFrameQueue)
+                    m_videoRefreshTimer->start();
+
+                m_isLoading = false;
+                m_loadingText.clear();
+                emit isLoadingChanged(false);
+                emit loadingTextChanged(m_loadingText);
+            });
+        });
+        return;
+    }
+
+    // 本地文件：同步 seek
     m_audioOutput->pause();
     m_audioOutput->reset();
     stopThreads();
@@ -608,16 +780,15 @@ bool MediaEngine::isLiveStream() const
 
 void MediaEngine::setSpeed(double speed)
 {
-    // Match the audio atempo filter's working range so A/V stay in sync.
+    // 匹配音频 atempo 滤镜的工作范围，保持音画同步。
     speed = qBound(0.5, speed, 2.0);
     if (qFuzzyCompare(m_speed, speed))
         return;
     double oldSpeed = m_speed;
     m_speed = speed;
 
-    // Re-anchor the wall-clock start time so the displayed position is
-    // continuous across the speed change. When paused, anchor against the
-    // pause start moment so resume doesn't jump.
+    // 重新锚定挂钟起始时间，使显示位置在变速时连续。
+    // 暂停时以暂停时刻为锚点，避免恢复播放时跳变。
     if (m_startTimeUs != 0) {
         qint64 refTime = m_paused ? m_pauseStartUs : av_gettime();
         double currentPos = (refTime - m_startTimeUs - m_pausedDurationUs) * oldSpeed / 1000000.0;
@@ -625,9 +796,8 @@ void MediaEngine::setSpeed(double speed)
                         - static_cast<qint64>(currentPos * 1000000.0 / speed);
     }
 
-    // Do NOT clear audio queue or reset FIFO — old-speed frames have their
-    // PTS corrected in AudioDecodeThread, so they blend seamlessly into the
-    // new-speed stream.  No audio gap, no clock domain mismatch.
+    // 不清空音频队列也不重置 FIFO——旧速度帧的 PTS 已在 AudioDecodeThread 中校正，
+    // 会无缝融入新速度的音频流，无音频间隔，无时钟域不匹配。
 
     m_syncController->setSpeed(speed);
     if (m_audioThread)
@@ -711,7 +881,7 @@ void MediaEngine::onVideoRefresh()
     if (!frame)
         return;
 
-    // Update sync state only after we've committed to displaying this frame.
+    // 仅在确认显示该帧后才更新同步状态。
     m_syncController->onFrameDisplayed(pts);
     m_lastFrameDisplayTimeUs = now;
 
@@ -824,7 +994,7 @@ void MediaEngine::detectLyrics(const QString &audioPath)
 
 void MediaEngine::startThreads()
 {
-    // Only allocate the audio packet queue when there is an audio stream.
+    // 仅在有音频流时才分配音频包队列。
     if (m_audioCodecCtx) {
         m_audioPacketQueue = new PacketQueue(64);
         m_audioFrameQueue = new FrameQueue(kAudioFrameQueueSize);
@@ -861,7 +1031,14 @@ void MediaEngine::startThreads()
     });
     connect(m_demuxThread, &DemuxThread::errorOccurred, this, [this](const QString &msg) {
         qWarning() << "Demux error:" << msg;
+        emit errorOccurred(msg, true);
     });
+
+    // 重置中断标志
+    if (m_interruptCtx) {
+        m_interruptCtx->interrupted.store(false);
+        m_interruptCtx->lastReadTime.start();
+    }
 
     if (m_videoCodecCtx) {
         m_videoThread = new VideoDecodeThread(this);
@@ -900,12 +1077,14 @@ void MediaEngine::startThreads()
 void MediaEngine::stopThreads()
 {
     if (m_demuxThread) {
+        // 设置中断标志，让 av_read_frame 立即返回
+        if (m_interruptCtx) {
+            m_interruptCtx->interrupted.store(true);
+        }
         m_demuxThread->stopRead();
-        // 使用超时等待，避免网络 I/O 阻塞主线程（seek 时调用）
-        if (!m_demuxThread->wait(3000)) {
-            qWarning() << "DemuxThread did not exit in time, terminating";
-            m_demuxThread->terminate();
-            m_demuxThread->wait(1000);
+        // 等待线程自然退出，不再使用 terminate()
+        if (!m_demuxThread->wait(5000)) {
+            qWarning() << "DemuxThread did not exit in time after interrupt";
         }
         delete m_demuxThread;
         m_demuxThread = nullptr;
@@ -932,6 +1111,13 @@ void MediaEngine::stopThreads()
     m_audioOutput->pause();
     m_audioOutput->reset();
     m_audioOutput->setFrameQueue(nullptr);
+
+    // 请求所有队列退出，唤醒阻塞的线程
+    if (m_videoPacketQueue) m_videoPacketQueue->requestQuit();
+    if (m_audioPacketQueue) m_audioPacketQueue->requestQuit();
+    if (m_subtitlePacketQueue) m_subtitlePacketQueue->requestQuit();
+    if (m_videoFrameQueue) m_videoFrameQueue->requestQuit();
+    if (m_audioFrameQueue) m_audioFrameQueue->requestQuit();
 
     delete m_videoPacketQueue; m_videoPacketQueue = nullptr;
     delete m_audioPacketQueue; m_audioPacketQueue = nullptr;

@@ -30,11 +30,14 @@ void VideoDecodeThread::setFrameQueue(FrameQueue *queue) { m_frameQueue = queue;
 void VideoDecodeThread::stopDecode()
 {
     m_quit = true;
+    // 请求所有队列退出，唤醒阻塞的 pop()/push() 调用
     if (m_packetQueue) {
+        m_packetQueue->requestQuit();
         m_packetQueue->flush();
         m_packetQueue->setFinished(true);
     }
     if (m_frameQueue) {
+        m_frameQueue->requestQuit();
         m_frameQueue->flush();
         m_frameQueue->setFinished(true);
     }
@@ -90,8 +93,7 @@ void VideoDecodeThread::run()
             }
 
 #ifdef ENABLE_HWACCEL
-            // Transfer HW frame to NV12 in system memory so the display
-            // side can extract YUV planes without touching HW APIs.
+            // 将硬件帧转换为系统内存中的 NV12 格式，以便显示端提取 YUV 平面而无需调用硬件 API。
             if (m_hwPixFmt != AV_PIX_FMT_NONE && frame->format == m_hwPixFmt) {
                 AVFrame *swFrame = av_frame_alloc();
                 if (!swFrame) {
@@ -110,8 +112,7 @@ void VideoDecodeThread::run()
                 frame = swFrame;
             }
 #endif
-            // FrameQueue::push clones the frame, so we can release our local
-            // reference immediately.
+            // FrameQueue::push 会克隆帧，因此可以立即释放本地引用。
             m_frameQueue->push(frame);
             av_frame_free(&frame);
         }

@@ -109,6 +109,7 @@ void SubtitleDecodeThread::stopDecode()
 {
     m_quit = true;
     if (m_packetQueue) {
+        m_packetQueue->requestQuit();
         m_packetQueue->flush();
         m_packetQueue->setFinished(true);
     }

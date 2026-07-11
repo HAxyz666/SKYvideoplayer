@@ -53,11 +53,14 @@ void AudioDecodeThread::setTimeBase(AVRational tb)
 void AudioDecodeThread::stopDecode()
 {
     m_quit = true;
+    // 请求所有队列退出，唤醒阻塞的 pop()/push() 调用
     if (m_packetQueue) {
+        m_packetQueue->requestQuit();
         m_packetQueue->flush();
         m_packetQueue->setFinished(true);
     }
     if (m_frameQueue) {
+        m_frameQueue->requestQuit();
         m_frameQueue->flush();
         m_frameQueue->setFinished(true);
     }

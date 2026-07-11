@@ -12,6 +12,8 @@ extern "C" {
 class NetworkStreamManager : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(bool isNetworkStream READ isNetworkStream NOTIFY changed)
+    Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY changed)
 
 public:
     explicit NetworkStreamManager(QObject *parent = nullptr);
@@ -28,6 +30,9 @@ public:
     bool isNetworkStream() const { return m_isNetwork; }
     bool isLiveStream() const { return m_isLive; }
     void reset();
+
+signals:
+    void changed();
 
 private:
     bool m_isNetwork{false};

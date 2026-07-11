@@ -31,6 +31,8 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString currentFilePath READ currentFilePath NOTIFY currentFilePathChanged)
     Q_PROPERTY(bool isNetworkStream READ isNetworkStream NOTIFY isNetworkStreamChanged)
     Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY isLiveStreamChanged)
+    Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+    Q_PROPERTY(QString loadingText READ loadingText NOTIFY loadingTextChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -78,6 +80,8 @@ public:
     QString currentFilePath() const;
     bool isNetworkStream() const;
     bool isLiveStream() const;
+    bool isLoading() const;
+    QString loadingText() const;
     QString theme() const;
     void setTheme(const QString &theme);
 
@@ -102,6 +106,9 @@ signals:
     void currentFilePathChanged();
     void isNetworkStreamChanged(bool isNetwork);
     void isLiveStreamChanged(bool isLive);
+    void isLoadingChanged(bool loading);
+    void loadingTextChanged(QString text);
+    void errorOccurred(QString message, bool isNetworkRelated);
 
 private:
     MediaEngine *m_mediaEngine;
