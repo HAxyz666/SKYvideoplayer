@@ -26,82 +26,6 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-// --- YUV 平面提取（在 GUI 线程的 onVideoRefresh 中执行）---
-
-static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
-{
-    YUVFrame out;
-    out.frameSize = QSize(width, height);
-
-    int halfW = (width + 1) / 2;
-    int halfH = (height + 1) / 2;
-
-    out.yPlane.resize(width * height);
-    for (int i = 0; i < height; i++)
-        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
-
-    out.uPlane.resize(halfW * halfH);
-    for (int i = 0; i < halfH; i++)
-        memcpy(out.uPlane.data() + i * halfW, frame->data[1] + i * frame->linesize[1], halfW);
-
-    out.vPlane.resize(halfW * halfH);
-    for (int i = 0; i < halfH; i++)
-        memcpy(out.vPlane.data() + i * halfW, frame->data[2] + i * frame->linesize[2], halfW);
-
-    return out;
-}
-
-static YUVFrame extractNV12(AVFrame *frame, int width, int height)
-{
-    YUVFrame out;
-    out.frameSize = QSize(width, height);
-
-    int halfW = (width + 1) / 2;
-    int halfH = (height + 1) / 2;
-
-    out.yPlane.resize(width * height);
-    for (int i = 0; i < height; i++)
-        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
-
-    out.uPlane.resize(halfW * halfH);
-    out.vPlane.resize(halfW * halfH);
-    const uint8_t *uv = frame->data[1];
-    for (int i = 0; i < halfH; i++) {
-        for (int j = 0; j < halfW; j++) {
-            out.uPlane[i * halfW + j] = uv[i * frame->linesize[1] + j * 2];
-            out.vPlane[i * halfW + j] = uv[i * frame->linesize[1] + j * 2 + 1];
-        }
-    }
-
-    return out;
-}
-
-static AVFrame *convertToYUV420P(AVFrame *src)
-{
-    AVFrame *dst = av_frame_alloc();
-    dst->format = AV_PIX_FMT_YUV420P;
-    dst->width = src->width;
-    dst->height = src->height;
-    if (av_frame_get_buffer(dst, 32) < 0) {
-        av_frame_free(&dst);
-        return nullptr;
-    }
-
-    struct SwsContext *sws = sws_getContext(
-        src->width, src->height, static_cast<AVPixelFormat>(src->format),
-        dst->width, dst->height, AV_PIX_FMT_YUV420P,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
-    if (!sws) {
-        av_frame_free(&dst);
-        return nullptr;
-    }
-
-    sws_scale(sws, src->data, src->linesize, 0, src->height,
-              dst->data, dst->linesize);
-    sws_freeContext(sws);
-    return dst;
-}
-
 #ifdef ENABLE_HWACCEL
 bool MediaEngine::createHwDeviceContext(const AVCodec *codec)
 {
@@ -173,7 +97,6 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_videoFrameQueue(nullptr)
     , m_syncController(new AVSyncController(this))
     , m_audioOutput(new AudioOutput(this))
-    , m_videoRefreshTimer(new QTimer(this))
     , m_paused(false)
     , m_position(0.0)
     , m_duration(0.0)
@@ -188,11 +111,6 @@ MediaEngine::MediaEngine(QObject *parent)
     , m_networkManager(new NetworkStreamManager(this))
     , m_interruptCtx(new InterruptContext())
 {
-    // 视频显示刷新：从 m_videoFrameQueue 取帧，通过 AVSyncController 定时送显。
-    // 10ms 粒度对 <=60fps 内容足够；实际延迟由 computeFrameDelay() 驱动。
-    m_videoRefreshTimer->setInterval(10);
-    connect(m_videoRefreshTimer, &QTimer::timeout, this, &MediaEngine::onVideoRefresh);
-
     m_positionTimer->setInterval(250);
     connect(m_positionTimer, &QTimer::timeout, this, &MediaEngine::updatePosition);
 
@@ -460,14 +378,13 @@ void MediaEngine::startPlayback()
     m_startTimeUs = av_gettime();
     m_pausedDurationUs = 0;
     m_pauseStartUs = 0;
-    m_lastFrameDisplayTimeUs = 0;
 
     startThreads();
     initAudioOutput();
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
-        m_videoRefreshTimer->start();
+        startDisplayThread();
 
     // 网络流启用缓冲检测（启动后临时抑制，等待初始队列填充）
     if (m_networkManager->isNetworkStream()) {
@@ -500,7 +417,7 @@ void MediaEngine::initAudioOutput()
 void MediaEngine::stop()
 {
     m_positionTimer->stop();
-    m_videoRefreshTimer->stop();
+    stopDisplayThread();
     m_bufferCheckTimer->stop();
     m_bufferState = BufferPlaying;
     m_bufferSuppressed = false;
@@ -604,7 +521,6 @@ void MediaEngine::pause()
 {
     if (m_paused.exchange(true))
         return;
-    m_videoRefreshTimer->stop();
     m_audioOutput->pause();
     m_pauseStartUs = av_gettime();
     emit pausedChanged(true);
@@ -617,8 +533,6 @@ void MediaEngine::resume()
     m_audioOutput->resume();
     m_pausedDurationUs += av_gettime() - m_pauseStartUs;
     m_pauseStartUs = 0;
-    if (m_videoFrameQueue)
-        m_videoRefreshTimer->start();
     emit pausedChanged(false);
 }
 
@@ -639,7 +553,7 @@ void MediaEngine::seek(double seconds)
         return;
 
     m_positionTimer->stop();
-    m_videoRefreshTimer->stop();
+    stopDisplayThread();
 
     // 网络流：后台 seek，避免阻塞主线程
     if (m_networkManager->isNetworkStream()) {
@@ -709,7 +623,6 @@ void MediaEngine::seek(double seconds)
                 m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(speed, 0.1));
                 m_pausedDurationUs = 0;
                 m_pauseStartUs = wasPaused ? now : 0;
-                m_lastFrameDisplayTimeUs = 0;
 
                 // 清理线程指针
                 delete m_demuxThread; m_demuxThread = nullptr;
@@ -726,9 +639,9 @@ void MediaEngine::seek(double seconds)
                 if (!wasPaused)
                     m_audioOutput->resume();
 
-                m_positionTimer->start();
-                if (m_videoFrameQueue)
-                    m_videoRefreshTimer->start();
+    m_positionTimer->start();
+    if (m_videoFrameQueue)
+        startDisplayThread();
 
                 // seek 后临时抑制缓冲检测，等待队列填充
                 if (m_networkManager->isNetworkStream()) {
@@ -786,7 +699,6 @@ void MediaEngine::seek(double seconds)
     m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(m_speed, 0.1));
     m_pausedDurationUs = 0;
     m_pauseStartUs = m_paused ? now : 0;
-    m_lastFrameDisplayTimeUs = 0;
     m_position = seconds;
     emit positionChanged(m_position);
 
@@ -800,7 +712,7 @@ void MediaEngine::seek(double seconds)
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
-        m_videoRefreshTimer->start();
+        startDisplayThread();
 }
 
 double MediaEngine::position() const
@@ -889,71 +801,6 @@ bool MediaEngine::muted() const
     return m_muted;
 }
 
-void MediaEngine::onVideoRefresh()
-{
-    // 字幕查询：10ms 粒度，与视频帧同源主时钟。放在所有早期返回之前，
-    // 保证即使帧队列空或未到显示时间，字幕仍按主时钟及时更新。
-    if (m_subtitleThread) {
-        double subTime = m_syncController->audioClock();
-        if (m_audioStreamIndex == -1 || subTime <= 0.0) {
-            double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs)
-                         * m_speed / 1000000.0;
-            if (pos < 0) pos = 0;
-            subTime = pos;
-        }
-        updateSubtitle(subTime);
-        updateLyric(subTime);
-    }
-
-    if (!m_videoFrameQueue)
-        return;
-
-    AVFrame *frame = m_videoFrameQueue->peek();
-    if (!frame)
-        return;
-
-    double pts = 0.0;
-    if (frame->pts != AV_NOPTS_VALUE)
-        pts = frame->pts * av_q2d(m_videoTimeBase);
-
-    double delay = m_syncController->computeFrameDelay(pts);
-
-    qint64 now = av_gettime();
-    double elapsed = (now - m_lastFrameDisplayTimeUs) / 1000000.0;
-
-    if (elapsed + 0.001 < delay)
-        return;
-
-    frame = m_videoFrameQueue->tryPop(0);
-    if (!frame)
-        return;
-
-    // 仅在确认显示该帧后才更新同步状态。
-    m_syncController->onFrameDisplayed(pts);
-    m_lastFrameDisplayTimeUs = now;
-
-    YUVFrame yuv;
-    AVFrame *convFrame = nullptr;
-    AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
-    if (fmt == AV_PIX_FMT_YUV420P) {
-        yuv = extractYUV420P(frame, frame->width, frame->height);
-    } else if (fmt == AV_PIX_FMT_NV12) {
-        yuv = extractNV12(frame, frame->width, frame->height);
-    } else {
-        convFrame = convertToYUV420P(frame);
-        if (!convFrame) {
-            qWarning("sws_scale conversion failed for: %s", av_get_pix_fmt_name(fmt));
-            av_frame_free(&frame);
-            return;
-        }
-        yuv = extractYUV420P(convFrame, convFrame->width, convFrame->height);
-    }
-
-    emit frameReady(yuv);
-    av_frame_free(&frame);
-    av_frame_free(&convFrame);
-}
-
 void MediaEngine::updatePosition()
 {
     if (m_paused || m_startTimeUs == 0)
@@ -976,7 +823,7 @@ void MediaEngine::updatePosition()
         updateLyric(lyricTime);
     }
 
-    // 字幕同步：有视频流时由 onVideoRefresh() 以 10ms 粒度驱动；
+    // 字幕同步：有视频流时由 VideoDisplayThread 以帧显示频率驱动；
     // 无视频流（纯音频+字幕）时在此以 250ms 粒度兜底。
     if (m_subtitleThread && !m_videoFrameQueue) {
         double subTime = m_syncController->audioClock();
@@ -1151,6 +998,9 @@ void MediaEngine::startThreads()
 
 void MediaEngine::stopThreads()
 {
+    // 先停止显示线程，它在读取 FrameQueue
+    stopDisplayThread();
+
     if (m_demuxThread) {
         // 设置中断标志，让 av_read_frame 立即返回
         if (m_interruptCtx) {
@@ -1493,4 +1343,160 @@ void MediaEngine::resetRotation()
 {
     setRotation(0);
     setFlipVertical(false);
+}
+
+// --- 视频显示线程：精确休眠，替代 QTimer 轮询 ---
+
+static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
+{
+    YUVFrame out;
+    out.frameSize = QSize(width, height);
+    int halfW = (width + 1) / 2;
+    int halfH = (height + 1) / 2;
+
+    out.yPlane.resize(width * height);
+    for (int i = 0; i < height; i++)
+        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
+    out.uPlane.resize(halfW * halfH);
+    for (int i = 0; i < halfH; i++)
+        memcpy(out.uPlane.data() + i * halfW, frame->data[1] + i * frame->linesize[1], halfW);
+    out.vPlane.resize(halfW * halfH);
+    for (int i = 0; i < halfH; i++)
+        memcpy(out.vPlane.data() + i * halfW, frame->data[2] + i * frame->linesize[2], halfW);
+    return out;
+}
+
+static YUVFrame extractNV12(AVFrame *frame, int width, int height)
+{
+    YUVFrame out;
+    out.frameSize = QSize(width, height);
+    int halfW = (width + 1) / 2;
+    int halfH = (height + 1) / 2;
+
+    out.yPlane.resize(width * height);
+    for (int i = 0; i < height; i++)
+        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
+    out.uPlane.resize(halfW * halfH);
+    out.vPlane.resize(halfW * halfH);
+    const uint8_t *uv = frame->data[1];
+    for (int i = 0; i < halfH; i++) {
+        for (int j = 0; j < halfW; j++) {
+            out.uPlane[i * halfW + j] = uv[i * frame->linesize[1] + j * 2];
+            out.vPlane[i * halfW + j] = uv[i * frame->linesize[1] + j * 2 + 1];
+        }
+    }
+    return out;
+}
+
+static AVFrame *convertToYUV420P(AVFrame *src)
+{
+    AVFrame *dst = av_frame_alloc();
+    dst->format = AV_PIX_FMT_YUV420P;
+    dst->width = src->width;
+    dst->height = src->height;
+    if (av_frame_get_buffer(dst, 32) < 0) {
+        av_frame_free(&dst);
+        return nullptr;
+    }
+    struct SwsContext *sws = sws_getContext(
+        src->width, src->height, static_cast<AVPixelFormat>(src->format),
+        dst->width, dst->height, AV_PIX_FMT_YUV420P,
+        SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (!sws) {
+        av_frame_free(&dst);
+        return nullptr;
+    }
+    sws_scale(sws, src->data, src->linesize, 0, src->height, dst->data, dst->linesize);
+    sws_freeContext(sws);
+    return dst;
+}
+
+void MediaEngine::startDisplayThread()
+{
+    m_displayStopRequested.store(false, std::memory_order_release);
+    delete m_displayThread;
+    m_displayThread = QThread::create([this]() { displayLoop(); });
+    connect(m_displayThread, &QThread::finished, m_displayThread, &QObject::deleteLater);
+    m_displayThread->start();
+}
+
+void MediaEngine::stopDisplayThread()
+{
+    m_displayStopRequested.store(true, std::memory_order_release);
+    if (m_displayThread) {
+        m_displayThread->quit();
+        m_displayThread->wait(2000);
+        m_displayThread = nullptr;
+    }
+}
+
+void MediaEngine::displayLoop()
+{
+    while (!m_displayStopRequested.load(std::memory_order_acquire)) {
+        if (m_paused.load(std::memory_order_acquire)) {
+            QThread::msleep(10);
+            continue;
+        }
+
+        if (!m_videoFrameQueue || !m_syncController) {
+            QThread::msleep(10);
+            continue;
+        }
+
+        AVFrame *frame = m_videoFrameQueue->peek();
+        if (!frame) {
+            QThread::msleep(1);
+            continue;
+        }
+
+        double pts = 0.0;
+        if (frame->pts != AV_NOPTS_VALUE)
+            pts = frame->pts * av_q2d(m_videoTimeBase);
+
+        double delay = m_syncController->computeFrameDelay(pts);
+
+        if (delay > 0.0) {
+            av_usleep(static_cast<qint64>(delay * 1000000.0));
+        }
+
+        if (m_displayStopRequested.load(std::memory_order_acquire))
+            break;
+        if (m_paused.load(std::memory_order_acquire))
+            continue;
+
+        frame = m_videoFrameQueue->tryPop(0);
+        if (!frame)
+            continue;
+
+        m_syncController->onFrameDisplayed(pts);
+
+        // 字幕更新：跨线程调用，通过事件循环排队到主线程执行。
+        double subPts = pts;
+        QMetaObject::invokeMethod(this, [this, subPts]() {
+            updateSubtitle(subPts);
+            updateLyric(subPts);
+        }, Qt::QueuedConnection);
+
+        YUVFrame yuv;
+        AVFrame *convFrame = nullptr;
+        AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
+        if (fmt == AV_PIX_FMT_YUV420P) {
+            yuv = extractYUV420P(frame, frame->width, frame->height);
+        } else if (fmt == AV_PIX_FMT_NV12) {
+            yuv = extractNV12(frame, frame->width, frame->height);
+        } else {
+            convFrame = convertToYUV420P(frame);
+            if (!convFrame) {
+                qWarning("displayLoop: sws_scale conversion failed for: %s",
+                         av_get_pix_fmt_name(fmt));
+                av_frame_free(&frame);
+                continue;
+            }
+            yuv = extractYUV420P(convFrame, convFrame->width, convFrame->height);
+        }
+
+        emit frameReady(yuv);
+        av_frame_free(&frame);
+        av_frame_free(&convFrame);
+    }
 }

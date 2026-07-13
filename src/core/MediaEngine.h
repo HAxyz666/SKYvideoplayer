@@ -143,7 +143,9 @@ private:
     void stopThreads();
     void initAudioOutput();
     void updatePosition();
-    void onVideoRefresh();
+    void startDisplayThread();
+    void stopDisplayThread();
+    void displayLoop();
 
     void updateSubtitle(double clockSeconds);
     void updateLyric(double clockSeconds);
@@ -187,7 +189,8 @@ private:
 
     AVSyncController *m_syncController;
     AudioOutput *m_audioOutput;
-    QTimer *m_videoRefreshTimer;
+    QThread *m_displayThread{nullptr};
+    std::atomic<bool> m_displayStopRequested{false};
 
     AVRational m_videoTimeBase{1, 90000};
 
@@ -199,8 +202,6 @@ private:
     qint64 m_pausedDurationUs;
     qint64 m_pauseStartUs;
     QTimer *m_positionTimer;
-
-    qint64 m_lastFrameDisplayTimeUs{0};
 
     double m_volume;
     bool m_muted;
