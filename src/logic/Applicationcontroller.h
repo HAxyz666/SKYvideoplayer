@@ -17,7 +17,9 @@ class ApplicationController : public QObject
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted NOTIFY mutedChanged)
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
-    Q_PROPERTY(PlaylistModel *playlistModel READ playlistModel CONSTANT)
+    Q_PROPERTY(PlaylistModel *playlistModel READ playlistModel NOTIFY playlistModelChanged)
+    Q_PROPERTY(QStringList playlistNames READ playlistNames NOTIFY playlistsChanged)
+    Q_PROPERTY(int currentPlaylistIndex READ currentPlaylistIndex NOTIFY playlistsChanged)
     Q_PROPERTY(RecentFilesModel *recentFilesModel READ recentFilesModel CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
     Q_PROPERTY(bool isAudioOnly READ isAudioOnly NOTIFY isAudioOnlyChanged)
@@ -37,9 +39,17 @@ class ApplicationController : public QObject
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
+    ~ApplicationController();
 
     Q_INVOKABLE bool openFile();
     Q_INVOKABLE bool loadFile(const QString &path);
+    Q_INVOKABLE void addFiles(const QStringList &paths);
+    Q_INVOKABLE void addUrl(const QString &url);
+    Q_INVOKABLE void createPlaylist(const QString &name);
+    Q_INVOKABLE void switchPlaylist(int index);
+    Q_INVOKABLE void persistPlaylists();  // 关闭播放列表面板时：清除默认列表并保存用户列表
+    QStringList playlistNames() const;
+    int currentPlaylistIndex() const;
     Q_INVOKABLE void togglePlayback();
     Q_INVOKABLE void seekTo(double seconds);
     Q_INVOKABLE void stop();
@@ -111,6 +121,8 @@ signals:
     void loadingTextChanged(QString text);
     void errorOccurred(QString message, bool isNetworkRelated);
     void bufferStateChanged(int state);
+    void playlistModelChanged();
+    void playlistsChanged();
 
 private:
     MediaEngine *m_mediaEngine;
@@ -121,6 +133,13 @@ private:
     double m_lastPosition{0.0};
     QTimer *m_saveTimer{nullptr};
 
+    QList<PlaylistModel *> m_allPlaylists;  // 所有播放列表
+    QStringList m_playlistNames;            // 各列表名称
+    int m_currentPlaylistIndex = 0;         // 当前列表索引
+
     bool openAndResume(const QString &filePath);
     void saveCurrentProgress();
+
+    void savePlaylists();   // 持久化用户创建的列表（默认列表不保存）
+    void loadPlaylists();   // 启动时载入已保存的列表
 };

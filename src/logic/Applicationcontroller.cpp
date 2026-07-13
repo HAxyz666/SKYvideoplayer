@@ -4,21 +4,33 @@
 #include "PlaylistModel.h"
 #include "RecentFilesModel.h"
 
+#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QSettings>
+#include <QTextStream>
 #include <QTimer>
+#include <QUrl>
+#include <QVariantMap>
 
 ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
     , m_mediaEngine(new MediaEngine(this))
-    , m_playlistModel(new PlaylistModel(this))
     , m_recentFiles(new RecentFilesModel(this))
     , m_theme("dark")
 {
+    // 默认播放列表（关闭程序时清除，不持久化）
+    m_playlistModel = new PlaylistModel(this);
+    m_allPlaylists.append(m_playlistModel);
+    m_playlistNames.append("列表 1");
+    m_currentPlaylistIndex = 0;
     QSettings settings;
     m_theme = settings.value("theme", "dark").toString();
+
+    // 载入已保存的用户列表
+    loadPlaylists();
 
     connect(m_mediaEngine, &MediaEngine::pausedChanged, this, [this](bool paused) {
         emit playbackStateChanged(!paused);
@@ -78,6 +90,28 @@ static void scanDirectoryFiles(PlaylistModel *model, const QString &dirPath)
     for (const auto &entry : entries) {
         model->addFile(entry.absoluteFilePath());
     }
+}
+
+// 将所选文件追加到当前播放列表（不清空原有内容）
+void ApplicationController::addFiles(const QStringList &paths)
+{
+    for (const QString &raw : paths) {
+        QString filePath = raw;
+        if (filePath.startsWith("file://"))
+            filePath = filePath.mid(7);
+        m_playlistModel->addFile(filePath);
+    }
+    savePlaylists();
+}
+
+// 添加单个网络 URL 到当前播放列表
+void ApplicationController::addUrl(const QString &url)
+{
+    QString u = url.trimmed();
+    if (u.isEmpty())
+        return;
+    m_playlistModel->addUrl(u);
+    savePlaylists();
 }
 
 bool ApplicationController::loadFile(const QString &path)
@@ -145,9 +179,100 @@ PlaylistModel *ApplicationController::playlistModel() const
     return m_playlistModel;
 }
 
+QStringList ApplicationController::playlistNames() const
+{
+    return m_playlistNames;
+}
+
+int ApplicationController::currentPlaylistIndex() const
+{
+    return m_currentPlaylistIndex;
+}
+
+// 创建新列表并切换到它
+void ApplicationController::createPlaylist(const QString &name)
+{
+    auto *pl = new PlaylistModel(this);
+    m_allPlaylists.append(pl);
+    QString finalName = name.trimmed();
+    if (finalName.isEmpty())
+        finalName = QString("列表 %1").arg(m_allPlaylists.size());
+    m_playlistNames.append(finalName);
+    m_currentPlaylistIndex = m_allPlaylists.size() - 1;
+    m_playlistModel = pl;
+    emit playlistModelChanged();
+    emit playlistsChanged();
+    savePlaylists();
+}
+
+// 切换到指定索引的列表
+void ApplicationController::switchPlaylist(int index)
+{
+    if (index < 0 || index >= m_allPlaylists.size() || index == m_currentPlaylistIndex)
+        return;
+    m_currentPlaylistIndex = index;
+    m_playlistModel = m_allPlaylists.at(index);
+    emit playlistModelChanged();
+    emit playlistsChanged();
+}
+
+// 关闭播放列表面板时调用：清除默认列表（不持久化）并保存用户创建的列表
+void ApplicationController::persistPlaylists()
+{
+    if (!m_allPlaylists.isEmpty())
+        m_allPlaylists.first()->clear();
+    savePlaylists();
+}
+
+// 持久化用户创建的列表（索引 0 为默认列表，不保存）
+void ApplicationController::savePlaylists()
+{
+    QVariantList saved;
+    for (int i = 1; i < m_allPlaylists.size(); ++i) {
+        QVariantMap entry;
+        entry["name"] = m_playlistNames.at(i);
+        QVariantList files;
+        PlaylistModel *pl = m_allPlaylists.at(i);
+        for (int r = 0; r < pl->count(); ++r)
+            files.append(pl->itemAt(r).filePath);
+        entry["files"] = files;
+        saved.append(entry);
+    }
+    QSettings().setValue("playlists", saved);
+}
+
+// 启动时载入已保存的用户列表（默认列表保持为空）
+void ApplicationController::loadPlaylists()
+{
+    QVariantList saved = QSettings().value("playlists").toList();
+    for (const QVariant &v : saved) {
+        QVariantMap entry = v.toMap();
+        QString name = entry.value("name").toString();
+        QStringList files;
+        for (const QVariant &f : entry.value("files").toList())
+            files.append(f.toString());
+
+        auto *pl = new PlaylistModel(this);
+        for (const QString &fp : files)
+            pl->addFile(fp);
+        m_allPlaylists.append(pl);
+        m_playlistNames.append(name.isEmpty() ? QString("列表 %1").arg(m_allPlaylists.size()) : name);
+    }
+    m_currentPlaylistIndex = 0;
+    emit playlistsChanged();
+}
+
 RecentFilesModel *ApplicationController::recentFilesModel() const
 {
     return m_recentFiles;
+}
+
+ApplicationController::~ApplicationController()
+{
+    // 程序退出：清除默认列表（不持久化）并保存用户创建的列表
+    if (!m_allPlaylists.isEmpty())
+        m_allPlaylists.first()->clear();
+    savePlaylists();
 }
 
 void ApplicationController::playItem(int index)

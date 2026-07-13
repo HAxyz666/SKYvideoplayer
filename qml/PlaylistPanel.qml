@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 Drawer {
     id: playlistDrawer
@@ -13,6 +14,8 @@ Drawer {
     background: Rectangle {
         color: appController.theme === "dark" ? "#dd1e1e1e" : "#bbffffff"
     }
+
+    onClosed: appController.persistPlaylists()
 
     property int sortField: 0
     property bool sortAscending: true
@@ -75,6 +78,12 @@ Drawer {
         function onModelReset() { rebuildModel() }
     }
 
+    // 切换列表后重建显示模型
+    Connections {
+        target: appController
+        function onPlaylistModelChanged() { rebuildModel() }
+    }
+
     Component.onCompleted: rebuildModel()
 
     ColumnLayout {
@@ -120,6 +129,56 @@ Drawer {
                 ToolButton {
                     icon.name: "window-close"
                     onClicked: playlistDrawer.close()
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 54
+            Layout.fillHeight: false
+            color: "transparent"
+
+            RowLayout {
+                id: listRow
+                anchors.fill: parent
+                anchors.leftMargin: 10
+                anchors.rightMargin: 10
+                anchors.topMargin: 10
+                anchors.bottomMargin: 10
+                spacing: 10
+
+                Label {
+                    text: qsTr("当前列表:")
+                    font.pixelSize: 15
+                    opacity: 0.8
+                }
+
+                ComboBox {
+                    id: playlistCombo
+                    Layout.fillWidth: true
+                    font.pixelSize: 14
+                    model: appController.playlistNames
+                    currentIndex: appController.currentPlaylistIndex
+                    onActivated: appController.switchPlaylist(index)
+                    background: Rectangle {
+                        color: "transparent"
+                    }
+                }
+
+                ToolButton {
+                    icon.name: "document-open"
+                    text: qsTr("添加")
+                    display: AbstractButton.TextBesideIcon
+                    font.pixelSize: 13
+                    onClicked: addMenu.popup()
+                }
+
+                ToolButton {
+                    text: "+"
+                    font.pixelSize: 18
+                    font.bold: true
+                    onClicked: newListDialog.open()
                 }
             }
         }
@@ -288,6 +347,66 @@ Drawer {
             opacity: 0.7
             Layout.fillWidth: true
             horizontalAlignment: Qt.AlignHCenter
+        }
+    }
+
+    FileDialog {
+        id: addFileDialog
+        title: qsTr("添加文件")
+        fileMode: FileDialog.OpenFiles
+        nameFilters: [
+            qsTr("all file (*)"),
+            qsTr("video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)"),
+            qsTr("audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)")
+        ]
+        onAccepted: appController.addFiles(selectedFiles)
+    }
+
+    Menu {
+        id: addMenu
+        MenuItem {
+            text: qsTr("文件")
+            onTriggered: addFileDialog.open()
+        }
+        MenuItem {
+            text: qsTr("URL")
+            onTriggered: addUrlDialog.open()
+        }
+    }
+
+    Dialog {
+        id: addUrlDialog
+        title: qsTr("添加 URL")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        modal: true
+        contentItem: TextField {
+            id: urlInput
+            placeholderText: qsTr("请输入媒体 URL")
+            focus: true
+            onAccepted: addUrlDialog.accept()
+        }
+        onAboutToShow: urlInput.text = ""
+        onAccepted: {
+            appController.addUrl(urlInput.text)
+            urlInput.text = ""
+        }
+    }
+
+    Dialog {
+        id: newListDialog
+        title: qsTr("新建列表")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        modal: true
+        contentItem: TextField {
+            id: newListName
+            placeholderText: qsTr("请输入列表名称")
+            focus: true
+            onAccepted: newListDialog.accept()
+        }
+        onAboutToShow: newListName.text = ""
+        onAccepted: {
+            appController.createPlaylist(newListName.text)
+            newListName.text = ""
         }
     }
 }

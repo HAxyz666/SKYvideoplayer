@@ -1,5 +1,6 @@
 #include "PlaylistModel.h"
 #include <QFileInfo>
+#include <QUrl>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -72,6 +73,29 @@ void PlaylistModel::addFile(const QString &filePath)
     int row = m_items.size();
     beginInsertRows(QModelIndex(), row, row);
     m_items.append({ extractTitle(filePath), filePath, probeDuration(filePath) });
+    endInsertRows();
+    emit countChanged();
+}
+
+// 添加网络 URL（不探测时长，已存在则跳过）
+void PlaylistModel::addUrl(const QString &url)
+{
+    QString filePath = url;
+    if (filePath.startsWith("file://"))
+        filePath = filePath.mid(7);
+
+    for (const auto &item : m_items) {
+        if (item.filePath == filePath)
+            return;
+    }
+
+    QString title = QUrl::fromUserInput(filePath).fileName();
+    if (title.isEmpty())
+        title = filePath;
+
+    int row = m_items.size();
+    beginInsertRows(QModelIndex(), row, row);
+    m_items.append({ title, filePath, 0.0 });
     endInsertRows();
     emit countChanged();
 }
