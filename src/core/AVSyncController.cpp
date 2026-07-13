@@ -92,7 +92,6 @@ void AVSyncController::setSpeed(double speed)
             return;
         m_speed = speed;
     }
-    emit speedChanged(speed);
 }
 
 void AVSyncController::reset()

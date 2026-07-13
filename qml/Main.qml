@@ -8,7 +8,9 @@ ApplicationWindow {
     width: 1280
     height: 720
     visible: true
-    title: "Video Audio Sync Player"
+    title: appController.currentFilePath !== ""
+           ? appController.currentFilePath.split("/").pop().split("\\").pop()
+           : "Video Audio Sync Player"
     //flags: Qt.Window | Qt.FramelessWindowHint
 
 
@@ -120,62 +122,62 @@ ApplicationWindow {
         }
     }
 
-    // 右上角窗口控制按钮（简约风格）
-    Row {
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.margins: 8
-        spacing: 6
-        z: 999
-        visible: !appLayout.controller.hasMedia || appLayout.showControls
-
-        Rectangle {
-            width: 36; height: 28; radius: 5
-            color: minHover.hovered ? windowBtnHover : "transparent"
-            Behavior on color { ColorAnimation { duration: 150 } }
-            Text {
-                anchors.centerIn: parent
-                text: "\u2500"
-                color: windowBtnColor
-                font.pixelSize: 16
-            }
-            HoverHandler { id: minHover }
-            TapHandler { onTapped: window.showMinimized() }
-        }
-
-        Rectangle {
-            width: 36; height: 28; radius: 5
-            color: maxHover.hovered ? windowBtnHover : "transparent"
-            Behavior on color { ColorAnimation { duration: 150 } }
-            Text {
-                anchors.centerIn: parent
-                text: window.visibility === Window.Maximized ? "\u2750" : "\u25A1"
-                color: windowBtnColor
-                font.pixelSize: 16
-            }
-            HoverHandler { id: maxHover }
-            TapHandler {
-                onTapped: {
-                    if (window.visibility === Window.Maximized)
-                        window.showNormal()
-                    else
-                        window.showMaximized()
-                }
-            }
-        }
-
-        Rectangle {
-            width: 36; height: 28; radius: 5
-            color: closeHover.hovered ? windowBtnCloseHover : "transparent"
-            Behavior on color { ColorAnimation { duration: 150 } }
-            Text {
-                anchors.centerIn: parent
-                text: "\u2715"
-                color: windowBtnColor
-                font.pixelSize: 16
-            }
-            HoverHandler { id: closeHover }
-            TapHandler { onTapped: window.close() }
-        }
-    }
+    // 右上角窗口控制按钮（简约风格）— 已禁用
+    // Row {
+    //     anchors.top: parent.top
+    //     anchors.right: parent.right
+    //     anchors.margins: 8
+    //     spacing: 6
+    //     z: 999
+    //     visible: !appLayout.controller.hasMedia || appLayout.showControls
+    //
+    //     Rectangle {
+    //         width: 36; height: 28; radius: 5
+    //         color: minHover.hovered ? windowBtnHover : "transparent"
+    //         Behavior on color { ColorAnimation { duration: 150 } }
+    //         Text {
+    //             anchors.centerIn: parent
+    //             text: "\u2500"
+    //             color: windowBtnColor
+    //             font.pixelSize: 16
+    //         }
+    //         HoverHandler { id: minHover }
+    //         TapHandler { onTapped: window.showMinimized() }
+    //     }
+    //
+    //     Rectangle {
+    //         width: 36; height: 28; radius: 5
+    //         color: maxHover.hovered ? windowBtnHover : "transparent"
+    //         Behavior on color { ColorAnimation { duration: 150 } }
+    //         Text {
+    //             anchors.centerIn: parent
+    //             text: window.visibility === Window.Maximized ? "\u2750" : "\u25A1"
+    //             color: windowBtnColor
+    //             font.pixelSize: 16
+    //         }
+    //         HoverHandler { id: maxHover }
+    //         TapHandler {
+    //             onTapped: {
+    //                 if (window.visibility === Window.Maximized)
+    //                     window.showNormal()
+    //                 else
+    //                     window.showMaximized()
+    //             }
+    //         }
+    //     }
+    //
+    //     Rectangle {
+    //         width: 36; height: 28; radius: 5
+    //         color: closeHover.hovered ? windowBtnCloseHover : "transparent"
+    //         Behavior on color { ColorAnimation { duration: 150 } }
+    //         Text {
+    //             anchors.centerIn: parent
+    //             text: "\u2715"
+    //             color: windowBtnColor
+    //             font.pixelSize: 16
+    //         }
+    //         HoverHandler { id: closeHover }
+    //         TapHandler { onTapped: window.close() }
+    //     }
+    // }
 }

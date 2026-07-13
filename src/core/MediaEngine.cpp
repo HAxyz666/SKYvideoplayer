@@ -65,7 +65,6 @@ bool MediaEngine::createHwDeviceContext(const AVCodec *codec)
             }
             m_hwDeviceCtx = deviceCtx;
             m_hwPixFmt = hwcfg->pix_fmt;
-            m_hwDeviceType = type;
             m_useHardwareDecode = true;
             qDebug() << "HW decode available:" << av_hwdevice_get_type_name(type)
                      << "fmt:" << av_get_pix_fmt_name(hwcfg->pix_fmt);
@@ -823,7 +822,7 @@ void MediaEngine::updatePosition()
         updateLyric(lyricTime);
     }
 
-    // 字幕同步：有视频流时由 VideoDisplayThread 以帧显示频率驱动；
+    // 字幕同步：有视频流时由 displayLoop 以帧显示频率驱动；
     // 无视频流（纯音频+字幕）时在此以 250ms 粒度兜底。
     if (m_subtitleThread && !m_videoFrameQueue) {
         double subTime = m_syncController->audioClock();
@@ -1076,7 +1075,6 @@ void MediaEngine::cleanup()
         m_hwDeviceCtx = nullptr;
     }
     m_hwPixFmt = AV_PIX_FMT_NONE;
-    m_hwDeviceType = AV_HWDEVICE_TYPE_NONE;
     m_useHardwareDecode = false;
 #endif
 
@@ -1128,6 +1126,25 @@ QVariantList MediaEngine::subtitleStreams() const
     return list;
 }
 
+void MediaEngine::stopSubtitleThread()
+{
+    if (m_subtitleThread) {
+        m_subtitleThread->stopDecode();
+        m_subtitleThread->wait();
+        delete m_subtitleThread;
+        m_subtitleThread = nullptr;
+    }
+    delete m_subtitlePacketQueue;
+    m_subtitlePacketQueue = nullptr;
+    if (m_subtitleCodecCtx) {
+        avcodec_free_context(&m_subtitleCodecCtx);
+        m_subtitleCodecCtx = nullptr;
+    }
+    m_subtitleStreamIndex = -1;
+    m_externalMode = false;
+    m_externalSubtitles.clear();
+}
+
 void MediaEngine::setCurrentSubtitleStream(int index)
 {
     if (index == m_currentSubtitleStreamIndex)
@@ -1137,22 +1154,8 @@ void MediaEngine::setCurrentSubtitleStream(int index)
     if (index < 0 || index >= m_subtitleStreamsInfo.size()) {
         m_currentSubtitle = QString();
         emit currentSubtitleChanged(m_currentSubtitle);
-        if (m_subtitleThread) {
-            m_subtitleThread->stopDecode();
-            m_subtitleThread->wait();
-            delete m_subtitleThread;
-            m_subtitleThread = nullptr;
-        }
-        delete m_subtitlePacketQueue;
-        m_subtitlePacketQueue = nullptr;
-        if (m_subtitleCodecCtx) {
-            avcodec_free_context(&m_subtitleCodecCtx);
-            m_subtitleCodecCtx = nullptr;
-        }
-        m_subtitleStreamIndex = -1;
+        stopSubtitleThread();
         m_currentSubtitleStreamIndex = -1;
-        m_externalMode = false;
-        m_externalSubtitles.clear();
         if (m_demuxThread)
             m_demuxThread->setSubtitleStreamIndex(-1);
         emit currentSubtitleStreamChanged(-1);
@@ -1162,23 +1165,7 @@ void MediaEngine::setCurrentSubtitleStream(int index)
     // 停止旧字幕线程
     m_currentSubtitle = QString();
     emit currentSubtitleChanged(m_currentSubtitle);
-
-    if (m_subtitleThread) {
-        m_subtitleThread->stopDecode();
-        m_subtitleThread->wait();
-        delete m_subtitleThread;
-        m_subtitleThread = nullptr;
-    }
-    delete m_subtitlePacketQueue;
-    m_subtitlePacketQueue = nullptr;
-
-    if (m_subtitleCodecCtx) {
-        avcodec_free_context(&m_subtitleCodecCtx);
-        m_subtitleCodecCtx = nullptr;
-    }
-    m_subtitleStreamIndex = -1;
-    m_externalMode = false;
-    m_externalSubtitles.clear();
+    stopSubtitleThread();
 
     // 分支：外挂字幕 vs 内嵌字幕
     if (m_subtitleStreamsInfo[index].isExternal) {

@@ -57,7 +57,6 @@ public:
     Q_INVOKABLE void toggleFlipVertical();   // 切换垂直翻转 (UC-07)
     Q_INVOKABLE void resetRotation();        // 重置画面旋转 (UC-07)
     Q_INVOKABLE void resumeFromBeginning();  // 从头播放（跳过恢复位置）
-    Q_INVOKABLE bool openNetworkStream(const QString &url); // 打开网络流
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;

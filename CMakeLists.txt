@@ -109,6 +109,7 @@ qt6_add_resources(SKYvideoplayer "icons"
     PREFIX "/icons"
     FILES
         resources/logos/LogoD.svg
+        resources/logos/LogoD.png
         resources/logos/LogoL.svg
         resources/icons/exit_fullscreen.svg
         resources/icons/play_list.svg

@@ -33,6 +33,5 @@ private:
     std::condition_variable m_notFull;
     int m_maxSize;
     bool m_finished;
-    int m_serial;
     std::atomic<bool> m_quitRequested{false};
 };

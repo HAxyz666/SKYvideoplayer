@@ -4,7 +4,6 @@
 FrameQueue::FrameQueue(int maxSize)
     : m_maxSize(maxSize)
     , m_finished(false)
-    , m_serial(0)
 {
 }
 
@@ -91,7 +90,6 @@ void FrameQueue::flush()
         AVFrame *frame = m_queue.dequeue();
         av_frame_free(&frame);
     }
-    m_serial++;
     m_notEmpty.notify_all();
     m_notFull.notify_all();
 }

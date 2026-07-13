@@ -28,13 +28,13 @@ public:
     void pause();
     void resume();
     void reset();
-    void closeDevice();
 
     void setSpeed(double speed);
 
 private:
     static void sdlAudioCallback(void *userdata, Uint8 *stream, int len);
     void fillAudioFifo();
+    void closeDevice();
 
     SDL_AudioDeviceID m_audioDeviceID;
     SDL_AudioSpec m_audioSpec;

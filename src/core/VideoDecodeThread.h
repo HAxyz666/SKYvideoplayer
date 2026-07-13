@@ -16,7 +16,7 @@ class FrameQueue;
 
 // Pure video decoder thread. Decodes packets as fast as possible and pushes
 // decoded frames into the FrameQueue. All display timing is handled by the
-// MediaEngine video refresh timer + AVSyncController.
+// MediaEngine displayLoop + AVSyncController.
 class VideoDecodeThread : public QThread
 {
     Q_OBJECT

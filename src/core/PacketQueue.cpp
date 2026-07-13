@@ -4,7 +4,6 @@
 PacketQueue::PacketQueue(int maxSize)
     : m_maxSize(maxSize)
     , m_finished(false)
-    , m_serial(0)
 {
 }
 
@@ -81,7 +80,6 @@ void PacketQueue::flush()
         AVPacket *pkt = m_queue.dequeue();
         av_packet_free(&pkt);
     }
-    m_serial++;
     m_notEmpty.notify_all();
     m_notFull.notify_all();
 }

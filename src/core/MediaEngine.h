@@ -154,6 +154,7 @@ private:
     void detectLyrics(const QString &audioPath);
 
     void activateExternalSubtitle(int infoIndex);
+    void stopSubtitleThread();
 
     // 网络流异步初始化完成回调
     void onNetworkInitFinished();
@@ -256,7 +257,6 @@ private:
 #ifdef ENABLE_HWACCEL
     AVBufferRef *m_hwDeviceCtx{nullptr};
     AVPixelFormat m_hwPixFmt{AV_PIX_FMT_NONE};
-    AVHWDeviceType m_hwDeviceType{AV_HWDEVICE_TYPE_NONE};
     bool m_useHardwareDecode{false};
 
     bool createHwDeviceContext(const AVCodec *codec);

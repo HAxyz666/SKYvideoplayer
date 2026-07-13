@@ -7,12 +7,14 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QIcon>
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("SKYsoft");
     app.setApplicationName("SKYvideoplayer");
+    app.setWindowIcon(QIcon(":/icons/logos/LogoD.png"));
 
     qRegisterMetaType<PlaybackMode>("PlaybackMode");
     qRegisterMetaType<YUVFrame>("YUVFrame");

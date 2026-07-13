@@ -381,13 +381,6 @@ QString ApplicationController::currentFilePath() const
     return m_currentFilePath;
 }
 
-bool ApplicationController::openNetworkStream(const QString &url)
-{
-    if (url.isEmpty())
-        return false;
-    return loadFile(url);
-}
-
 bool ApplicationController::isNetworkStream() const
 {
     return m_mediaEngine->isNetworkStream();

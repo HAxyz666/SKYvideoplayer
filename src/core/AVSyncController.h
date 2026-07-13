@@ -22,9 +22,6 @@ public:
 
     void reset();
 
-signals:
-    void speedChanged(double speed);
-
 private:
     mutable QMutex m_mutex;
     double m_audioClock{0.0};
