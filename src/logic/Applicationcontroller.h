@@ -7,6 +7,7 @@
 #include "RecentFilesModel.h"
 
 class MediaEngine;
+class VideoRenderItem;
 class QTimer;
 
 class ApplicationController : public QObject
@@ -36,6 +37,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
     Q_PROPERTY(QString loadingText READ loadingText NOTIFY loadingTextChanged)
     Q_PROPERTY(int bufferState READ bufferState NOTIFY bufferStateChanged)
+    Q_PROPERTY(QString screenshotPath READ screenshotPath WRITE setScreenshotPath NOTIFY screenshotPathChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -67,6 +69,12 @@ public:
     Q_INVOKABLE void toggleFlipVertical();   // 切换垂直翻转 (UC-07)
     Q_INVOKABLE void resetRotation();        // 重置画面旋转 (UC-07)
     Q_INVOKABLE void resumeFromBeginning();  // 从头播放（跳过恢复位置）
+    Q_INVOKABLE QString takeScreenshot();    // 截图保存
+
+    QString screenshotPath() const;
+    void setScreenshotPath(const QString &path);
+
+    void setVideoRenderItem(VideoRenderItem *item);
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;
@@ -123,9 +131,11 @@ signals:
     void bufferStateChanged(int state);
     void playlistModelChanged();
     void playlistsChanged();
+    void screenshotPathChanged(const QString &path);
 
 private:
     MediaEngine *m_mediaEngine;
+    VideoRenderItem *m_videoRenderItem{nullptr};
     PlaylistModel *m_playlistModel;
     RecentFilesModel *m_recentFiles;
     QString m_theme;

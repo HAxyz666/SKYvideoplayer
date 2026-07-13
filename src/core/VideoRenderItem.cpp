@@ -3,6 +3,13 @@
 #include <qrhi.h>
 #include <qshader.h>
 #include <QFile>
+#include <QImage>
+#include <QDir>
+#include <QDateTime>
+
+extern "C" {
+#include <libswscale/swscale.h>
+}
 
 static QShader loadShader(const QString &path)
 {
@@ -294,6 +301,48 @@ void VideoRenderItem::setFlipVertical(bool flip)
     m_flipVertical = flip;
     emit flipVerticalChanged();
     update();
+}
+
+QString VideoRenderItem::captureAndSave(const QString &savePath, const QString &baseName)
+{
+    QMutexLocker lock(&m_mutex);
+    if (m_pendingFrame.yPlane.isEmpty())
+        return QString();
+
+    int w = m_pendingFrame.frameSize.width();
+    int h = m_pendingFrame.frameSize.height();
+    if (w <= 0 || h <= 0)
+        return QString();
+
+    SwsContext *sws = sws_getContext(w, h, AV_PIX_FMT_YUV420P,
+                                      w, h, AV_PIX_FMT_RGBA,
+                                      SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (!sws)
+        return QString();
+
+    QImage image(w, h, QImage::Format_RGBA8888);
+    const uchar *src[4] = {
+        reinterpret_cast<const uchar *>(m_pendingFrame.yPlane.constData()),
+        reinterpret_cast<const uchar *>(m_pendingFrame.uPlane.constData()),
+        reinterpret_cast<const uchar *>(m_pendingFrame.vPlane.constData()),
+        nullptr
+    };
+    int srcStride[4] = { w, (w + 1) / 2, (w + 1) / 2, 0 };
+    uint8_t *dst[1] = { image.bits() };
+    int dstStride[1] = { w * 4 };
+
+    sws_scale(sws, src, srcStride, 0, h, dst, dstStride);
+    sws_freeContext(sws);
+
+    QString path = savePath;
+    if (!path.endsWith('/'))
+        path += '/';
+    QString prefix = baseName.isEmpty() ? "screenshot_" : baseName + "_";
+    path += prefix + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + ".png";
+
+    if (image.save(path, "PNG"))
+        return path;
+    return QString();
 }
 
 

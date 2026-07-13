@@ -47,4 +47,6 @@ private:
     static constexpr int kFifoSize = 256 * 1024;
     double m_bytesPerSecond = 0.0;
     std::atomic<double> m_speed{1.0};
+    double m_oldSpeed{1.0};
+    double m_oldBytesRemaining{0.0}; // 旧速度数据在 FIFO 中剩余字节
 };

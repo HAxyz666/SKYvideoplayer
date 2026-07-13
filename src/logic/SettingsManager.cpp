@@ -1,5 +1,7 @@
 #include "SettingsManager.h"
 
+#include <QDir>
+
 SettingsManager &SettingsManager::instance()
 {
     static SettingsManager inst;
@@ -27,6 +29,10 @@ void SettingsManager::load()
         };
     }
 
+    m_screenshotPath = m_settings.value("screenshotPath",
+        QDir::homePath()
+    ).toString();
+
     m_settings.endGroup();
 }
 
@@ -46,5 +52,24 @@ void SettingsManager::setSubtitleStyle(const QVariantMap &style)
     m_settings.endGroup();
 
     emit subtitleStyleChanged(m_subtitleStyle);
+    emit settingsChanged();
+}
+
+QString SettingsManager::screenshotPath() const
+{
+    return m_screenshotPath;
+}
+
+void SettingsManager::setScreenshotPath(const QString &path)
+{
+    if (m_screenshotPath == path)
+        return;
+
+    m_screenshotPath = path;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue("screenshotPath", m_screenshotPath);
+    m_settings.endGroup();
+
+    emit screenshotPathChanged(m_screenshotPath);
     emit settingsChanged();
 }

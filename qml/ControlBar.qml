@@ -207,6 +207,35 @@ Rectangle {
                 }
             }
 
+            Button {
+                id: screenshotBtn
+                icon.source: "qrc:/icons/icons/screenshot.svg"
+                icon.width: 20
+                icon.height: 20
+                icon.color: "transparent"
+                display: AbstractButton.IconOnly
+                flat: true
+                padding: 0
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Screenshot")
+                ToolTip.delay: 500
+                enabled: appController.currentFilePath !== ""
+                background: Rectangle {
+                    radius: 4
+                    color: parent.hovered ? "#30ffffff" : "transparent"
+                }
+                onClicked: {
+                    var path = appController.takeScreenshot()
+                    if (path !== "") {
+                        screenshotTip.text = qsTr("Saved: %1").arg(path.split("/").pop())
+                        screenshotTip.visible = true
+                        screenshotTipTimer.restart()
+                    }
+                }
+            }
+
             Item { Layout.fillWidth: true }
 
             VolumeControl {
@@ -254,5 +283,17 @@ Rectangle {
                 onClicked: controlBar.toggleFullscreen()
             }
         }
+    }
+
+    Timer {
+        id: screenshotTipTimer
+        interval: 2000
+        onTriggered: screenshotTip.visible = false
+    }
+
+    ToolTip {
+        id: screenshotTip
+        visible: false
+        timeout: 2000
     }
 }

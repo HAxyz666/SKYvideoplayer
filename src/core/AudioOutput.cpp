@@ -119,12 +119,16 @@ void AudioOutput::reset()
         SDL_LockAudioDevice(m_audioDeviceID);
     if (m_audioFifo)
         av_fifo_reset2(m_audioFifo);
+    m_oldBytesRemaining = 0.0;
+    m_oldSpeed = m_speed.load(std::memory_order_relaxed);
     if (m_audioDeviceID != 0)
         SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::setSpeed(double speed)
 {
+    m_oldSpeed = m_speed.load(std::memory_order_relaxed);
+    m_oldBytesRemaining = static_cast<double>(av_fifo_can_read(m_audioFifo));
     m_speed.store(qBound(0.5, speed, 2.0), std::memory_order_relaxed);
 }
 
@@ -155,7 +159,9 @@ void AudioOutput::fillAudioFifo()
             if (m_bytesPerSecond > 0.0) {
                 double bufferedBytes = static_cast<double>(av_fifo_can_read(m_audioFifo));
                 double speed = m_speed.load(std::memory_order_relaxed);
-                clock -= bufferedBytes * speed / m_bytesPerSecond;
+                double oldBytes = qMin(bufferedBytes, m_oldBytesRemaining);
+                double newBytes = bufferedBytes - oldBytes;
+                clock -= (oldBytes * m_oldSpeed + newBytes * speed) / m_bytesPerSecond;
             }
             m_syncController->updateAudioClock(clock);
         }
@@ -188,6 +194,10 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
 
         int toRead = qMin(len, qMin((int)available, (int)sizeof(buf)));
         av_fifo_read(output->m_audioFifo, buf, toRead);
+
+        // 消费数据后递减旧速度剩余量，确保时钟计算准确
+        output->m_oldBytesRemaining = qMax(0.0, output->m_oldBytesRemaining - toRead);
+
         SDL_MixAudioFormat(stream, buf, output->m_audioSpec.format,
                            (Uint32)toRead, volume);
         stream += toRead;

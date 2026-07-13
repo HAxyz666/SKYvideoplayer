@@ -209,6 +209,10 @@ Rectangle {
         ToolTip.visible: hovered
         ToolTip.text: qsTr("Back to list")
         ToolTip.delay: 500
+        background: Rectangle {
+            radius: 4
+            color: parent.hovered ? "#30ffffff" : "transparent"
+        }
         onClicked: {
             videoRenderItem.clearImage()
             controller.closeFile()

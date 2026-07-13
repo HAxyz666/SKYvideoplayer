@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QMutex>
 #include <QSize>
+#include <QString>
 #include <QtQml/qqmlregistration.h>
 
 struct YUVFrame {
@@ -27,6 +28,7 @@ public:
 
     Q_INVOKABLE void setYUVFrame(const YUVFrame &frame);
     Q_INVOKABLE void clearImage();
+    Q_INVOKABLE QString captureAndSave(const QString &savePath = QString(), const QString &baseName = QString());
 
     int videoRotation() const { return m_videoRotation; }
     void setVideoRotation(int angle);

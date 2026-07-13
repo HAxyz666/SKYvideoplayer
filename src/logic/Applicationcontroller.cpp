@@ -3,6 +3,8 @@
 #include "PlaybackHistory.h"
 #include "PlaylistModel.h"
 #include "RecentFilesModel.h"
+#include "SettingsManager.h"
+#include "VideoRenderItem.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -167,6 +169,8 @@ void ApplicationController::stop()
     saveCurrentProgress();
     m_saveTimer->stop();
     m_mediaEngine->stop();
+    m_currentFilePath.clear();
+    emit currentFilePathChanged();
 }
 
 MediaEngine *ApplicationController::mediaEngine() const
@@ -499,6 +503,33 @@ void ApplicationController::resumeFromBeginning()
         // 清除该文件的保存进度，避免下次又恢复
         PlaybackHistory::instance().removeEntry(m_currentFilePath);
     }
+}
+
+QString ApplicationController::takeScreenshot()
+{
+    if (m_videoRenderItem) {
+        QString path = SettingsManager::instance().screenshotPath();
+        QDir().mkpath(path);
+        QString baseName = QFileInfo(m_currentFilePath).completeBaseName();
+        return m_videoRenderItem->captureAndSave(path, baseName);
+    }
+    return QString();
+}
+
+QString ApplicationController::screenshotPath() const
+{
+    return SettingsManager::instance().screenshotPath();
+}
+
+void ApplicationController::setScreenshotPath(const QString &path)
+{
+    SettingsManager::instance().setScreenshotPath(path);
+    emit screenshotPathChanged(path);
+}
+
+void ApplicationController::setVideoRenderItem(VideoRenderItem *item)
+{
+    m_videoRenderItem = item;
 }
 
 QString ApplicationController::currentFilePath() const

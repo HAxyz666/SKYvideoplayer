@@ -42,8 +42,13 @@ double AVSyncController::computeFrameDelay(double videoPts) const
         }
     }
 
-    if (m_speed > 0.0)
-        delay /= m_speed;
+    if (m_speed > 0.0) {
+        // 使用音频实际推进速率替代固定倍速。
+        // 过渡期间 m_actualAudioRate 在旧速和新速之间渐变，
+        // 视频跟随此实际速率，实现平滑变速。
+        double effectiveRate = qMax(m_actualAudioRate, 0.1);
+        delay /= effectiveRate;
+    }
 
     if (delay > 0.5)
         delay = 0.5;
@@ -74,8 +79,30 @@ void AVSyncController::onFrameDisplayed(double videoPts)
 void AVSyncController::updateAudioClock(double pts)
 {
     QMutexLocker lock(&m_mutex);
+    qint64 now = av_gettime();
+
+    // 测量音频实际推进速率（content秒 / 墙钟秒）。
+    // 只在回调间隔 >10ms 时更新，跳过同一次 SDL 回调内的批量帧（wallDelta≈0）。
+    // 使用快速响应的指数平滑，使过渡期间视频迅速跟随音频实际速率。
+    if (m_lastAudioClockUpdateUs > 0) {
+        double wallDelta = static_cast<double>(now - m_lastAudioClockUpdateUs) / 1e6;
+        if (wallDelta > 0.01) {
+            double clockDelta = pts - m_lastAudioClockValue;
+            if (clockDelta > 0.0 && clockDelta < 5.0) {
+                double instantRate = clockDelta / wallDelta;
+                instantRate = qBound(0.1, instantRate, 4.0);
+                // 快速响应：80% 新测量 + 20% 旧值，约2-3次回调（~100ms）内收敛
+                m_actualAudioRate = m_actualAudioRate * 0.2 + instantRate * 0.8;
+            }
+            m_lastAudioClockValue = pts;
+            m_lastAudioClockUpdateUs = now;
+        }
+    } else {
+        m_lastAudioClockValue = pts;
+        m_lastAudioClockUpdateUs = now;
+    }
+
     m_audioClock = pts;
-    m_lastAudioClockUpdateUs = av_gettime();
 }
 
 double AVSyncController::audioClock() const
@@ -90,6 +117,7 @@ void AVSyncController::setSpeed(double speed)
         QMutexLocker lock(&m_mutex);
         if (qFuzzyCompare(m_speed, speed))
             return;
+        m_actualAudioRate = m_speed; // 过渡期从旧速度开始渐变
         m_speed = speed;
     }
 }
@@ -98,7 +126,9 @@ void AVSyncController::reset()
 {
     QMutexLocker lock(&m_mutex);
     m_audioClock = 0.0;
-    m_lastAudioClockUpdateUs = av_gettime();
+    m_lastAudioClockUpdateUs = 0;
+    m_lastAudioClockValue = 0.0;
+    m_actualAudioRate = 1.0;
     m_frameLastPts = 0.0;
     m_frameLastDelay = 0.04;
     m_firstFrame = true;

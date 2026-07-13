@@ -754,9 +754,9 @@ void MediaEngine::setSpeed(double speed)
                         - static_cast<qint64>(currentPos * 1000000.0 / speed);
     }
 
-    // 不清空音频队列也不重置 FIFO——旧速度帧的 PTS 已在 AudioDecodeThread 中校正，
-    // 会无缝融入新速度的音频流，无音频间隔，无时钟域不匹配。
-
+    // 音频侧立即生效：sonic 变速 + FIFO 内部时钟分段处理旧/新数据。
+    // 视频侧通过 AVSyncController 实测音频推进速率来平滑跟随，
+    // 过渡期间 m_actualAudioRate 在旧速和新速之间渐变，视频自然匹配。
     m_syncController->setSpeed(speed);
     if (m_audioThread)
         m_audioThread->setSpeed(speed);

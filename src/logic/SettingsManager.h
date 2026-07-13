@@ -9,6 +9,7 @@ class SettingsManager : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QVariantMap subtitleStyle READ subtitleStyle WRITE setSubtitleStyle NOTIFY subtitleStyleChanged)
+    Q_PROPERTY(QString screenshotPath READ screenshotPath WRITE setScreenshotPath NOTIFY screenshotPathChanged)
 
 public:
     static SettingsManager &instance();
@@ -16,8 +17,12 @@ public:
     QVariantMap subtitleStyle() const;
     void setSubtitleStyle(const QVariantMap &style);
 
+    QString screenshotPath() const;
+    void setScreenshotPath(const QString &path);
+
 signals:
     void subtitleStyleChanged(const QVariantMap &style);
+    void screenshotPathChanged(const QString &path);
     void settingsChanged();
 
 private:
@@ -30,5 +35,6 @@ private:
     QSettings m_settings;
 
     QVariantMap m_subtitleStyle;
+    QString m_screenshotPath;
 };
 
