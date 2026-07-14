@@ -130,29 +130,58 @@ Rectangle {
                     color: speedBtn.hovered ? "#30ffffff" : "transparent"
                 }
                 onClicked: {
-                    var h = speedMenu.height > 0 ? speedMenu.height : 200
-                    speedMenu.popup(speedBtn, 0, -h)
+                    if (speedPopup.opened)
+                        speedPopup.close()
+                    else
+                        speedPopup.open()
                 }
-            }
 
-            Menu {
-                id: speedMenu
-
-                Repeater {
-                    model: [
-                        { label: "0.5x",  value: 0.5 },
-                        { label: "0.75x", value: 0.75 },
-                        { label: "1.0x",  value: 1.0 },
-                        { label: "1.25x", value: 1.25 },
-                        { label: "1.5x",  value: 1.5 },
-                        { label: "2.0x",  value: 2.0 }
-                    ]
-
-                    MenuItem {
-                        text: modelData.label
-                        checkable: true
-                        checked: controller.speed === modelData.value
-                        onTriggered: controller.setSpeed(modelData.value)
+                Popup {
+                    id: speedPopup
+                    x: speedBtn.width / 2 - width / 2
+                    y: -height - 4
+                    width: 80
+                    padding: 4
+                    background: Rectangle {
+                        radius: 8
+                        color: appController.theme === "dark" ? "#2d2d2d" : "#ffffff"
+                        border.width: 0
+                    }
+                    contentItem: ListView {
+                        id: speedList
+                        implicitHeight: contentHeight
+                        model: [
+                            { label: "0.5x",  value: 0.5 },
+                            { label: "0.75x", value: 0.75 },
+                            { label: "1.0x",  value: 1.0 },
+                            { label: "1.25x", value: 1.25 },
+                            { label: "1.5x",  value: 1.5 },
+                            { label: "2.0x",  value: 2.0 }
+                        ]
+                        clip: true
+                        delegate: ItemDelegate {
+                            width: speedList.width
+                            height: 32
+                            contentItem: Text {
+                                text: modelData.label
+                                font.pixelSize: 13
+                                color: appController.theme === "dark" ? "#ffffff" : "#222222"
+                                verticalAlignment: Text.AlignVCenter
+                                leftPadding: 8
+                            }
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered
+                                    ? (appController.theme === "dark" ? "#40ffffff" : "#20000000")
+                                    : (controller.speed === modelData.value
+                                        ? (appController.theme === "dark" ? "#30ffffff" : "#25000000")
+                                        : "transparent")
+                            }
+                            onClicked: {
+                                controller.setSpeed(modelData.value)
+                                speedPopup.close()
+                            }
+                        }
                     }
                 }
             }
@@ -178,32 +207,88 @@ Rectangle {
                     color: videoBtn.hovered ? "#30ffffff" : "transparent"
                 }
                 onClicked: {
-                    var h = videoMenu.height > 0 ? videoMenu.height : 140
-                    videoMenu.popup(videoBtn, 0, -h)
+                    if (videoPopup.opened)
+                        videoPopup.close()
+                    else
+                        videoPopup.open()
                 }
-            }
 
-            Menu {
-                id: videoMenu
-
-                MenuItem {
-                    text: qsTr("Rotate Left 90°")
-                    onTriggered: appController.rotateLeft()
-                }
-                MenuItem {
-                    text: qsTr("Rotate Right 90°")
-                    onTriggered: appController.rotateRight()
-                }
-                MenuItem {
-                    text: qsTr("Flip Vertical")
-                    checkable: true
-                    checked: appController.flipVertical
-                    onTriggered: appController.toggleFlipVertical()
-                }
-                MenuSeparator {}
-                MenuItem {
-                    text: qsTr("Reset")
-                    onTriggered: appController.resetRotation()
+                Popup {
+                    id: videoPopup
+                    x: videoBtn.width / 2 - width / 2
+                    y: -height - 4
+                    width: 170
+                    padding: 4
+                    background: Rectangle {
+                        radius: 8
+                        color: appController.theme === "dark" ? "#2d2d2d" : "#ffffff"
+                        border.width: 0
+                    }
+                    contentItem: Column {
+                        spacing: 0
+                        Repeater {
+                            model: [
+                                { label: qsTr("Rotate Left 90°"),  action: "rotateLeft" },
+                                { label: qsTr("Rotate Right 90°"), action: "rotateRight" },
+                                { label: qsTr("Flip Vertical"),    action: "flipVertical" }
+                            ]
+                            delegate: ItemDelegate {
+                                width: videoPopup.width - 8
+                                height: 32
+                                contentItem: Text {
+                                    text: modelData.label
+                                    font.pixelSize: 13
+                                    color: appController.theme === "dark" ? "#ffffff" : "#222222"
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: 8
+                                }
+                                background: Rectangle {
+                                    radius: 4
+                                    color: parent.hovered
+                                        ? (appController.theme === "dark" ? "#40ffffff" : "#20000000")
+                                        : ((modelData.action === "flipVertical" && appController.flipVertical)
+                                            ? (appController.theme === "dark" ? "#30ffffff" : "#25000000")
+                                            : "transparent")
+                                }
+                                onClicked: {
+                                    if (modelData.action === "rotateLeft") appController.rotateLeft()
+                                    else if (modelData.action === "rotateRight") appController.rotateRight()
+                                    else if (modelData.action === "flipVertical") appController.toggleFlipVertical()
+                                }
+                            }
+                        }
+                        Item {
+                            width: videoPopup.width - 8
+                            height: 9
+                            Rectangle {
+                                width: parent.width - 16
+                                height: 1
+                                anchors.centerIn: parent
+                                color: appController.theme === "dark" ? "#40ffffff" : "#20000000"
+                            }
+                        }
+                        ItemDelegate {
+                            width: videoPopup.width - 8
+                            height: 32
+                            contentItem: Text {
+                                text: qsTr("Reset")
+                                font.pixelSize: 13
+                                color: appController.theme === "dark" ? "#ffffff" : "#222222"
+                                verticalAlignment: Text.AlignVCenter
+                                leftPadding: 8
+                            }
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered
+                                    ? (appController.theme === "dark" ? "#40ffffff" : "#20000000")
+                                    : "transparent"
+                            }
+                            onClicked: {
+                                appController.resetRotation()
+                                videoPopup.close()
+                            }
+                        }
+                    }
                 }
             }
 
