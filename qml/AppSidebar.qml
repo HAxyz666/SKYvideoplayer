@@ -153,6 +153,8 @@ Rectangle {
         height: 450
         modal: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: appController.modalCount = appController.modalCount + 1
+        onClosed: appController.modalCount = appController.modalCount - 1
 
         property string currentTab: "screenshot"
         property string editingShortcut: ""
@@ -677,6 +679,7 @@ Rectangle {
     FolderDialog {
         id: screenshotFolderDialog
         title: qsTr("Select screenshot save folder")
+        onVisibleChanged: appController.modalCount = appController.modalCount + (visible ? 1 : -1)
         onAccepted: {
             var path = selectedFolder.toString()
             if (path.startsWith("file://"))

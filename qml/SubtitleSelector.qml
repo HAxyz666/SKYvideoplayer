@@ -150,6 +150,8 @@ Button {
         modal: true
         parent: Overlay.overlay
         anchors.centerIn: parent
+        onOpened: appController.modalCount = appController.modalCount + 1
+        onClosed: appController.modalCount = appController.modalCount - 1
         width: 420
         height: 420
         padding: 20
@@ -342,6 +344,7 @@ Button {
         ColorDialog {
             id: colorDialog
             title: qsTr("Select Subtitle Color")
+            onVisibleChanged: appController.modalCount = appController.modalCount + (visible ? 1 : -1)
             onAccepted: root.textColor = colorDialog.selectedColor
         }
     }

@@ -24,7 +24,7 @@ ApplicationController::ApplicationController(QObject *parent)
     , m_recentFiles(new RecentFilesModel(this))
     , m_theme("dark")
 {
-    // 默认播放列表（关闭程序时清除，不持久化）
+    // 默认播放列表（关闭程序时持久化，不再清空）
     m_playlistModel = new PlaylistModel(this);
     m_allPlaylists.append(m_playlistModel);
     m_playlistNames.append("列表 1");
@@ -221,17 +221,24 @@ void ApplicationController::switchPlaylist(int index)
     emit playlistsChanged();
 }
 
-// 关闭播放列表面板时调用：清除默认列表（不持久化）并保存用户创建的列表
+// 关闭播放列表面板时调用：保存默认列表与用户创建的列表（不再清空）
 void ApplicationController::persistPlaylists()
 {
-    if (!m_allPlaylists.isEmpty())
-        m_allPlaylists.first()->clear();
     savePlaylists();
 }
 
-// 持久化用户创建的列表（索引 0 为默认列表，不保存）
+// 持久化所有列表（含索引 0 的默认列表）
 void ApplicationController::savePlaylists()
 {
+    QSettings settings;
+    // 默认列表（索引 0）单独保存
+    QVariantList defaultFiles;
+    PlaylistModel *def = m_allPlaylists.first();
+    for (int r = 0; r < def->count(); ++r)
+        defaultFiles.append(def->itemAt(r).filePath);
+    settings.setValue("defaultPlaylist", defaultFiles);
+
+    // 用户创建的列表（索引 1 起）
     QVariantList saved;
     for (int i = 1; i < m_allPlaylists.size(); ++i) {
         QVariantMap entry;
@@ -243,13 +250,20 @@ void ApplicationController::savePlaylists()
         entry["files"] = files;
         saved.append(entry);
     }
-    QSettings().setValue("playlists", saved);
+    settings.setValue("playlists", saved);
 }
 
-// 启动时载入已保存的用户列表（默认列表保持为空）
+// 启动时载入已保存的列表（含默认列表）
 void ApplicationController::loadPlaylists()
 {
-    QVariantList saved = QSettings().value("playlists").toList();
+    QSettings settings;
+    // 载入默认列表
+    QVariantList defaultFiles = settings.value("defaultPlaylist").toList();
+    for (const QVariant &f : defaultFiles)
+        m_playlistModel->addFile(f.toString());
+
+    // 载入用户列表
+    QVariantList saved = settings.value("playlists").toList();
     for (const QVariant &v : saved) {
         QVariantMap entry = v.toMap();
         QString name = entry.value("name").toString();
@@ -274,9 +288,7 @@ RecentFilesModel *ApplicationController::recentFilesModel() const
 
 ApplicationController::~ApplicationController()
 {
-    // 程序退出：清除默认列表（不持久化）并保存用户创建的列表
-    if (!m_allPlaylists.isEmpty())
-        m_allPlaylists.first()->clear();
+    // 程序退出：保存默认列表与用户创建的列表
     savePlaylists();
 }
 
@@ -526,6 +538,20 @@ void ApplicationController::setScreenshotPath(const QString &path)
 {
     SettingsManager::instance().setScreenshotPath(path);
     emit screenshotPathChanged(path);
+}
+
+int ApplicationController::modalCount() const
+{
+    return m_modalCount;
+}
+
+void ApplicationController::setModalCount(int count)
+{
+    count = qMax(0, count);
+    if (m_modalCount != count) {
+        m_modalCount = count;
+        emit modalCountChanged(count);
+    }
 }
 
 void ApplicationController::setVideoRenderItem(VideoRenderItem *item)

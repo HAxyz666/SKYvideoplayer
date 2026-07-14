@@ -40,6 +40,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString loadingText READ loadingText NOTIFY loadingTextChanged)
     Q_PROPERTY(int bufferState READ bufferState NOTIFY bufferStateChanged)
     Q_PROPERTY(QString screenshotPath READ screenshotPath WRITE setScreenshotPath NOTIFY screenshotPathChanged)
+    Q_PROPERTY(int modalCount READ modalCount WRITE setModalCount NOTIFY modalCountChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -51,7 +52,7 @@ public:
     Q_INVOKABLE void addUrl(const QString &url);
     Q_INVOKABLE void createPlaylist(const QString &name);
     Q_INVOKABLE void switchPlaylist(int index);
-    Q_INVOKABLE void persistPlaylists();  // 关闭播放列表面板时：清除默认列表并保存用户列表
+    Q_INVOKABLE void persistPlaylists();  // 关闭播放列表面板时：保存默认列表与用户列表
     QStringList playlistNames() const;
     int currentPlaylistIndex() const;
     Q_INVOKABLE void togglePlayback();
@@ -75,6 +76,9 @@ public:
 
     QString screenshotPath() const;
     void setScreenshotPath(const QString &path);
+
+    int modalCount() const;
+    void setModalCount(int count);
 
     void setVideoRenderItem(VideoRenderItem *item);
     void setEngine(QQmlApplicationEngine *engine);
@@ -135,6 +139,7 @@ signals:
     void playlistModelChanged();
     void playlistsChanged();
     void screenshotPathChanged(const QString &path);
+    void modalCountChanged(int count);
 
 private:
     MediaEngine *m_mediaEngine;
@@ -144,6 +149,7 @@ private:
     PlaylistModel *m_playlistModel;
     RecentFilesModel *m_recentFiles;
     QString m_theme;
+    int m_modalCount = 0;
     QString m_currentFilePath;
     double m_lastPosition{0.0};
     QTimer *m_saveTimer{nullptr};
@@ -155,6 +161,6 @@ private:
     bool openAndResume(const QString &filePath);
     void saveCurrentProgress();
 
-    void savePlaylists();   // 持久化用户创建的列表（默认列表不保存）
+    void savePlaylists();   // 持久化所有列表（含默认列表）
     void loadPlaylists();   // 启动时载入已保存的列表
 };

@@ -15,7 +15,11 @@ Drawer {
         color: appController.theme === "dark" ? "#dd1e1e1e" : "#bbffffff"
     }
 
-    onClosed: appController.persistPlaylists()
+    onOpened: appController.modalCount = appController.modalCount + 1
+    onClosed: {
+        appController.modalCount = appController.modalCount - 1
+        appController.persistPlaylists()
+    }
 
     property int sortField: 0
     property bool sortAscending: true
@@ -160,7 +164,7 @@ Drawer {
                     font.pixelSize: 14
                     model: appController.playlistNames
                     currentIndex: appController.currentPlaylistIndex
-                    onActivated: appController.switchPlaylist(index)
+                    onActivated: (index) => appController.switchPlaylist(index)
                     background: Rectangle {
                         color: "transparent"
                     }
@@ -359,6 +363,7 @@ Drawer {
             qsTr("video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)"),
             qsTr("audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)")
         ]
+        onVisibleChanged: appController.modalCount = appController.modalCount + (visible ? 1 : -1)
         onAccepted: appController.addFiles(selectedFiles)
     }
 
@@ -379,6 +384,8 @@ Drawer {
         title: qsTr("Add URL")
         standardButtons: Dialog.Ok | Dialog.Cancel
         modal: true
+        onOpened: appController.modalCount = appController.modalCount + 1
+        onClosed: appController.modalCount = appController.modalCount - 1
         contentItem: TextField {
             id: urlInput
             placeholderText: qsTr("Enter media URL")
@@ -397,6 +404,8 @@ Drawer {
         title: qsTr("New List")
         standardButtons: Dialog.Ok | Dialog.Cancel
         modal: true
+        onOpened: appController.modalCount = appController.modalCount + 1
+        onClosed: appController.modalCount = appController.modalCount - 1
         contentItem: TextField {
             id: newListName
             placeholderText: qsTr("Enter list name")

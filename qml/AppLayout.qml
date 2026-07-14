@@ -112,6 +112,7 @@ Item {
             qsTr("video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)"),
             qsTr("audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)")
         ]
+        onVisibleChanged: appController.modalCount = appController.modalCount + (visible ? 1 : -1)
         onAccepted: controller.openFile(selectedFile)
     }
 
@@ -122,6 +123,7 @@ Item {
         modal: true
         width: 500
         padding: 20
+        onOpened: appController.modalCount = appController.modalCount + 1
 
         background: Rectangle {
             radius: 8
@@ -226,6 +228,9 @@ Item {
             urlInput.text = ""
         }
 
-        onClosed: urlInput.text = ""
+        onClosed: {
+            appController.modalCount = appController.modalCount - 1
+            urlInput.text = ""
+        }
     }
 }

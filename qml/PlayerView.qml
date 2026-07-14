@@ -14,6 +14,32 @@ Rectangle {
 
     property alias showControls: controlBar.showControls
 
+    // 当任意弹窗/对话框处于打开状态时返回 true，用于避免点击穿透到播放区
+    function anyOpenPopupUnder(item) {
+        if (!item || !item.children)
+            return false
+        var kids = item.children
+        for (var i = 0; i < kids.length; ++i) {
+            var c = kids[i]
+            if (c && c.opened === true)
+                return true
+            if (anyOpenPopupUnder(c))
+                return true
+        }
+        return false
+    }
+    function isAnyPopupOpen() {
+        try {
+            if (appController.modalCount > 0)
+                return true
+        } catch (e) {}
+        try {
+            return anyOpenPopupUnder(Overlay.overlay)
+        } catch (e) {
+            return false
+        }
+    }
+
     function formatTime(seconds) {
         var m = Math.floor(seconds / 60)
         var s = Math.floor(seconds % 60)
@@ -44,6 +70,8 @@ Rectangle {
         id: doubleTapTimer
         interval: 250
         onTriggered: {
+            if (playerView.isAnyPopupOpen())
+                return
             console.log("singleTap confirmed")
             controlBar.showControls = true
             playerView.userInteracted()
@@ -53,6 +81,8 @@ Rectangle {
 
     TapHandler {
         onTapped: {
+            if (playerView.isAnyPopupOpen())
+                return
             if (point.position.y >= playerView.height - controlBar.height)
                 return
             if (playlistDrawer.opened && point.position.x >= playerView.width - playlistDrawer.width)
