@@ -46,7 +46,7 @@ Item {
                 anchors.rightMargin: 4
 
                 Label {
-                    text: qsTr("最近播放")
+                    text: qsTr("Recent")
                     font.bold: true
                     font.pixelSize: 16
                     color: appController.theme === "dark" ? "#ffffff" : "#333333"
@@ -56,14 +56,14 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: qsTr("选择")
+                    text: qsTr("Select")
                     flat: true
                     visible: !root.editing
                     onClicked: root.editing = true
                 }
 
                 CheckBox {
-                    text: qsTr("全选")
+                    text: qsTr("Select All")
                     visible: root.editing
                     checked: {
                         if (listView.count === 0) return false
@@ -75,7 +75,7 @@ Item {
                 }
 
                 Button {
-                    text: qsTr("删除选中")
+                    text: qsTr("Delete Selected")
                     visible: root.editing
                     enabled: {
                         for (var key in root.selectedIndices)
@@ -90,7 +90,7 @@ Item {
                 }
 
                 Button {
-                    text: qsTr("取消")
+                    text: qsTr("Cancel")
                     visible: root.editing
                     flat: true
                     onClicked: {
@@ -173,7 +173,7 @@ Item {
 
     Label {
         anchors.centerIn: parent
-        text: qsTr("暂无播放记录")
+        text: qsTr("No playback history")
         opacity: 0.5
         visible: listView.count === 0
     }
@@ -183,7 +183,7 @@ Item {
         property int targetIndex: -1
 
         MenuItem {
-            text: qsTr("删除")
+            text: qsTr("Delete")
             icon.name: "edit-delete"
             onTriggered: {
                 if (contextMenu.targetIndex >= 0)

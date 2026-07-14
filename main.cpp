@@ -21,6 +21,7 @@ int main(int argc, char *argv[])
 
     ApplicationController controller;
     QQmlApplicationEngine engine;
+    controller.setEngine(&engine);
     engine.rootContext()->setContextProperty("appController", &controller);
     engine.rootContext()->setContextProperty("settingsManager", &SettingsManager::instance());
 

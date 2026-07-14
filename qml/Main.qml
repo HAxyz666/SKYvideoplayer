@@ -69,19 +69,19 @@ ApplicationWindow {
 
     // 音量 / 静音快捷键
     // ApplicationShortcut 在焦点系统之前处理，避免被焦点导航拦截
-    Shortcut { sequence: "Up";   context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume + 5 }
-    Shortcut { sequence: "Down"; context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume - 5 }
-    Shortcut { sequence: "M";    onActivated: appController.toggleMute() }
-    Shortcut { sequence: "Space"; onActivated: appController.togglePlayback() }
+    Shortcut { sequence: settingsManager.shortcuts["volumeUp"] || "Up";   context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume + 5 }
+    Shortcut { sequence: settingsManager.shortcuts["volumeDown"] || "Down"; context: Qt.ApplicationShortcut; onActivated: appController.volume = appController.volume - 5 }
+    Shortcut { sequence: settingsManager.shortcuts["toggleMute"] || "M";    onActivated: appController.toggleMute() }
+    Shortcut { sequence: settingsManager.shortcuts["togglePlayback"] || "Space"; onActivated: appController.togglePlayback() }
 
-    Shortcut { sequence: "Left";  context: Qt.ApplicationShortcut; onActivated: appController.stepBackward() }
-    Shortcut { sequence: "Right"; context: Qt.ApplicationShortcut; onActivated: appController.stepForward() }
-    Shortcut { sequence: "Ctrl+Left";  context: Qt.ApplicationShortcut; onActivated: appController.stepBackwardLarge() }
-    Shortcut { sequence: "Ctrl+Right"; context: Qt.ApplicationShortcut; onActivated: appController.stepForwardLarge() }
+    Shortcut { sequence: settingsManager.shortcuts["stepBackward"] || "Left";  context: Qt.ApplicationShortcut; onActivated: appController.stepBackward() }
+    Shortcut { sequence: settingsManager.shortcuts["stepForward"] || "Right"; context: Qt.ApplicationShortcut; onActivated: appController.stepForward() }
+    Shortcut { sequence: settingsManager.shortcuts["stepBackwardLarge"] || "Ctrl+Left";  context: Qt.ApplicationShortcut; onActivated: appController.stepBackwardLarge() }
+    Shortcut { sequence: settingsManager.shortcuts["stepForwardLarge"] || "Ctrl+Right"; context: Qt.ApplicationShortcut; onActivated: appController.stepForwardLarge() }
 
-    Shortcut { sequence: "F11"; onActivated: window.toggleMaximize() }
+    Shortcut { sequence: settingsManager.shortcuts["toggleFullscreen"] || "F11"; onActivated: window.toggleMaximize() }
 
-    Shortcut { sequence: "Escape"; onActivated: {
+    Shortcut { sequence: settingsManager.shortcuts["exitFullscreen"] || "Escape"; onActivated: {
         if (window.isFullscreen) window.toggleMaximize()
     }}
 
@@ -115,7 +115,7 @@ ApplicationWindow {
 
         Label {
             anchors.centerIn: parent
-            text: qsTr("松开以播放媒体文件")
+            text: qsTr("Drop to play media file")
             font.pixelSize: 28
             font.bold: true
             color: "white"

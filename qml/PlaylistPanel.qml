@@ -99,7 +99,7 @@ Drawer {
                 spacing: 4
 
                 Label {
-                    text: qsTr("播放列表")
+                    text: qsTr("Playlist")
                     font.bold: true
                     font.pixelSize: 16
                     Layout.fillWidth: true
@@ -107,20 +107,20 @@ Drawer {
                 }
 
                 ToolButton {
-                    text: qsTr("名称") + (sortField === 0 ? (sortAscending ? " ↑" : " ↓") : "")
+                    text: qsTr("Name") + (sortField === 0 ? (sortAscending ? " ↑" : " ↓") : "")
                     font.pixelSize: 11
                     onClicked: toggleSort(0)
                 }
 
                 ToolButton {
-                    text: qsTr("时长") + (sortField === 1 ? (sortAscending ? " ↑" : " ↓") : "")
+                    text: qsTr("Duration") + (sortField === 1 ? (sortAscending ? " ↑" : " ↓") : "")
                     font.pixelSize: 11
                     onClicked: toggleSort(1)
                 }
 
                 ToolButton {
                     icon.name: "edit-delete"
-                    text: qsTr("清空")
+                    text: qsTr("Clear")
                     display: AbstractButton.TextBesideIcon
                     font.pixelSize: 11
                     onClicked: appController.playlistModel.clear()
@@ -149,7 +149,7 @@ Drawer {
                 spacing: 10
 
                 Label {
-                    text: qsTr("当前列表:")
+                    text: qsTr("Current List:")
                     font.pixelSize: 15
                     opacity: 0.8
                 }
@@ -168,7 +168,7 @@ Drawer {
 
                 ToolButton {
                     icon.name: "document-open"
-                    text: qsTr("添加")
+                    text: qsTr("Add")
                     display: AbstractButton.TextBesideIcon
                     font.pixelSize: 13
                     onClicked: addMenu.popup()
@@ -277,7 +277,7 @@ Drawer {
                     id: contextMenu
                     property int sourceRow: -1
                     MenuItem {
-                        text: qsTr("移除")
+                        text: qsTr("Remove")
                         onTriggered: appController.playlistModel.removeItem(contextMenu.sourceRow)
                     }
                 }
@@ -293,7 +293,7 @@ Drawer {
 
             Label {
                 anchors.centerIn: parent
-                text: qsTr("暂无文件")
+                text: qsTr("No files")
                 opacity: 0.5
                 visible: listView.count === 0
             }
@@ -305,7 +305,7 @@ Drawer {
             spacing: 4
 
             Label {
-                text: qsTr("播放模式:")
+                text: qsTr("Playback Mode:")
                 font.pixelSize: 12
                 opacity: 0.7
             }
@@ -315,7 +315,7 @@ Drawer {
                 spacing: 2
 
                 ToolButton {
-                    text: qsTr("顺序播放")
+                    text: qsTr("Sequential")
                     checkable: true
                     checked: appController.playlistModel.playbackMode === 0
                     font.pixelSize: 11
@@ -323,7 +323,7 @@ Drawer {
                 }
 
                 ToolButton {
-                    text: qsTr("列表循环")
+                    text: qsTr("Loop All")
                     checkable: true
                     checked: appController.playlistModel.playbackMode === 1
                     font.pixelSize: 11
@@ -331,7 +331,7 @@ Drawer {
                 }
 
                 ToolButton {
-                    text: qsTr("单集循环")
+                    text: qsTr("Loop One")
                     checkable: true
                     checked: appController.playlistModel.playbackMode === 2
                     font.pixelSize: 11
@@ -341,7 +341,7 @@ Drawer {
         }
 
         Label {
-            text: listView.count + qsTr(" 个文件")
+            text: listView.count + qsTr(" files")
             padding: 10
             font.pixelSize: 12
             opacity: 0.7
@@ -352,7 +352,7 @@ Drawer {
 
     FileDialog {
         id: addFileDialog
-        title: qsTr("添加文件")
+        title: qsTr("Add Files")
         fileMode: FileDialog.OpenFiles
         nameFilters: [
             qsTr("all file (*)"),
@@ -365,7 +365,7 @@ Drawer {
     Menu {
         id: addMenu
         MenuItem {
-            text: qsTr("文件")
+            text: qsTr("Files")
             onTriggered: addFileDialog.open()
         }
         MenuItem {
@@ -376,12 +376,12 @@ Drawer {
 
     Dialog {
         id: addUrlDialog
-        title: qsTr("添加 URL")
+        title: qsTr("Add URL")
         standardButtons: Dialog.Ok | Dialog.Cancel
         modal: true
         contentItem: TextField {
             id: urlInput
-            placeholderText: qsTr("请输入媒体 URL")
+            placeholderText: qsTr("Enter media URL")
             focus: true
             onAccepted: addUrlDialog.accept()
         }
@@ -394,12 +394,12 @@ Drawer {
 
     Dialog {
         id: newListDialog
-        title: qsTr("新建列表")
+        title: qsTr("New List")
         standardButtons: Dialog.Ok | Dialog.Cancel
         modal: true
         contentItem: TextField {
             id: newListName
-            placeholderText: qsTr("请输入列表名称")
+            placeholderText: qsTr("Enter list name")
             focus: true
             onAccepted: newListDialog.accept()
         }

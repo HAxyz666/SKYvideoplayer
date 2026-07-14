@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSettings>
+#include <QQmlApplicationEngine>
 #include <QTextStream>
 #include <QTimer>
 #include <QUrl>
@@ -530,6 +531,25 @@ void ApplicationController::setScreenshotPath(const QString &path)
 void ApplicationController::setVideoRenderItem(VideoRenderItem *item)
 {
     m_videoRenderItem = item;
+}
+
+void ApplicationController::setEngine(QQmlApplicationEngine *engine)
+{
+    m_qmlEngine = engine;
+
+    // 初始化当前语言翻译
+    QString lang = SettingsManager::instance().language();
+    if (lang != "en" && m_translator.load(":/i18n/" + lang + ".qm"))
+        QCoreApplication::installTranslator(&m_translator);
+
+    // 语言切换时即时生效
+    connect(&SettingsManager::instance(), &SettingsManager::languageChanged, this, [this](const QString &lang) {
+        QCoreApplication::removeTranslator(&m_translator);
+        if (lang != "en" && m_translator.load(":/i18n/" + lang + ".qm"))
+            QCoreApplication::installTranslator(&m_translator);
+        if (m_qmlEngine)
+            m_qmlEngine->retranslate();
+    });
 }
 
 QString ApplicationController::currentFilePath() const

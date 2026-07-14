@@ -85,6 +85,25 @@ set_target_properties(SKYvideoplayer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
+# 翻译：.ts → .qm 自动编译
+find_program(LRELEASE_EXECUTABLE lrelease)
+if(LRELEASE_EXECUTABLE)
+    add_custom_command(
+        OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.qm"
+        COMMAND ${LRELEASE_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.ts"
+            -qm "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.qm"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.ts"
+        COMMENT "Compiling zh_CN.ts → zh_CN.qm"
+    )
+endif()
+
+qt6_add_resources(SKYvideoplayer "translations"
+    BASE "translations"
+    PREFIX "/i18n"
+    FILES translations/zh_CN.qm
+)
+
 qt6_add_qml_module(SKYvideoplayer
     URI SKYvideoplayer
     VERSION 1.0

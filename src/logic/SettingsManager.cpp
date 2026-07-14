@@ -33,6 +33,25 @@ void SettingsManager::load()
         QDir::homePath()
     ).toString();
 
+    if (m_settings.contains("shortcuts")) {
+        m_shortcuts = m_settings.value("shortcuts").toMap();
+    } else {
+        m_shortcuts = {
+            { QStringLiteral("volumeUp"), QStringLiteral("Up") },
+            { QStringLiteral("volumeDown"), QStringLiteral("Down") },
+            { QStringLiteral("toggleMute"), QStringLiteral("M") },
+            { QStringLiteral("togglePlayback"), QStringLiteral("Space") },
+            { QStringLiteral("stepBackward"), QStringLiteral("Left") },
+            { QStringLiteral("stepForward"), QStringLiteral("Right") },
+            { QStringLiteral("stepBackwardLarge"), QStringLiteral("Ctrl+Left") },
+            { QStringLiteral("stepForwardLarge"), QStringLiteral("Ctrl+Right") },
+            { QStringLiteral("toggleFullscreen"), QStringLiteral("F11") },
+            { QStringLiteral("exitFullscreen"), QStringLiteral("Escape") }
+        };
+    }
+
+    m_language = m_settings.value("language", QStringLiteral("en")).toString();
+
     m_settings.endGroup();
 }
 
@@ -71,5 +90,43 @@ void SettingsManager::setScreenshotPath(const QString &path)
     m_settings.endGroup();
 
     emit screenshotPathChanged(m_screenshotPath);
+    emit settingsChanged();
+}
+
+QVariantMap SettingsManager::shortcuts() const
+{
+    return m_shortcuts;
+}
+
+void SettingsManager::setShortcuts(const QVariantMap &shortcuts)
+{
+    if (m_shortcuts == shortcuts)
+        return;
+
+    m_shortcuts = shortcuts;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue("shortcuts", m_shortcuts);
+    m_settings.endGroup();
+
+    emit shortcutsChanged(m_shortcuts);
+    emit settingsChanged();
+}
+
+QString SettingsManager::language() const
+{
+    return m_language;
+}
+
+void SettingsManager::setLanguage(const QString &lang)
+{
+    if (m_language == lang)
+        return;
+
+    m_language = lang;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue("language", m_language);
+    m_settings.endGroup();
+
+    emit languageChanged(m_language);
     emit settingsChanged();
 }

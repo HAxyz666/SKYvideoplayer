@@ -55,7 +55,7 @@ Item {
                 }
 
                 Label {
-                    text: qsTr("点击左侧「openfile」选择视频开始播放")
+                    text: qsTr("Click 'Open File' on the left to start playing")
                     font.pixelSize: 14
                     color: appController.theme === "dark" ? "#cccccc" : "#888888"
                     horizontalAlignment: Qt.AlignHCenter
@@ -180,7 +180,7 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: "Open"
+                    text: qsTr("Open")
                     flat: true
                     onClicked: networkDialog.accept()
                     contentItem: Label {
@@ -200,7 +200,7 @@ Item {
                 }
 
                 Button {
-                    text: "Cancel"
+                    text: qsTr("Cancel")
                     flat: true
                     onClicked: networkDialog.close()
                     contentItem: Label {

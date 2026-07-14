@@ -93,7 +93,7 @@ Rectangle {
             }
 
             Text {
-                text: appController.isLoading ? appController.loadingText : "缓冲中..."
+                text: appController.isLoading ? appController.loadingText : qsTr("Buffering...")
                 color: "white"
                 font.pixelSize: 16
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -164,7 +164,7 @@ Rectangle {
             }
 
             Label {
-                text: qsTr("正在播放音频")
+                text: qsTr("Playing Audio")
                 color: "white"
                 font.pixelSize: 28
                 Layout.alignment: Qt.AlignHCenter
@@ -281,14 +281,14 @@ Rectangle {
             spacing: 8
 
             Label {
-                text: qsTr("上次播放到 ") + playerView.formatTime(resumeToast.savedPosition)
+                text: qsTr("Last played at ") + playerView.formatTime(resumeToast.savedPosition)
                 color: "white"
                 font.pixelSize: 13
                 anchors.verticalCenter: parent.verticalCenter
             }
 
             Label {
-                text: qsTr("从头播放")
+                text: qsTr("Play from start")
                 color: "#4FC3F7"
                 font.pixelSize: 13
                 font.bold: true

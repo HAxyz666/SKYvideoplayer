@@ -10,6 +10,8 @@ class SettingsManager : public QObject
     Q_OBJECT
     Q_PROPERTY(QVariantMap subtitleStyle READ subtitleStyle WRITE setSubtitleStyle NOTIFY subtitleStyleChanged)
     Q_PROPERTY(QString screenshotPath READ screenshotPath WRITE setScreenshotPath NOTIFY screenshotPathChanged)
+    Q_PROPERTY(QVariantMap shortcuts READ shortcuts WRITE setShortcuts NOTIFY shortcutsChanged)
+    Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
 
 public:
     static SettingsManager &instance();
@@ -20,9 +22,17 @@ public:
     QString screenshotPath() const;
     void setScreenshotPath(const QString &path);
 
+    QVariantMap shortcuts() const;
+    void setShortcuts(const QVariantMap &shortcuts);
+
+    QString language() const;
+    void setLanguage(const QString &lang);
+
 signals:
     void subtitleStyleChanged(const QVariantMap &style);
     void screenshotPathChanged(const QString &path);
+    void shortcutsChanged(const QVariantMap &shortcuts);
+    void languageChanged(const QString &lang);
     void settingsChanged();
 
 private:
@@ -36,5 +46,7 @@ private:
 
     QVariantMap m_subtitleStyle;
     QString m_screenshotPath;
+    QVariantMap m_shortcuts;
+    QString m_language;
 };
 

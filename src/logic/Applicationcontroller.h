@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QTranslator>
 
 #include "PlaylistModel.h"
 #include "RecentFilesModel.h"
@@ -9,6 +10,7 @@
 class MediaEngine;
 class VideoRenderItem;
 class QTimer;
+class QQmlApplicationEngine;
 
 class ApplicationController : public QObject
 {
@@ -75,6 +77,7 @@ public:
     void setScreenshotPath(const QString &path);
 
     void setVideoRenderItem(VideoRenderItem *item);
+    void setEngine(QQmlApplicationEngine *engine);
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;
@@ -136,6 +139,8 @@ signals:
 private:
     MediaEngine *m_mediaEngine;
     VideoRenderItem *m_videoRenderItem{nullptr};
+    QQmlApplicationEngine *m_qmlEngine{nullptr};
+    QTranslator m_translator;
     PlaylistModel *m_playlistModel;
     RecentFilesModel *m_recentFiles;
     QString m_theme;
