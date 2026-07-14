@@ -132,6 +132,7 @@ signals:
     void isLoadingChanged(bool loading);
     void loadingTextChanged(QString text);
     void errorOccurred(QString message, bool isNetworkRelated);  // 错误信号
+    void networkStreamReady(const QString &url);  // 网络流连接成功
     void bufferStateChanged(int state);
 
 private:

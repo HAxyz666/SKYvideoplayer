@@ -558,7 +558,7 @@ Rectangle {
 
                             Label {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: "Daisen Zhou (3563248115@qq.com)\nChao Li()\nCheng Li()"
+                                text: "Daisen Zhou (3563248115@qq.com)\nChao Li(3042525170@qq.com)\nCheng Li(3530606868@qq.com)"
                                 font.pixelSize: 12
                                 color: appController.theme === "dark" ? "#aaaaaa" : "#666666"
                             }

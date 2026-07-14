@@ -98,6 +98,7 @@ public:
     QVariantList subtitleStreams() const;
     int currentSubtitleStream() const;
     Q_INVOKABLE void setCurrentSubtitleStream(int index);
+    Q_INVOKABLE bool isNetworkUrl(const QString &url) const;
     int rotation() const;                   // 当前画面旋转角度
     bool flipVertical() const;              // 当前垂直翻转状态
     QString coverArtUrl() const;

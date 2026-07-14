@@ -9,6 +9,10 @@ QtObject {
     property bool isLiveStream: appController.isLiveStream
     property double speed: 1.0
 
+    // 网络流连接失败时的提示
+    property bool networkError: false
+    property string networkErrorMessage: ""
+
     function openFile(url) {
         var ok = appController.loadFile(url);
         hasMedia = ok;

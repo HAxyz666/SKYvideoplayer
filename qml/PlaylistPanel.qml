@@ -251,11 +251,15 @@ Drawer {
                     Item { Layout.preferredWidth: 8 }
 
                     Label {
+                        id: playlistTitleLabel
                         text: model.title
                         font.pixelSize: 13
                         color: appController.theme === "dark" ? "#ffffff" : "#333333"
                         elide: Text.ElideRight
                         Layout.fillWidth: true
+                        ToolTip.text: model.filePath
+                        ToolTip.visible: playlistTitleHover.hovered && contentWidth > width
+                        HoverHandler { id: playlistTitleHover }
                     }
 
                     Label {

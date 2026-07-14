@@ -152,11 +152,15 @@ Item {
                     }
 
                     Label {
+                        id: historyNameLabel
                         text: model.fileName
                         font.pixelSize: 14
                         color: appController.theme === "dark" ? "#ffffff" : "#333333"
                         elide: Text.ElideRight
                         Layout.fillWidth: true
+                        ToolTip.text: model.filePath
+                        ToolTip.visible: historyNameHover.hovered && contentWidth > width
+                        HoverHandler { id: historyNameHover }
                     }
 
                     Label {

@@ -71,6 +71,10 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::loadingTextChanged, this, &ApplicationController::loadingTextChanged);
     connect(m_mediaEngine, &MediaEngine::errorOccurred, this, &ApplicationController::errorOccurred);
     connect(m_mediaEngine, &MediaEngine::bufferStateChanged, this, &ApplicationController::bufferStateChanged);
+    connect(m_mediaEngine, &MediaEngine::networkStreamReady, this, [this](const QString &url) {
+        m_currentFilePath = url;
+        m_recentFiles->addFile(url);
+    });
 }
 
 bool ApplicationController::openFile()
@@ -123,7 +127,7 @@ bool ApplicationController::loadFile(const QString &path)
     if (filePath.startsWith("file://"))
         filePath = filePath.mid(7);
 
-    // 网络流：跳过目录扫描和播放列表操作
+    // 网络流：异步初始化，避免阻塞主线程
     if (filePath.startsWith("http://") || filePath.startsWith("https://") ||
         filePath.startsWith("rtmp://") || filePath.startsWith("rtmps://") ||
         filePath.startsWith("rtsp://") || filePath.startsWith("rtsps://") ||
@@ -136,6 +140,11 @@ bool ApplicationController::loadFile(const QString &path)
     }
 
     QFileInfo fi(filePath);
+    if (!fi.exists()) {
+        emit errorOccurred(tr("无法打开文件：%1").arg(filePath), false);
+        emit playbackStateChanged(false);
+        return false;
+    }
     m_recentFiles->addFile(filePath);
     m_playlistModel->clear();
     scanDirectoryFiles(m_playlistModel, fi.absolutePath());
@@ -506,6 +515,13 @@ void ApplicationController::saveCurrentProgress()
     double dur = m_mediaEngine->duration();
     if (dur <= 0)
         return;
+
+    // 播放到尾部时清除记录，避免恢复到临近结束位置导致循环跳转
+    if (m_lastPosition >= dur * 0.90) {
+        PlaybackHistory::instance().removeEntry(m_currentFilePath);
+        return;
+    }
+
     PlaybackHistory::instance().savePosition(m_currentFilePath, m_lastPosition, dur);
 }
 
@@ -606,4 +622,13 @@ QString ApplicationController::loadingText() const
 int ApplicationController::bufferState() const
 {
     return m_mediaEngine->bufferState();
+}
+
+bool ApplicationController::isNetworkUrl(const QString &url) const
+{
+    return url.startsWith("http://") || url.startsWith("https://") ||
+           url.startsWith("rtmp://") || url.startsWith("rtmps://") ||
+           url.startsWith("rtsp://") || url.startsWith("rtsps://") ||
+           url.startsWith("mms://") || url.startsWith("mmsh://") ||
+           url.startsWith("udp://") || url.startsWith("tcp://");
 }

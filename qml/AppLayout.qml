@@ -98,10 +98,49 @@ Item {
         id: playlistDrawer
     }
 
+    // 网络连接失败提示条
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: 40
+        width: Math.min(toastLabel.implicitWidth + 40, parent.width * 0.6)
+        height: 36
+        radius: 18
+        color: "#cc333333"
+        visible: controller.networkError
+        z: 100
+
+        Label {
+            id: toastLabel
+            anchors.centerIn: parent
+            width: parent.width - 40
+            text: controller.networkErrorMessage
+            font.pixelSize: 13
+            color: "#ffffff"
+            elide: Text.ElideRight
+        }
+    }
+
     Connections {
         target: appController
         function onRequestOpenFile() { fileDialog.open() }
         function onPlaybackStateChanged(isPlaying) { controller.isPlaying = isPlaying }
+        function onErrorOccurred(message, isNetworkRelated) {
+            controller.hasMedia = false;
+            controller.isPlaying = false;
+            controller.networkError = true;
+            controller.networkErrorMessage = message;
+            errorTimer.restart();
+        }
+    }
+
+    Timer {
+        id: errorTimer
+        interval: 3000
+        onTriggered: {
+            controller.networkError = false;
+            controller.networkErrorMessage = "";
+        }
     }
 
     FileDialog {

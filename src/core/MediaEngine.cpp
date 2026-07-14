@@ -513,6 +513,7 @@ void MediaEngine::onNetworkInitFinished()
         return;
     }
 
+    emit networkStreamReady(m_filename);
     startPlayback();
 }
 

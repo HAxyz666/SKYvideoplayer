@@ -88,6 +88,20 @@ void DemuxThread::run()
         if (ret < 0) {
             av_packet_unref(pkt);
             if (ret == AVERROR_EOF) {
+                // 通知解码线程不再有新包，然后等待队列排空
+                if (m_videoQueue) m_videoQueue->setFinished(true);
+                if (m_audioQueue) m_audioQueue->setFinished(true);
+                if (m_subtitleQueue) m_subtitleQueue->setFinished(true);
+
+                // 等待解码线程消费完队列中的剩余包（最多10秒）
+                for (int i = 0; i < 1000 && !m_quit; ++i) {
+                    bool videoDone = !m_videoQueue || m_videoQueue->size() == 0;
+                    bool audioDone = !m_audioQueue || m_audioQueue->size() == 0;
+                    if (videoDone && audioDone)
+                        break;
+                    msleep(10);
+                }
+
                 emit eofReached();
                 break;
             }
