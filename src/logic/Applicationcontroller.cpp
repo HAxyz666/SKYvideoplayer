@@ -27,7 +27,7 @@ ApplicationController::ApplicationController(QObject *parent)
     // 默认播放列表（关闭程序时持久化，不再清空）
     m_playlistModel = new PlaylistModel(this);
     m_allPlaylists.append(m_playlistModel);
-    m_playlistNames.append("列表 1");
+    m_playlistNames.append(tr("Default List"));
     m_currentPlaylistIndex = 0;
     QSettings settings;
     m_theme = settings.value("theme", "dark").toString();
@@ -211,7 +211,7 @@ void ApplicationController::createPlaylist(const QString &name)
     m_allPlaylists.append(pl);
     QString finalName = name.trimmed();
     if (finalName.isEmpty())
-        finalName = QString("列表 %1").arg(m_allPlaylists.size());
+        finalName = tr("List %1").arg(m_allPlaylists.size());
     m_playlistNames.append(finalName);
     m_currentPlaylistIndex = m_allPlaylists.size() - 1;
     m_playlistModel = pl;
@@ -285,7 +285,7 @@ void ApplicationController::loadPlaylists()
         for (const QString &fp : files)
             pl->addFile(fp);
         m_allPlaylists.append(pl);
-        m_playlistNames.append(name.isEmpty() ? QString("列表 %1").arg(m_allPlaylists.size()) : name);
+        m_playlistNames.append(name.isEmpty() ? tr("List %1").arg(m_allPlaylists.size()) : name);
     }
     m_currentPlaylistIndex = 0;
     emit playlistsChanged();
@@ -587,11 +587,22 @@ void ApplicationController::setEngine(QQmlApplicationEngine *engine)
     if (lang != "en" && m_translator.load(":/i18n/" + lang + ".qm"))
         QCoreApplication::installTranslator(&m_translator);
 
+    // 翻译器已就绪，刷新默认列表名称（构造函数中 tr() 此时尚未生效）
+    if (!m_playlistNames.isEmpty()) {
+        m_playlistNames[0] = tr("Default List");
+        emit playlistsChanged();
+    }
+
     // 语言切换时即时生效
     connect(&SettingsManager::instance(), &SettingsManager::languageChanged, this, [this](const QString &lang) {
         QCoreApplication::removeTranslator(&m_translator);
         if (lang != "en" && m_translator.load(":/i18n/" + lang + ".qm"))
             QCoreApplication::installTranslator(&m_translator);
+        // 刷新默认列表名称以匹配新语言
+        if (!m_playlistNames.isEmpty()) {
+            m_playlistNames[0] = tr("Default List");
+            emit playlistsChanged();
+        }
         if (m_qmlEngine)
             m_qmlEngine->retranslate();
     });

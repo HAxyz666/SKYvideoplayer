@@ -535,4 +535,15 @@ with hardware acceleration</source>
         <translation>重置</translation>
     </message>
 </context>
+<context>
+    <name>ApplicationController</name>
+    <message>
+        <source>Default List</source>
+        <translation>默认列表</translation>
+    </message>
+    <message>
+        <source>List %1</source>
+        <translation>列表 %1</translation>
+    </message>
+</context>
 </TS>
