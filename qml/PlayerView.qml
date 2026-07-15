@@ -40,12 +40,6 @@ Rectangle {
         }
     }
 
-    function formatTime(seconds) {
-        var m = Math.floor(seconds / 60)
-        var s = Math.floor(seconds % 60)
-        return m + ":" + (s < 10 ? "0" : "") + s
-    }
-
     color: "black"
 
     onVisibleChanged: {
@@ -106,66 +100,10 @@ Rectangle {
         flipVertical: appController.flipVertical
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "black"
-        visible: appController.isLoading || appController.bufferState === 1
-        z: 5
+    LoadingOverlay {}
 
-        Column {
-            anchors.centerIn: parent
-            spacing: 16
-
-            BusyIndicator {
-                anchors.horizontalCenter: parent.horizontalCenter
-                running: appController.isLoading || appController.bufferState === 1
-                width: 48; height: 48
-            }
-
-            Text {
-                text: appController.isLoading ? appController.loadingText : qsTr("Buffering...")
-                color: "white"
-                font.pixelSize: 16
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-        }
-    }
-
-    Item {
-        id: subtitleOverlay
-        anchors.fill: parent
-        visible: !controller.isAudioOnly
-        z: 10
-
-        Text {
-            id: subtitleText
-
-            anchors.horizontalCenter: parent.horizontalCenter
-
-            y: {
-                var pos = settingsManager.subtitleStyle.position || "bottom"
-                if (pos === "top")
-                    return 96
-                if (pos === "center")
-                    return (parent.height - height) / 2
-                return parent.height - height - 96
-            }
-
-            text: appController.currentSubtitle
-
-            color: settingsManager.subtitleStyle.color || "#FFFFFF"
-            font.family: settingsManager.subtitleStyle.fontFamily || "Sans Serif"
-            font.pixelSize: settingsManager.subtitleStyle.fontSize || 20
-            font.bold: true
-
-            horizontalAlignment: Text.Center
-            width: parent.width * 0.75
-            wrapMode: Text.Wrap
-            style: Text.Outline
-            styleColor: "#80000000"
-            lineHeight: 1.3
-            visible: text.length > 0
-        }
+    SubtitleOverlay {
+        isAudioOnly: controller.isAudioOnly
     }
 
     Rectangle {
@@ -290,68 +228,8 @@ Rectangle {
         onUserInteracted: playerView.userInteracted()
     }
 
-    // 恢复播放提示条
-    Rectangle {
+    ResumeToast {
         id: resumeToast
-        anchors.top: parent.top
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.topMargin: 12
-        width: resumeRow.width + 32
-        height: 36
-        radius: 18
-        color: "#90000000"
-        visible: false
-        z: 100
-
-        property double savedPosition: 0
-
-        Row {
-            id: resumeRow
-            anchors.centerIn: parent
-            spacing: 8
-
-            Label {
-                text: qsTr("Last played at ") + playerView.formatTime(resumeToast.savedPosition)
-                color: "white"
-                font.pixelSize: 13
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Label {
-                text: qsTr("Play from start")
-                color: "#4FC3F7"
-                font.pixelSize: 13
-                font.bold: true
-                anchors.verticalCenter: parent.verticalCenter
-
-                TapHandler {
-                    onTapped: {
-                        appController.resumeFromBeginning()
-                        resumeToast.visible = false
-                        resumeHideTimer.stop()
-                    }
-                }
-            }
-        }
-
-        Timer {
-            id: resumeHideTimer
-            interval: 3000
-            onTriggered: resumeToast.visible = false
-        }
-
-        function show(pos) {
-            savedPosition = pos
-            visible = true
-            resumeHideTimer.restart()
-        }
-    }
-
-    Connections {
-        target: appController
-        function onResumePositionFound(path, position) {
-            if (position > 5.0)
-                resumeToast.show(position)
-        }
+        controller: playerView.controller
     }
 }

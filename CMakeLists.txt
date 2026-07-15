@@ -119,6 +119,14 @@ qt6_add_qml_module(SKYvideoplayer
         qml/RecentHistory.qml
         qml/SubtitleSelector.qml
         qml/VolumeControl.qml
+        qml/NetworkDialog.qml
+        qml/SettingsDialog.qml
+        qml/SubtitleStyleDialog.qml
+        qml/SubtitleOverlay.qml
+        qml/LoadingOverlay.qml
+        qml/ResumeToast.qml
+        qml/SpeedPopup.qml
+        qml/VideoAdjustPopup.qml
     SOURCES
         src/core/VideoRenderItem.cpp
 )

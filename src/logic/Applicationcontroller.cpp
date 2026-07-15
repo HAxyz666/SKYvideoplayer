@@ -73,6 +73,7 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::bufferStateChanged, this, &ApplicationController::bufferStateChanged);
     connect(m_mediaEngine, &MediaEngine::networkStreamReady, this, [this](const QString &url) {
         m_currentFilePath = url;
+        emit currentFilePathChanged();
         m_recentFiles->addFile(url);
     });
 }
@@ -484,17 +485,19 @@ bool ApplicationController::openAndResume(const QString &filePath)
     if (!m_currentFilePath.isEmpty())
         saveCurrentProgress();
 
-    bool ok = m_mediaEngine->open(filePath);
+    // 预取已保存的播放位置，传给 open() 在启动播放线程之前完成 seek，
+    // 避免先从 position 0 播放再 seek 导致的音画不同步。
+    // 有效范围检查（savedPos > 5 且 < 95% duration）在 open() 内完成。
+    double savedPos = PlaybackHistory::instance().getPosition(filePath);
+    double initialSeekPos = (savedPos > 5.0) ? savedPos : -1.0;
+
+    bool ok = m_mediaEngine->open(filePath, initialSeekPos);
     if (ok) {
         m_currentFilePath = filePath;
         m_lastPosition = 0.0;
         emit currentFilePathChanged();
 
-        // 检查是否有保存的播放位置
-        double savedPos = PlaybackHistory::instance().getPosition(filePath);
-        double dur = m_mediaEngine->duration();
-        if (savedPos > 5.0 && dur > 0 && savedPos < dur * 0.95) {
-            m_mediaEngine->seek(savedPos);
+        if (initialSeekPos > 0.0) {
             emit resumePositionFound(filePath, savedPos);
         } else {
             emit resumePositionFound(filePath, 0.0);

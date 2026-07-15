@@ -14,53 +14,24 @@
         <translation>点击左侧「打开文件」选择视频开始播放</translation>
     </message>
     <message>
-        <source>Connection failed</source>
-        <translation type="vanished">连接失败</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppLayout.qml" line="146"/>
+        <location filename="../qml/AppLayout.qml" line="131"/>
         <source>Select media file</source>
         <translation>选择媒体文件</translation>
     </message>
     <message>
-        <location filename="../qml/AppLayout.qml" line="148"/>
+        <location filename="../qml/AppLayout.qml" line="133"/>
         <source>all file (*)</source>
         <translation>所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../qml/AppLayout.qml" line="149"/>
+        <location filename="../qml/AppLayout.qml" line="134"/>
         <source>video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)</source>
         <translation>视频文件 (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)</translation>
     </message>
     <message>
-        <location filename="../qml/AppLayout.qml" line="150"/>
+        <location filename="../qml/AppLayout.qml" line="135"/>
         <source>audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)</source>
         <translation>音频文件 (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppLayout.qml" line="178"/>
-        <source>Open Network Stream</source>
-        <translation>打开网络流</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppLayout.qml" line="185"/>
-        <source>Enter network URL:</source>
-        <translation>输入网络URL：</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppLayout.qml" line="206"/>
-        <source>Supported: HTTP, HTTPS, RTMP, RTSP, UDP, TCP</source>
-        <translation>支持：HTTP, HTTPS, RTMP, RTSP, UDP, TCP</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppLayout.qml" line="220"/>
-        <source>Open</source>
-        <translation>打开</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppLayout.qml" line="240"/>
-        <source>Cancel</source>
-        <translation>取消</translation>
     </message>
 </context>
 <context>
@@ -77,7 +48,6 @@
     </message>
     <message>
         <location filename="../qml/AppSidebar.qml" line="73"/>
-        <location filename="../qml/AppSidebar.qml" line="172"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
@@ -95,88 +65,6 @@
         <location filename="../qml/AppSidebar.qml" line="113"/>
         <source>🌙 Dark</source>
         <translation>🌙 暗色</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="189"/>
-        <source>Screenshot Path</source>
-        <translation>截图路径</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="252"/>
-        <location filename="../qml/AppSidebar.qml" line="585"/>
-        <source>Language</source>
-        <translation>语言</translation>
-    </message>
-    <message>
-        <source>Language changes will take effect after restart</source>
-        <translation type="vanished">语言更改将在重启后生效</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="210"/>
-        <source>Shortcuts</source>
-        <translation>快捷键</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="231"/>
-        <source>About</source>
-        <translation>关于</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="344"/>
-        <source>Screenshot save path</source>
-        <translation>截图保存路径</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="451"/>
-        <source>Press new key...</source>
-        <translation>按下新按键...</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="495"/>
-        <source>SKY Video Player</source>
-        <translation>SKY视频播放器</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="503"/>
-        <source>Version 1.0</source>
-        <translation>版本 1.0</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="510"/>
-        <source>A Qt6-based video player
-with hardware acceleration</source>
-        <translation>基于Qt6的视频播放器
-支持硬件加速</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="518"/>
-        <source>Hide</source>
-        <translation>隐藏</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="518"/>
-        <source>Details</source>
-        <translation>详情</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="551"/>
-        <source>Author</source>
-        <translation>作者</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="566"/>
-        <source>Built with Qt 6.11 and FFmpeg</source>
-        <translation>使用 Qt 6.11 和 FFmpeg 构建</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="656"/>
-        <source>Close</source>
-        <translation>关闭</translation>
-    </message>
-    <message>
-        <location filename="../qml/AppSidebar.qml" line="679"/>
-        <source>Select screenshot save folder</source>
-        <translation>选择截图保存路径</translation>
     </message>
 </context>
 <context>
@@ -208,48 +96,36 @@ with hardware acceleration</source>
     </message>
     <message>
         <location filename="../qml/ControlBar.qml" line="190"/>
-        <source>Rotate Left 90°</source>
-        <translation>左旋90°</translation>
-    </message>
-    <message>
-        <location filename="../qml/ControlBar.qml" line="194"/>
-        <source>Rotate Right 90°</source>
-        <translation>右旋90°</translation>
-    </message>
-    <message>
-        <location filename="../qml/ControlBar.qml" line="198"/>
-        <source>Flip Vertical</source>
-        <translation>垂直翻转</translation>
-    </message>
-    <message>
-        <location filename="../qml/ControlBar.qml" line="205"/>
-        <source>Reset</source>
-        <translation>重置</translation>
-    </message>
-    <message>
-        <location filename="../qml/ControlBar.qml" line="222"/>
         <source>Screenshot</source>
         <translation>截图</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="232"/>
+        <location filename="../qml/ControlBar.qml" line="200"/>
         <source>Saved: %1</source>
         <translation>已保存：%1</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="257"/>
+        <location filename="../qml/ControlBar.qml" line="220"/>
         <source>Playlist</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="277"/>
+        <location filename="../qml/ControlBar.qml" line="240"/>
         <source>Exit Fullscreen</source>
         <translation>退出全屏</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="277"/>
+        <location filename="../qml/ControlBar.qml" line="240"/>
         <source>Fullscreen</source>
         <translation>全屏</translation>
+    </message>
+</context>
+<context>
+    <name>LoadingOverlay</name>
+    <message>
+        <location filename="../qml/LoadingOverlay.qml" line="18"/>
+        <source>Buffering...</source>
+        <translation>缓冲中...</translation>
     </message>
 </context>
 <context>
@@ -261,38 +137,44 @@ with hardware acceleration</source>
     </message>
 </context>
 <context>
-    <name>PlayerController</name>
+    <name>NetworkDialog</name>
     <message>
-        <source>Connection failed</source>
-        <translation type="vanished">连接失败</translation>
+        <location filename="../qml/NetworkDialog.qml" line="16"/>
+        <source>Open Network Stream</source>
+        <translation>打开网络流</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="23"/>
+        <source>Enter network URL:</source>
+        <translation>输入网络URL：</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="53"/>
+        <source>Supported: HTTP, HTTPS, RTMP, RTSP, UDP, TCP</source>
+        <translation>支持：HTTP, HTTPS, RTMP, RTSP, UDP, TCP</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="62"/>
+        <source>Open</source>
+        <translation>打开</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="82"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
     </message>
 </context>
 <context>
     <name>PlayerView</name>
     <message>
-        <location filename="../qml/PlayerView.qml" line="96"/>
-        <source>Buffering...</source>
-        <translation>缓冲中...</translation>
-    </message>
-    <message>
-        <location filename="../qml/PlayerView.qml" line="167"/>
+        <location filename="../qml/PlayerView.qml" line="100"/>
         <source>Playing Audio</source>
         <translation>正在播放音频</translation>
     </message>
     <message>
-        <location filename="../qml/PlayerView.qml" line="210"/>
+        <location filename="../qml/PlayerView.qml" line="143"/>
         <source>Back to list</source>
         <translation>返回列表</translation>
-    </message>
-    <message>
-        <location filename="../qml/PlayerView.qml" line="284"/>
-        <source>Last played at </source>
-        <translation>上次播放到 </translation>
-    </message>
-    <message>
-        <location filename="../qml/PlayerView.qml" line="291"/>
-        <source>Play from start</source>
-        <translation>从头播放</translation>
     </message>
 </context>
 <context>
@@ -452,6 +334,104 @@ with hardware acceleration</source>
     </message>
 </context>
 <context>
+    <name>ResumeToast</name>
+    <message>
+        <location filename="../qml/ResumeToast.qml" line="24"/>
+        <source>Last played at </source>
+        <translation>上次播放到 </translation>
+    </message>
+    <message>
+        <location filename="../qml/ResumeToast.qml" line="31"/>
+        <source>Play from start</source>
+        <translation>从头播放</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsDialog</name>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="16"/>
+        <source>Settings</source>
+        <translation>设置</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="24"/>
+        <source>Screenshot Path</source>
+        <translation>截图路径</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="45"/>
+        <source>Shortcuts</source>
+        <translation>快捷键</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="66"/>
+        <source>About</source>
+        <translation>关于</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="87"/>
+        <source>Language</source>
+        <translation>语言</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="113"/>
+        <source>Screenshot save path</source>
+        <translation>截图保存路径</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="130"/>
+        <source>Press new key...</source>
+        <translation>按下新按键...</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="177"/>
+        <source>SKY Video Player</source>
+        <translation>SKY视频播放器</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="185"/>
+        <source>Version 1.0</source>
+        <translation>版本 1.0</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="192"/>
+        <source>A Qt6-based video player
+with hardware acceleration</source>
+        <translation>基于Qt6的视频播放器
+支持硬件加速</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="200"/>
+        <source>Hide</source>
+        <translation>隐藏</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="200"/>
+        <source>Details</source>
+        <translation>详情</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="233"/>
+        <source>Author</source>
+        <translation>作者</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="248"/>
+        <source>Built with Qt 6.11 and FFmpeg</source>
+        <translation>使用 Qt 6.11 和 FFmpeg 构建</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="262"/>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="273"/>
+        <source>Select screenshot save folder</source>
+        <translation>选择截图保存路径</translation>
+    </message>
+</context>
+<context>
     <name>SubtitleSelector</name>
     <message>
         <location filename="../qml/SubtitleSelector.qml" line="8"/>
@@ -459,74 +439,100 @@ with hardware acceleration</source>
         <translation>字幕</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="126"/>
+        <location filename="../qml/SubtitleSelector.qml" line="49"/>
         <source>Subtitle Style…</source>
         <translation>字幕样式...</translation>
     </message>
+</context>
+<context>
+    <name>SubtitleStyleDialog</name>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="149"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="10"/>
         <source>Subtitle Style</source>
         <translation>字幕样式</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="176"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="47"/>
         <source>Subtitle preview text</source>
         <translation>字幕预览文本</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="192"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="59"/>
         <source>Font</source>
         <translation>字体</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="215"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="82"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="239"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="106"/>
         <source>Color</source>
         <translation>颜色</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="267"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="134"/>
         <source>Custom…</source>
         <translation>自定义...</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="281"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="147"/>
         <source>Position</source>
         <translation>位置</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="291"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="155"/>
         <source>Top</source>
         <translation>顶部</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="292"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="156"/>
         <source>Center</source>
         <translation>居中</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="293"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="157"/>
         <source>Bottom</source>
         <translation>底部</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="318"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="183"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="324"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="189"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="344"/>
+        <location filename="../qml/SubtitleStyleDialog.qml" line="213"/>
         <source>Select Subtitle Color</source>
         <translation>选择字幕颜色</translation>
+    </message>
+</context>
+<context>
+    <name>VideoAdjustPopup</name>
+    <message>
+        <location filename="../qml/VideoAdjustPopup.qml" line="16"/>
+        <source>Rotate Left 90°</source>
+        <translation>左旋90°</translation>
+    </message>
+    <message>
+        <location filename="../qml/VideoAdjustPopup.qml" line="17"/>
+        <source>Rotate Right 90°</source>
+        <translation>右旋90°</translation>
+    </message>
+    <message>
+        <location filename="../qml/VideoAdjustPopup.qml" line="18"/>
+        <source>Flip Vertical</source>
+        <translation>垂直翻转</translation>
+    </message>
+    <message>
+        <location filename="../qml/VideoAdjustPopup.qml" line="62"/>
+        <source>Reset</source>
+        <translation>重置</translation>
     </message>
 </context>
 </TS>

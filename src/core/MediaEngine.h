@@ -59,7 +59,7 @@ public:
     void start();
     void startPlayback();   // 启动播放线程（initFFmpeg 之后调用）
     Q_INVOKABLE void stop();
-    Q_INVOKABLE bool open(const QString &url);
+    Q_INVOKABLE bool open(const QString &url, double initialSeekPos = -1.0);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();

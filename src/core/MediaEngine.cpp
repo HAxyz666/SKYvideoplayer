@@ -458,7 +458,7 @@ void MediaEngine::stop()
         emit pausedChanged(true);
 }
 
-bool MediaEngine::open(const QString &url)
+bool MediaEngine::open(const QString &url, double initialSeekPos)
 {
     stop();
     QString path = url;
@@ -490,6 +490,49 @@ bool MediaEngine::open(const QString &url)
     }
 
     // 本地文件：同步初始化
+    // 若有初始 seek 位置，在 startPlayback() 之前完成 seek + flush，
+    // 避免先从 position 0 播放再 seek 导致的音画不同步。
+    if (initialSeekPos > 0.0) {
+        if (!initFFmpeg(m_filename))
+            return m_fmtCtx != nullptr;
+
+        // 有效范围检查：距离头尾太近则跳过 seek
+        double dur = m_duration;
+        if (dur <= 0 || initialSeekPos >= dur * 0.95) {
+            startPlayback();
+            return m_fmtCtx != nullptr;
+        }
+
+        int64_t targetUs = static_cast<int64_t>(initialSeekPos * AV_TIME_BASE);
+        if (targetUs < 0) targetUs = 0;
+        if (targetUs > static_cast<int64_t>(dur * AV_TIME_BASE))
+            targetUs = static_cast<int64_t>(dur * AV_TIME_BASE);
+
+        int ret = avformat_seek_file(m_fmtCtx, -1,
+                                     INT64_MIN, targetUs, targetUs,
+                                     AVSEEK_FLAG_BACKWARD);
+        if (ret < 0)
+            qWarning() << "Initial seek failed:" << ret;
+
+        if (m_videoCodecCtx)
+            avcodec_flush_buffers(m_videoCodecCtx);
+        if (m_audioCodecCtx)
+            avcodec_flush_buffers(m_audioCodecCtx);
+        if (m_subtitleCodecCtx)
+            avcodec_flush_buffers(m_subtitleCodecCtx);
+
+        startPlayback();
+
+        // 调整时间基准，使 positionTimer 计算出正确的已 seek 位置
+        m_syncController->updateAudioClock(initialSeekPos);
+        qint64 now = av_gettime();
+        m_startTimeUs = now - static_cast<qint64>(initialSeekPos * 1000000 / qMax(m_speed, 0.1));
+        m_position = initialSeekPos;
+        emit positionChanged(m_position);
+
+        return true;
+    }
+
     start();
     return m_fmtCtx != nullptr;
 }
