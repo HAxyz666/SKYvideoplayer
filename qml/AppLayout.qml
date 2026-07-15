@@ -7,7 +7,19 @@ import SKYvideoplayer 1.0
 Item {
     id: appLayout
 
+    property alias controller: controller
+    readonly property alias showControls: playerView.showControls
+
     PlayerController { id: controller }
+
+    Timer {
+        id: hideTimer
+        interval: 3000
+        onTriggered: {
+            console.log("hideTimer fired, hiding controlBar")
+            playerView.showControls = false
+        }
+    }
 
     // === 底层：初始选择界面 (当没有媒体文件时显示) ===
     RowLayout {
@@ -16,18 +28,17 @@ Item {
         spacing: 0
         visible: !controller.hasMedia
 
-        // 左侧：Logo + 菜单
         AppSidebar {
             Layout.fillHeight: true
             Layout.preferredWidth: 160
             onOpenFileTriggered: appController.openFile()
+            onOpenNetworkTriggered: networkDialog.open()
         }
 
-        // 中间：主界面 + 最近播放记录
         Rectangle {
             Layout.fillHeight: true
             Layout.fillWidth: true
-            color: "#f0f0f0"
+            color: appController.theme === "dark" ? "#2d2d2d" : "#f0f0f0"
 
             ColumnLayout {
                 anchors.fill: parent
@@ -38,15 +49,15 @@ Item {
                     text: qsTr("SKYPlayer")
                     font.bold: true
                     font.pixelSize: 36
-                    color: "#333333"
+                    color: appController.theme === "dark" ? "#ffffff" : "#333333"
                     horizontalAlignment: Qt.AlignHCenter
                     Layout.fillWidth: true
                 }
 
                 Label {
-                    text: qsTr("点击左侧「openfile」选择视频开始播放")
+                    text: qsTr("Click 'Open File' on the left to start playing")
                     font.pixelSize: 14
-                    color: "#888888"
+                    color: appController.theme === "dark" ? "#cccccc" : "#888888"
                     horizontalAlignment: Qt.AlignHCenter
                     Layout.fillWidth: true
                 }
@@ -54,16 +65,9 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
-                    color: "#cccccc"
+                    color: appController.theme === "dark" ? "#3d3d3d" : "#cccccc"
                     Layout.topMargin: 8
                     Layout.bottomMargin: 8
-                }
-
-                Label {
-                    text: qsTr("最近播放")
-                    font.bold: true
-                    font.pixelSize: 16
-                    color: "#333333"
                 }
 
                 RecentHistory {
@@ -79,128 +83,63 @@ Item {
     }
 
     // === 顶层：沉浸式播放界面 (当加载了媒体文件时显示) ===
-    Rectangle {
+    PlayerView {
         id: playerView
         anchors.fill: parent
-        color: "black"
         visible: controller.hasMedia
-
-        VideoRenderItem {
-            id: videoRenderItem
-            objectName: "videoRenderItem"
-            anchors.fill: parent
-        }
-
-        // 左上角：返回按钮
-        Button {
-            id: backBtn
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.margins: 12
-            icon.name: "go-previous"
-            icon.width: 24
-            icon.height: 24
-            text: qsTr("Back to list")
-            onClicked: {
-                videoRenderItem.clearImage()
-                controller.closeFile()
-            }
-        }
-
-        // 底部悬浮控制区
-        Rectangle {
-            id: controlBar
-            anchors.bottom: parent.bottom
-            width: parent.width
-            height: 80
-            color: "#80000000"
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 10
-                spacing: 4
-
-                ProgressBar {
-                    Layout.fillWidth: true
-                    position: appController.position
-                    duration: appController.duration
-                    onSeekRequested: function(pos) {
-                        appController.seekTo(pos)
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-
-                    Button {
-                        icon.name: "media-skip-backward"
-                        icon.width: 24
-                        icon.height: 24
-                        text: qsTr("Prev")
-                        enabled: appController.playlistModel.hasPrev
-                        onClicked: appController.playPrev()
-                    }
-
-                    Button {
-                        icon.name: controller.isPlaying ? "media-playback-pause" : "media-playback-start"
-                        icon.width: 24
-                        icon.height: 24
-                        text: controller.isPlaying ? qsTr("Pause") : qsTr("Play")
-                        onClicked: controller.togglePlay()
-                    }
-
-                    Button {
-                        icon.name: "media-skip-forward"
-                        icon.width: 24
-                        icon.height: 24
-                        text: qsTr("Next")
-                        enabled: appController.playlistModel.hasNext
-                        onClicked: appController.playNext()
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    // 音量控制：水平滑块
-                    VolumeControl {
-                        Layout.preferredWidth: 140
-                        Layout.preferredHeight: 32
-                    }
-
-                    Button {
-                        icon.name: "view-list-details"
-                        icon.width: 24
-                        icon.height: 24
-                        text: qsTr("Playlist")
-                        onClicked: playlistDrawer.opened ? playlistDrawer.close() : playlistDrawer.open()
-                    }
-
-                    Button {
-                        icon.name: window.isFullscreen ? "view-restore" : "view-fullscreen"
-                        icon.width: 24
-                        icon.height: 24
-                        text: window.isFullscreen ? qsTr("Exit Fullscreen") : qsTr("Fullscreen")
-                        onClicked: window.toggleMaximize()
-                    }
-                }
-            }
-        }
+        controller: appLayout.controller
+        playlistDrawer: playlistDrawer
+        isFullscreen: window.isFullscreen
+        onToggleFullscreen: window.toggleMaximize()
+        onUserInteracted: hideTimer.restart()
     }
 
     PlaylistPanel {
         id: playlistDrawer
     }
 
+    // 网络连接失败提示条
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: 40
+        width: Math.min(toastLabel.implicitWidth + 40, parent.width * 0.6)
+        height: 36
+        radius: 18
+        color: "#cc333333"
+        visible: controller.networkError
+        z: 100
+
+        Label {
+            id: toastLabel
+            anchors.centerIn: parent
+            width: parent.width - 40
+            text: controller.networkErrorMessage
+            font.pixelSize: 13
+            color: "#ffffff"
+            elide: Text.ElideRight
+        }
+    }
+
     Connections {
         target: appController
         function onRequestOpenFile() { fileDialog.open() }
-        function onPlaybackStateChanged(isPlaying) { controller.isPlaying = isPlaying }
     }
 
     FileDialog {
         id: fileDialog
-        title: qsTr("Select video file")
-        nameFilters: [qsTr("video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)"), qsTr("all file (*)")]
+        title: qsTr("Select media file")
+        nameFilters: [
+            qsTr("all file (*)"),
+            qsTr("video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)"),
+            qsTr("audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)")
+        ]
+        onVisibleChanged: appController.modalCount = appController.modalCount + (visible ? 1 : -1)
         onAccepted: controller.openFile(selectedFile)
+    }
+
+    NetworkDialog {
+        id: networkDialog
+        controller: appLayout.controller
     }
 }

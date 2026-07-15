@@ -15,19 +15,18 @@ AudioOutput::AudioOutput(QObject *parent)
     , m_frameQueue(nullptr)
     , m_volume(100.0)
     , m_muted(false)
-    , m_audioBuf(nullptr)
-    , m_audioBufSize(0)
-    , m_audioBufIndex(0)
     , m_syncController(nullptr)
-    , m_currentFrame(nullptr)
+    , m_audioFifo(av_fifo_alloc2(kFifoSize, 1, 0))
 {
 }
 
 AudioOutput::~AudioOutput()
 {
     closeDevice();
+    if (m_audioFifo)
+        av_fifo_freep2(&m_audioFifo);
     if (SDL_WasInit(SDL_INIT_AUDIO))
-        SDL_Quit();
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 bool AudioOutput::initialize(const SDL_AudioSpec &spec)
@@ -57,13 +56,21 @@ bool AudioOutput::initialize(const SDL_AudioSpec &spec)
     }
 
     m_audioSpec = obtainedSpec;
+    m_bytesPerSecond = obtainedSpec.freq * obtainedSpec.channels * sizeof(int16_t);
+    qDebug("AudioOutput: wanted freq=%d got freq=%d samples=%d format=0x%x",
+           wantedSpec.freq, obtainedSpec.freq,
+           obtainedSpec.samples, obtainedSpec.format);
     SDL_PauseAudioDevice(m_audioDeviceID, 0);
     return true;
 }
 
 void AudioOutput::setFrameQueue(FrameQueue *queue)
 {
+    if (m_audioDeviceID != 0)
+        SDL_LockAudioDevice(m_audioDeviceID);
     m_frameQueue = queue;
+    if (m_audioDeviceID != 0)
+        SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::setSyncController(AVSyncController *ctrl)
@@ -73,7 +80,6 @@ void AudioOutput::setSyncController(AVSyncController *ctrl)
 
 void AudioOutput::setVolume(double vol)
 {
-    // 使用 memory_order_relaxed 仅需原子性，无需顺序一致性屏障
     m_volume.store(qBound(0.0, vol, 100.0), std::memory_order_relaxed);
 }
 
@@ -94,109 +100,107 @@ void AudioOutput::resume()
         SDL_PauseAudioDevice(m_audioDeviceID, 0);
 }
 
-void AudioOutput::stop()
-{
-    closeDevice();
-}
-
 void AudioOutput::closeDevice()
 {
-    // 先关设备 — SDL_CloseAudioDevice 阻塞直到回调退出
     if (m_audioDeviceID != 0) {
+        SDL_LockAudioDevice(m_audioDeviceID);
+        m_frameQueue = nullptr;
         SDL_CloseAudioDevice(m_audioDeviceID);
         m_audioDeviceID = 0;
     }
 
-    // 回调已退出，安全释放资源
-    if (m_currentFrame) {
-        av_frame_free(&m_currentFrame);
-        m_audioBuf = nullptr;
-    }
-    m_audioBufSize = 0;
-    m_audioBufIndex = 0;
-    m_frameQueue = nullptr;
+    if (m_audioFifo)
+        av_fifo_reset2(m_audioFifo);
 }
 
 void AudioOutput::reset()
 {
     if (m_audioDeviceID != 0)
         SDL_LockAudioDevice(m_audioDeviceID);
-    if (m_currentFrame) {
-        av_frame_free(&m_currentFrame);
-        m_audioBuf = nullptr;
-    }
-    m_audioBufSize = 0;
-    m_audioBufIndex = 0;
+    if (m_audioFifo)
+        av_fifo_reset2(m_audioFifo);
+    m_oldBytesRemaining = 0.0;
+    m_oldSpeed = m_speed.load(std::memory_order_relaxed);
     if (m_audioDeviceID != 0)
         SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
-double AudioOutput::volume() const
+void AudioOutput::setSpeed(double speed)
 {
-    return m_volume.load(std::memory_order_relaxed);
+    m_oldSpeed = m_speed.load(std::memory_order_relaxed);
+    m_oldBytesRemaining = static_cast<double>(av_fifo_can_read(m_audioFifo));
+    m_speed.store(qBound(0.5, speed, 2.0), std::memory_order_relaxed);
 }
 
-bool AudioOutput::muted() const
+void AudioOutput::fillAudioFifo()
 {
-    return m_muted.load(std::memory_order_relaxed);
-}
+    if (!m_frameQueue || !m_audioFifo)
+        return;
 
-double AudioOutput::getAudioClock() const
-{
-    if (m_syncController)
-        return m_syncController->getAudioClock();
-    return 0.0;
+    while (true) {
+        AVFrame *frame = m_frameQueue->peek();
+        if (!frame)
+            break;
+
+        size_t frameBytes = static_cast<size_t>(frame->nb_samples)
+                            * static_cast<size_t>(frame->ch_layout.nb_channels)
+                            * sizeof(int16_t);
+        if (av_fifo_can_write(m_audioFifo) < static_cast<int>(frameBytes))
+            break;
+
+        frame = m_frameQueue->tryPop(0);
+        if (!frame)
+            break;
+
+        av_fifo_write(m_audioFifo, frame->data[0], frameBytes);
+
+        if (m_syncController) {
+            double clock = frame->pts * av_q2d(frame->time_base);
+            if (m_bytesPerSecond > 0.0) {
+                double bufferedBytes = static_cast<double>(av_fifo_can_read(m_audioFifo));
+                double speed = m_speed.load(std::memory_order_relaxed);
+                double oldBytes = qMin(bufferedBytes, m_oldBytesRemaining);
+                double newBytes = bufferedBytes - oldBytes;
+                clock -= (oldBytes * m_oldSpeed + newBytes * speed) / m_bytesPerSecond;
+            }
+            m_syncController->updateAudioClock(clock);
+        }
+
+        av_frame_free(&frame);
+    }
 }
 
 void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
 {
     auto *output = static_cast<AudioOutput *>(userdata);
 
-    // 先静默输出（输出静音 PCM），这样即使下方 break 也能保证静音不爆音
     SDL_memset(stream, 0, len);
 
-    FrameQueue *fq = output->m_frameQueue;
-    if (!fq)
+    if (!output->m_frameQueue || !output->m_audioFifo)
         return;
 
-    // 静音时音量强制为 0，但仍然消费帧，避免 FrameQueue 堆积 → 阻塞解码管线 → 视频卡死
-    // 显式 load() 避免隐式 operator T() 的潜在问题
     double vol = output->m_volume.load(std::memory_order_relaxed);
     bool muted = output->m_muted.load(std::memory_order_relaxed);
     int volume = muted ? 0
         : static_cast<int>(vol / 100.0 * SDL_MIX_MAXVOLUME);
 
+    output->fillAudioFifo();
+
+    uint8_t buf[4096];
     while (len > 0) {
-        if (output->m_audioBufIndex >= output->m_audioBufSize) {
-            if (output->m_currentFrame) {
-                av_frame_free(&output->m_currentFrame);
-                output->m_audioBuf = nullptr;
-            }
+        size_t available = av_fifo_can_read(output->m_audioFifo);
+        if (available <= 0)
+            break;
 
-            AVFrame *frame = fq->tryPop(0);
-            if (!frame)
-                break;
+        int toRead = qMin(len, qMin((int)available, (int)sizeof(buf)));
+        av_fifo_read(output->m_audioFifo, buf, toRead);
 
-            output->m_currentFrame = frame;
-            output->m_audioBuf = frame->data[0];
-            output->m_audioBufSize = frame->linesize[0];
-            output->m_audioBufIndex = 0;
+        // 消费数据后递减旧速度剩余量，确保时钟计算准确
+        output->m_oldBytesRemaining = qMax(0.0, output->m_oldBytesRemaining - toRead);
 
-            if (output->m_syncController)
-                output->m_syncController->updateAudioClock(
-                    frame->pts * av_q2d(frame->time_base));
-        }
-
-        int remaining = output->m_audioBufSize - output->m_audioBufIndex;
-        int toCopy = qMin(len, remaining);
-
-        SDL_MixAudioFormat(stream,
-                           output->m_audioBuf + output->m_audioBufIndex,
-                           output->m_audioSpec.format,
-                           toCopy, volume);
-
-        output->m_audioBufIndex += toCopy;
-        stream += toCopy;
-        len -= toCopy;
+        SDL_MixAudioFormat(stream, buf, output->m_audioSpec.format,
+                           (Uint32)toRead, volume);
+        stream += toRead;
+        len -= toRead;
     }
 }

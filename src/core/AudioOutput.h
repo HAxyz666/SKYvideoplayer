@@ -2,10 +2,10 @@
 
 #include <QObject>
 #include <atomic>
-#include <cstdint>
 
 extern "C" {
 #include <SDL2/SDL.h>
+#include <libavutil/fifo.h>
 }
 
 class FrameQueue;
@@ -27,25 +27,26 @@ public:
     void setMuted(bool muted);
     void pause();
     void resume();
-    void stop();
     void reset();
-    void closeDevice();
 
-    double volume() const;
-    bool muted() const;
-    double getAudioClock() const;
+    void setSpeed(double speed);
 
 private:
     static void sdlAudioCallback(void *userdata, Uint8 *stream, int len);
+    void fillAudioFifo();
+    void closeDevice();
 
     SDL_AudioDeviceID m_audioDeviceID;
     SDL_AudioSpec m_audioSpec;
     FrameQueue *m_frameQueue;
-    std::atomic<double> m_volume;   // 音量 0~100，原子类型，主线程写入、SDL 回调线程读取
-    std::atomic<bool> m_muted;      // 静音标志，原子类型，跨线程安全
-    uint8_t *m_audioBuf;
-    uint32_t m_audioBufSize;
-    uint32_t m_audioBufIndex;
+    std::atomic<double> m_volume;
+    std::atomic<bool> m_muted;
     AVSyncController *m_syncController;
-    AVFrame *m_currentFrame;
+
+    AVFifo *m_audioFifo;
+    static constexpr int kFifoSize = 256 * 1024;
+    double m_bytesPerSecond = 0.0;
+    std::atomic<double> m_speed{1.0};
+    double m_oldSpeed{1.0};
+    double m_oldBytesRemaining{0.0}; // 旧速度数据在 FIFO 中剩余字节
 };

@@ -32,13 +32,13 @@ public:
 
     // --- 列表操作 ---
     Q_INVOKABLE void addFile(const QString &filePath);       // 添加文件（已存在则跳过）
+    Q_INVOKABLE void addUrl(const QString &url);            // 添加 URL（网络流，不探测时长）
     Q_INVOKABLE void removeItem(int index);                  // 移除指定项
     Q_INVOKABLE void clear();                                // 清空全部
+    Q_INVOKABLE QVariantMap getItem(int row) const;          // 获取指定行的全部数据（供 QML 排序用）
 
     // --- 当前播放项 ---
     void setCurrentIndex(int index);             // 设置当前播放项，更新高亮
-    int currentIndex() const;                    // 获取当前播放索引
-    QString currentFilePath() const;             // 获取当前播放文件路径
 
     // --- 查询 ---
     int indexOf(const QString &filePath) const;  // 按路径查找索引

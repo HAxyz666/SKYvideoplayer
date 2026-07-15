@@ -31,7 +31,7 @@ Item {
         anchors.bottom: track.top
         anchors.bottomMargin: 2
         text: formatTime(root.dragging ? root.dragPosition : root.position) + " / " + formatTime(root.duration)
-        color: "#cccccc"
+        color: appController.theme === "dark" ? "#cccccc" : "#666666"
         font.pixelSize: 11
     }
 
@@ -44,7 +44,7 @@ Item {
         anchors.verticalCenterOffset: 6
         height: 6
         radius: 3
-        color: "#444444"
+        color: appController.theme === "dark" ? "#444444" : "#d0d0d0"
 
         // 已播放进度
         Rectangle {

@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 4.1.1)
-project(SKYvideoplayer VERSION 0.1 LANGUAGES CXX)
+project(SKYvideoplayer VERSION 2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Svg)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Svg ShaderTools)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -15,9 +15,17 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(AVCODEC REQUIRED IMPORTED_TARGET libavcodec)
 pkg_check_modules(AVFORMAT REQUIRED IMPORTED_TARGET libavformat)
 pkg_check_modules(AVUTIL REQUIRED IMPORTED_TARGET libavutil)
-pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 pkg_check_modules(SWRESAMPLE REQUIRED IMPORTED_TARGET libswresample)
+pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+
+find_library(LIBSONIC_LIBRARIES sonic REQUIRED)
+find_path(LIBSONIC_INCLUDE_DIRS sonic.h)
+
+if(UNIX AND NOT APPLE)
+    pkg_check_modules(LIBVA IMPORTED_TARGET libva)
+    pkg_check_modules(LIBDRM IMPORTED_TARGET libdrm)
+endif()
 
 set(CORE_SOURCES
     src/core/MediaEngine.cpp
@@ -29,6 +37,8 @@ set(CORE_SOURCES
     src/core/DemuxThread.cpp
     src/core/VideoDecodeThread.cpp
     src/core/AudioDecodeThread.cpp
+    src/core/SubtitleDecodeThread.cpp
+    src/core/NetworkStreamManager.cpp
 )
 
 set(CORE_HEADERS
@@ -41,20 +51,26 @@ set(CORE_HEADERS
     src/core/DemuxThread.h
     src/core/VideoDecodeThread.h
     src/core/AudioDecodeThread.h
+    src/core/SubtitleDecodeThread.h
+    src/core/NetworkStreamManager.h
 )
 
 set(LOGIC_SOURCES
     src/logic/Applicationcontroller.cpp
+    src/logic/PlaybackHistory.cpp
     src/logic/PlaylistModel.cpp
     src/logic/RecentFilesModel.cpp
+    src/logic/SettingsManager.cpp
 )
 
 set(LOGIC_HEADERS
     src/logic/Applicationcontroller.h
+    src/logic/PlaybackHistory.h
     src/logic/PlaylistItem.h
     src/logic/PlaylistModel.h
     src/logic/PlaybackMode.h
     src/logic/RecentFilesModel.h
+    src/logic/SettingsManager.h
 )
 
 qt6_add_executable(SKYvideoplayer
@@ -69,6 +85,25 @@ set_target_properties(SKYvideoplayer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
+# 翻译：.ts → .qm 自动编译
+find_program(LRELEASE_EXECUTABLE lrelease)
+if(LRELEASE_EXECUTABLE)
+    add_custom_command(
+        OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.qm"
+        COMMAND ${LRELEASE_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.ts"
+            -qm "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.qm"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.ts"
+        COMMENT "Compiling zh_CN.ts → zh_CN.qm"
+    )
+endif()
+
+qt6_add_resources(SKYvideoplayer "translations"
+    BASE "translations"
+    PREFIX "/i18n"
+    FILES translations/zh_CN.qm
+)
+
 qt6_add_qml_module(SKYvideoplayer
     URI SKYvideoplayer
     VERSION 1.0
@@ -76,11 +111,22 @@ qt6_add_qml_module(SKYvideoplayer
         qml/Main.qml
         qml/AppLayout.qml
         qml/AppSidebar.qml
+        qml/ControlBar.qml
         qml/PlayerController.qml
+        qml/PlayerView.qml
         qml/ProgressBar.qml
         qml/PlaylistPanel.qml
         qml/RecentHistory.qml
+        qml/SubtitleSelector.qml
         qml/VolumeControl.qml
+        qml/NetworkDialog.qml
+        qml/SettingsDialog.qml
+        qml/SubtitleStyleDialog.qml
+        qml/SubtitleOverlay.qml
+        qml/LoadingOverlay.qml
+        qml/ResumeToast.qml
+        qml/SpeedPopup.qml
+        qml/VideoAdjustPopup.qml
     SOURCES
         src/core/VideoRenderItem.cpp
 )
@@ -90,12 +136,45 @@ qt6_add_resources(SKYvideoplayer "icons"
     PREFIX "/icons"
     FILES
         resources/logos/LogoD.svg
+        resources/logos/LogoD.png
         resources/logos/LogoL.svg
+        resources/icons/exit_fullscreen.svg
+        resources/icons/play_list.svg
+        resources/icons/fullscreen.svg
+        resources/icons/exit_play.svg
+        resources/icons/pause.svg
+        resources/icons/play.svg
+        resources/icons/prev_file.svg
+        resources/icons/next_file.svg
+        resources/icons/video_adjust.svg
+        resources/icons/screenshot.svg
+)
+
+qt6_add_shaders(SKYvideoplayer "shaders"
+    BASE "resources/shaders"
+    PREFIX "/shaders"
+    GLSL "440"
+    NOHLSL
+    NOMSL
+    FILES
+        resources/shaders/yuv.vert
+        resources/shaders/yuv.frag
 )
 
 target_include_directories(SKYvideoplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
 )
+
+get_target_property(_qt6gui_inc Qt6::Gui INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_incdir IN LISTS _qt6gui_inc)
+    if(EXISTS "${_incdir}/QtGui/${Qt6_VERSION}/QtGui/rhi")
+        target_include_directories(SKYvideoplayer PRIVATE
+            "${_incdir}/QtGui/${Qt6_VERSION}/QtGui/rhi"
+            "${_incdir}/QtGui/${Qt6_VERSION}/QtGui"
+        )
+        break()
+    endif()
+endforeach()
 
 target_include_directories(SKYvideoplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/logic
@@ -105,10 +184,24 @@ target_link_libraries(SKYvideoplayer PRIVATE
     Qt6::Quick
     Qt6::Gui
     Qt6::Svg
+    Qt6::Concurrent
     PkgConfig::AVCODEC
     PkgConfig::AVFORMAT
     PkgConfig::AVUTIL
-    PkgConfig::SWSCALE
     PkgConfig::SWRESAMPLE
+    PkgConfig::SWSCALE
     PkgConfig::SDL2
+    ${LIBSONIC_LIBRARIES}
 )
+
+target_include_directories(SKYvideoplayer PRIVATE
+    ${LIBSONIC_INCLUDE_DIRS}
+)
+
+if(UNIX AND NOT APPLE AND LIBVA_FOUND AND LIBDRM_FOUND)
+    target_link_libraries(SKYvideoplayer PRIVATE
+        PkgConfig::LIBVA
+        PkgConfig::LIBDRM
+    )
+    target_compile_definitions(SKYvideoplayer PRIVATE ENABLE_HWACCEL)
+endif()

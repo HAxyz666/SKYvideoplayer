@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SKYvideoplayer
+Comment=Qt6-based video player with hardware acceleration
+Exec=/usr/bin/skyvideoplayer %f
+Icon=skyvideoplayer
+Terminal=false
+Categories=AudioVideo;Video;Player;
+MimeType=video/mp4;video/x-matroska;video/webm;video/x-avi;video/quicktime;

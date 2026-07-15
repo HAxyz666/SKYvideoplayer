@@ -22,6 +22,11 @@ Item {
                                                  : "audio-volume-low"))
             icon.width: 20
             icon.height: 20
+            flat: true
+            background: Rectangle {
+                radius: 4
+                color: muteBtn.hovered ? "#30ffffff" : "transparent"
+            }
             onClicked: appController.toggleMute()
         }
 
@@ -36,7 +41,19 @@ Item {
             value: appController.volume
             stepSize: 1
 
+            // Don't push back to the controller while the user is dragging —
+            // onMoved handles that. Using a binding alone breaks the first
+            // time the user drags, so we restore the value via Connections
+            // only when the slider is not actively pressed.
             onMoved: appController.volume = value
+
+            Connections {
+                target: appController
+                function onVolumeChanged(vol) {
+                    if (!volSlider.pressed)
+                        volSlider.value = vol
+                }
+            }
 
             handle: Rectangle {
                 x: volSlider.leftPadding + volSlider.visualPosition * (volSlider.availableWidth - width)
@@ -44,8 +61,10 @@ Item {
                 width: 14
                 height: 14
                 radius: 7
-                color: volSlider.pressed ? "#ffffff" : "#cccccc"
-                border.color: "#888888"
+                color: volSlider.pressed
+                    ? (appController.theme === "dark" ? "#ffffff" : "#333333")
+                    : (appController.theme === "dark" ? "#cccccc" : "#666666")
+                border.color: appController.theme === "dark" ? "#888888" : "#999999"
                 border.width: 1
             }
 
@@ -55,7 +74,7 @@ Item {
                 width: volSlider.availableWidth
                 height: 4
                 radius: 2
-                color: "#444444"
+                color: appController.theme === "dark" ? "#444444" : "#d0d0d0"
 
                 Rectangle {
                     width: volSlider.visualPosition * parent.width
@@ -71,7 +90,7 @@ Item {
             id: volLabel
             text: Math.round(volSlider.value) + "%"
             font.pixelSize: 11
-            color: "#cccccc"
+            color: appController.theme === "dark" ? "#cccccc" : "#666666"
             anchors.verticalCenter: parent.verticalCenter
             width: 36
             horizontalAlignment: Text.AlignRight

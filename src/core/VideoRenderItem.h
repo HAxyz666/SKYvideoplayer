@@ -1,27 +1,52 @@
 #pragma once
 
-#include <QQuickPaintedItem>
-#include <QImage>
+#include <QQuickRhiItem>
+#include <QByteArray>
+#include <QMutex>
+#include <QSize>
+#include <QString>
 #include <QtQml/qqmlregistration.h>
 
-class VideoRenderItem : public QQuickPaintedItem
+struct YUVFrame {
+    QByteArray yPlane;
+    QByteArray uPlane;
+    QByteArray vPlane;
+    QSize frameSize;
+};
+Q_DECLARE_METATYPE(YUVFrame)
+
+class VideoRenderItem : public QQuickRhiItem
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(QImage image READ image WRITE setImage NOTIFY imageChanged)
+    // 画面旋转角度 (0/90/180/270)，避开 QQuickItem 自带的 qreal rotation 属性
+    Q_PROPERTY(int videoRotation READ videoRotation WRITE setVideoRotation NOTIFY videoRotationChanged)
+    Q_PROPERTY(bool flipVertical READ flipVertical WRITE setFlipVertical NOTIFY flipVerticalChanged)
 
 public:
     explicit VideoRenderItem(QQuickItem *parent = nullptr);
 
-    void paint(QPainter *painter) override;
-
-    QImage image() const;
-    void setImage(const QImage &image);
+    Q_INVOKABLE void setYUVFrame(const YUVFrame &frame);
     Q_INVOKABLE void clearImage();
+    Q_INVOKABLE QString captureAndSave(const QString &savePath = QString(), const QString &baseName = QString());
+
+    int videoRotation() const { return m_videoRotation; }
+    void setVideoRotation(int angle);
+    bool flipVertical() const { return m_flipVertical; }
+    void setFlipVertical(bool flip);
 
 signals:
-    void imageChanged();
+    void videoRotationChanged();
+    void flipVerticalChanged();
+
+protected:
+    QQuickRhiItemRenderer *createRenderer() override;
 
 private:
-    QImage m_image;
+    friend class VideoRenderItemRenderer;
+    YUVFrame m_pendingFrame;
+    bool m_clearRequested{false};
+    QMutex m_mutex;
+    int m_videoRotation{0};
+    bool m_flipVertical{false};
 };

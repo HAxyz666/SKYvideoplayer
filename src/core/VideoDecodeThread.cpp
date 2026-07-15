@@ -2,24 +2,14 @@
 #include "PacketQueue.h"
 #include "FrameQueue.h"
 #include <QDebug>
-#include <QImage>
-
-extern "C" {
-#include <libavutil/imgutils.h>
-#include <libavutil/time.h>
-}
 
 VideoDecodeThread::VideoDecodeThread(QObject *parent)
     : QThread(parent)
     , m_codecCtx(nullptr)
     , m_packetQueue(nullptr)
     , m_frameQueue(nullptr)
-    , m_timeBase{1, 90000}
-    , m_startTime(0)
-    , m_pauseStartTime(0)
     , m_quit(false)
     , m_paused(nullptr)
-    , m_firstFrame(true)
 {
 }
 
@@ -27,36 +17,27 @@ VideoDecodeThread::~VideoDecodeThread()
 {
     stopDecode();
     wait();
+#ifdef ENABLE_HWACCEL
+    if (m_hwDeviceCtx)
+        av_buffer_unref(&m_hwDeviceCtx);
+#endif
 }
 
-void VideoDecodeThread::setCodecContext(AVCodecContext *ctx)
-{
-    m_codecCtx = ctx;
-}
-
-void VideoDecodeThread::setPacketQueue(PacketQueue *queue)
-{
-    m_packetQueue = queue;
-}
-
-void VideoDecodeThread::setFrameQueue(FrameQueue *queue)
-{
-    m_frameQueue = queue;
-}
-
-void VideoDecodeThread::setTimeBase(AVRational tb)
-{
-    m_timeBase = tb;
-}
+void VideoDecodeThread::setCodecContext(AVCodecContext *ctx) { m_codecCtx = ctx; }
+void VideoDecodeThread::setPacketQueue(PacketQueue *queue) { m_packetQueue = queue; }
+void VideoDecodeThread::setFrameQueue(FrameQueue *queue) { m_frameQueue = queue; }
 
 void VideoDecodeThread::stopDecode()
 {
     m_quit = true;
+    // 请求所有队列退出，唤醒阻塞的 pop()/push() 调用
     if (m_packetQueue) {
+        m_packetQueue->requestQuit();
         m_packetQueue->flush();
         m_packetQueue->setFinished(true);
     }
     if (m_frameQueue) {
+        m_frameQueue->requestQuit();
         m_frameQueue->flush();
         m_frameQueue->setFinished(true);
     }
@@ -67,57 +48,25 @@ void VideoDecodeThread::setPausedRef(const std::atomic<bool> &paused)
     m_paused = &paused;
 }
 
-void VideoDecodeThread::adjustStartTime(int64_t offset)
+#ifdef ENABLE_HWACCEL
+void VideoDecodeThread::setHwContext(AVBufferRef *ctx, AVPixelFormat pixFmt)
 {
-    if (offset < 0)
-        offset = av_gettime() - m_pauseStartTime;
-    m_startTime += offset;
+    if (ctx)
+        m_hwDeviceCtx = av_buffer_ref(ctx);
+    m_hwPixFmt = pixFmt;
 }
+#endif
 
 void VideoDecodeThread::run()
 {
-    if (!m_codecCtx || !m_packetQueue)
+    if (!m_codecCtx || !m_packetQueue || !m_frameQueue)
         return;
-
-    int videoWidth = m_codecCtx->width;
-    int videoHeight = m_codecCtx->height;
-
-    SwsContext *swsCtx = sws_getContext(
-        videoWidth, videoHeight, m_codecCtx->pix_fmt,
-        videoWidth, videoHeight, AV_PIX_FMT_RGB24,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
-    if (!swsCtx) {
-        emit frameReady(QImage());
-        return;
-    }
-
-    AVFrame *rgbFrame = av_frame_alloc();
-    int rgbWidth = (videoWidth + 15) & ~15;
-    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, rgbWidth, videoHeight, 32);
-    if (numBytes <= 0) {
-        sws_freeContext(swsCtx);
-        return;
-    }
-    uint8_t *buffer = (uint8_t *)av_malloc(numBytes);
-    if (!buffer) {
-        av_frame_free(&rgbFrame);
-        sws_freeContext(swsCtx);
-        return;
-    }
-    av_image_fill_arrays(rgbFrame->data, rgbFrame->linesize, buffer, AV_PIX_FMT_RGB24,
-                         rgbWidth, videoHeight, 32);
-
-    m_startTime = av_gettime();
 
     while (!m_quit) {
         if (m_paused && m_paused->load()) {
-            if (m_pauseStartTime == 0)
-                m_pauseStartTime = av_gettime();
             while (!m_quit && m_paused->load())
                 msleep(10);
             if (m_quit) break;
-            adjustStartTime();
-            m_pauseStartTime = 0;
             continue;
         }
 
@@ -131,7 +80,7 @@ void VideoDecodeThread::run()
         if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
             continue;
 
-    while (!m_quit) {
+        while (!m_quit) {
             AVFrame *frame = av_frame_alloc();
             ret = avcodec_receive_frame(m_codecCtx, frame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
@@ -143,49 +92,31 @@ void VideoDecodeThread::run()
                 break;
             }
 
-            if (m_frameQueue)
-                m_frameQueue->push(frame);
-
-            sws_scale(swsCtx, frame->data, frame->linesize, 0,
-                      frame->height, rgbFrame->data, rgbFrame->linesize);
-
-            if (frame->pts != AV_NOPTS_VALUE) {
-                double pts = frame->pts * av_q2d(m_timeBase);
-                int64_t ptsUs = static_cast<int64_t>(pts * 1000000);
-
-                if (m_firstFrame) {
-                    m_startTime = av_gettime() - ptsUs;
-                    m_firstFrame = false;
+#ifdef ENABLE_HWACCEL
+            // 将硬件帧转换为系统内存中的 NV12 格式，以便显示端提取 YUV 平面而无需调用硬件 API。
+            if (m_hwPixFmt != AV_PIX_FMT_NONE && frame->format == m_hwPixFmt) {
+                AVFrame *swFrame = av_frame_alloc();
+                if (!swFrame) {
+                    av_frame_free(&frame);
+                    continue;
                 }
-
-                int64_t now = av_gettime();
-                int64_t delay = ptsUs - (now - m_startTime);
-                while (delay > 0 && !m_quit && !(m_paused && m_paused->load())) {
-                    int64_t sleepUs = qMin(delay, (int64_t)10000);
-                    av_usleep(sleepUs);
-                    delay = ptsUs - (av_gettime() - m_startTime);
+                swFrame->format = AV_PIX_FMT_NV12;
+                if (av_hwframe_transfer_data(swFrame, frame, 0) != 0) {
+                    qWarning() << "av_hwframe_transfer_data failed, dropping frame";
+                    av_frame_free(&swFrame);
+                    av_frame_free(&frame);
+                    continue;
                 }
-            }
-            if (m_quit) {
-                av_frame_unref(frame);
+                av_frame_copy_props(swFrame, frame);
                 av_frame_free(&frame);
-                break;
+                frame = swFrame;
             }
-
-            QImage image(rgbFrame->data[0], rgbWidth, videoHeight,
-                         rgbFrame->linesize[0], QImage::Format_RGB888);
-            QImage cropped = image.copy(0, 0, videoWidth, videoHeight);
-            emit frameReady(cropped);
-
-            av_frame_unref(frame);
+#endif
+            // FrameQueue::push 会克隆帧，因此可以立即释放本地引用。
+            m_frameQueue->push(frame);
             av_frame_free(&frame);
         }
     }
 
-    av_free(buffer);
-    av_frame_free(&rgbFrame);
-    sws_freeContext(swsCtx);
-
-    if (m_frameQueue)
-        m_frameQueue->setFinished(true);
+    m_frameQueue->setFinished(true);
 }

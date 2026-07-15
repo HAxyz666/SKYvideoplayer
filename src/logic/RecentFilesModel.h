@@ -31,7 +31,6 @@ public:
 
     Q_INVOKABLE void addFile(const QString &filePath);
     Q_INVOKABLE void removeFile(int index);
-    Q_INVOKABLE void clear();
 
     void saveToSettings();
     void loadFromSettings();
@@ -40,6 +39,6 @@ signals:
     void countChanged();
 
 private:
-    static constexpr int kMaxItems = 10;
+    static constexpr int kMaxItems = 50;
     QList<RecentFileEntry> m_items;
 };

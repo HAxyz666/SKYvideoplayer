@@ -1,5 +1,10 @@
 #include "PlaylistModel.h"
 #include <QFileInfo>
+#include <QUrl>
+
+extern "C" {
+#include <libavformat/avformat.h>
+}
 
 PlaylistModel::PlaylistModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -42,6 +47,21 @@ QHash<int, QByteArray> PlaylistModel::roleNames() const
     };
 }
 
+// 使用 FFmpeg 探测媒体文件时长（秒）
+static double probeDuration(const QString &filePath)
+{
+    AVFormatContext *fmtCtx = nullptr;
+    if (avformat_open_input(&fmtCtx, filePath.toUtf8().constData(), nullptr, nullptr) < 0)
+        return 0.0;
+    if (avformat_find_stream_info(fmtCtx, nullptr) < 0) {
+        avformat_close_input(&fmtCtx);
+        return 0.0;
+    }
+    double duration = fmtCtx->duration / (double)AV_TIME_BASE;
+    avformat_close_input(&fmtCtx);
+    return duration > 0 ? duration : 0.0;
+}
+
 // 添加文件到列表末尾，已存在则跳过
 void PlaylistModel::addFile(const QString &filePath)
 {
@@ -52,7 +72,30 @@ void PlaylistModel::addFile(const QString &filePath)
 
     int row = m_items.size();
     beginInsertRows(QModelIndex(), row, row);
-    m_items.append({ extractTitle(filePath), filePath, 0.0 });
+    m_items.append({ extractTitle(filePath), filePath, probeDuration(filePath) });
+    endInsertRows();
+    emit countChanged();
+}
+
+// 添加网络 URL（不探测时长，已存在则跳过）
+void PlaylistModel::addUrl(const QString &url)
+{
+    QString filePath = url;
+    if (filePath.startsWith("file://"))
+        filePath = filePath.mid(7);
+
+    for (const auto &item : m_items) {
+        if (item.filePath == filePath)
+            return;
+    }
+
+    QString title = QUrl::fromUserInput(filePath).fileName();
+    if (title.isEmpty())
+        title = filePath;
+
+    int row = m_items.size();
+    beginInsertRows(QModelIndex(), row, row);
+    m_items.append({ title, filePath, 0.0 });
     endInsertRows();
     emit countChanged();
 }
@@ -67,12 +110,33 @@ void PlaylistModel::removeItem(int index)
     m_items.removeAt(index);
     endRemoveRows();
 
-    if (m_currentIndex == index)
+    bool currentChanged = false;
+    if (m_currentIndex == index) {
         m_currentIndex = -1;
-    else if (m_currentIndex > index)
+        currentChanged = true;
+    } else if (m_currentIndex > index) {
         m_currentIndex--;
+        currentChanged = true;
+    }
 
     emit countChanged();
+    if (currentChanged)
+        emit currentIndexChanged();
+}
+
+// 获取指定行的全部数据，供 QML 排序用
+QVariantMap PlaylistModel::getItem(int row) const
+{
+    QVariantMap map;
+    if (row < 0 || row >= m_items.size())
+        return map;
+    const auto &item = m_items.at(row);
+    map["title"] = item.title;
+    map["filePath"] = item.filePath;
+    map["duration"] = item.duration;
+    map["isPlaying"] = (row == m_currentIndex);
+    map["sourceRow"] = row;
+    return map;
 }
 
 // 清空整个播放列表
@@ -90,7 +154,9 @@ void PlaylistModel::clear()
 // 设置当前播放项，自动更新旧项和新项的高亮状态
 void PlaylistModel::setCurrentIndex(int index)
 {
-    if (index == m_currentIndex || index < 0 || index >= m_items.size())
+    if (index < 0 || index >= m_items.size())
+        return;
+    if (index == m_currentIndex)
         return;
 
     int old = m_currentIndex;
@@ -100,20 +166,6 @@ void PlaylistModel::setCurrentIndex(int index)
     if (old >= 0 && old < m_items.size())
         emit dataChanged(createIndex(old, 0), createIndex(old, 0), { IsPlayingRole });
     emit dataChanged(createIndex(m_currentIndex, 0), createIndex(m_currentIndex, 0), { IsPlayingRole });
-}
-
-// 获取当前播放索引
-int PlaylistModel::currentIndex() const
-{
-    return m_currentIndex;
-}
-
-// 获取当前播放项的文件路径
-QString PlaylistModel::currentFilePath() const
-{
-    if (m_currentIndex < 0 || m_currentIndex >= m_items.size())
-        return {};
-    return m_items.at(m_currentIndex).filePath;
 }
 
 // 按文件路径查找索引，不存在返回 -1
@@ -143,7 +195,7 @@ int PlaylistModel::count() const
 // 是否有上一首
 bool PlaylistModel::hasPrev() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0)
         return false;
     switch (m_playbackMode) {
     case PlaybackMode::Loop:
@@ -158,7 +210,7 @@ bool PlaylistModel::hasPrev() const
 // 是否有下一首
 bool PlaylistModel::hasNext() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0)
         return false;
     switch (m_playbackMode) {
     case PlaybackMode::Loop:
@@ -173,7 +225,7 @@ bool PlaylistModel::hasNext() const
 // 获取上一首文件路径（根据播放模式）
 QString PlaylistModel::prevFilePath() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0 || m_currentIndex >= m_items.size())
         return {};
 
     switch (m_playbackMode) {
@@ -192,7 +244,7 @@ QString PlaylistModel::prevFilePath() const
 // 获取下一首文件路径（根据播放模式）
 QString PlaylistModel::nextFilePath() const
 {
-    if (m_items.isEmpty())
+    if (m_items.isEmpty() || m_currentIndex < 0 || m_currentIndex >= m_items.size())
         return {};
 
     switch (m_playbackMode) {

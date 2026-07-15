@@ -4,7 +4,6 @@
 FrameQueue::FrameQueue(int maxSize)
     : m_maxSize(maxSize)
     , m_finished(false)
-    , m_serial(0)
 {
 }
 
@@ -20,9 +19,12 @@ void FrameQueue::push(AVFrame *frame)
         return;
 
     std::unique_lock lock(m_mutex);
-    m_notFull.wait(lock, [this]() { return m_queue.size() < m_maxSize || m_finished; });
+    // 使用 wait_for 每 100ms 检查一次退出标志
+    m_notFull.wait_for(lock, std::chrono::milliseconds(100), [this]() {
+        return m_queue.size() < m_maxSize || m_finished || m_quitRequested.load();
+    });
 
-    if (m_finished) {
+    if (m_finished || m_quitRequested.load()) {
         av_frame_free(&newFrame);
         return;
     }
@@ -31,17 +33,13 @@ void FrameQueue::push(AVFrame *frame)
     m_notEmpty.notify_one();
 }
 
-AVFrame *FrameQueue::pop()
+void FrameQueue::requestQuit()
 {
-    std::unique_lock lock(m_mutex);
-    m_notEmpty.wait(lock, [this]() { return !m_queue.isEmpty() || m_finished; });
-
-    if (m_queue.isEmpty())
-        return nullptr;
-
-    AVFrame *frame = m_queue.dequeue();
-    m_notFull.notify_one();
-    return frame;
+    m_quitRequested.store(true);
+    // 唤醒所有等待的线程
+    std::lock_guard lock(m_mutex);
+    m_notEmpty.notify_all();
+    m_notFull.notify_all();
 }
 
 AVFrame *FrameQueue::tryPop(int timeoutMs)
@@ -67,24 +65,6 @@ AVFrame *FrameQueue::peek()
     return m_queue.head();
 }
 
-int FrameQueue::size() const
-{
-    std::lock_guard lock(m_mutex);
-    return m_queue.size();
-}
-
-bool FrameQueue::isFull() const
-{
-    std::lock_guard lock(m_mutex);
-    return m_queue.size() >= m_maxSize;
-}
-
-bool FrameQueue::isEmpty() const
-{
-    std::lock_guard lock(m_mutex);
-    return m_queue.isEmpty();
-}
-
 void FrameQueue::clear()
 {
     std::lock_guard lock(m_mutex);
@@ -103,12 +83,6 @@ void FrameQueue::setFinished(bool finished)
     m_notFull.notify_all();
 }
 
-bool FrameQueue::isFinished() const
-{
-    std::lock_guard lock(m_mutex);
-    return m_finished;
-}
-
 void FrameQueue::flush()
 {
     std::lock_guard lock(m_mutex);
@@ -116,13 +90,12 @@ void FrameQueue::flush()
         AVFrame *frame = m_queue.dequeue();
         av_frame_free(&frame);
     }
-    m_serial++;
     m_notEmpty.notify_all();
     m_notFull.notify_all();
 }
 
-int FrameQueue::serial() const
+int FrameQueue::size() const
 {
     std::lock_guard lock(m_mutex);
-    return m_serial;
+    return m_queue.size();
 }
