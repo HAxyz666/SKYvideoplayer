@@ -573,9 +573,19 @@ void ApplicationController::setModalCount(int count)
     }
 }
 
-void ApplicationController::setVideoRenderItem(VideoRenderItem *item)
+void ApplicationController::connectVideoDisplay()
 {
-    m_videoRenderItem = item;
+    if (!m_qmlEngine)
+        return;
+    auto rootObjects = m_qmlEngine->rootObjects();
+    if (rootObjects.isEmpty())
+        return;
+    VideoRenderItem *display = rootObjects.first()->findChild<VideoRenderItem *>("videoRenderItem");
+    if (display) {
+        QObject::connect(m_mediaEngine, &MediaEngine::frameReady,
+                         display, &VideoRenderItem::setYUVFrame);
+        m_videoRenderItem = display;
+    }
 }
 
 void ApplicationController::setEngine(QQmlApplicationEngine *engine)

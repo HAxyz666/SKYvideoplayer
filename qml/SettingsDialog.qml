@@ -361,7 +361,7 @@ Popup {
 
                     Label {
                         Layout.alignment: Qt.AlignHCenter
-                        text: qsTr("Version 1.0")
+                        text: qsTr("Version 2.0")
                         font.pixelSize: 13
                         color: appController.theme === "dark" ? "#cccccc" : "#666666"
                     }

@@ -80,8 +80,8 @@ public:
     int modalCount() const;
     void setModalCount(int count);
 
-    void setVideoRenderItem(VideoRenderItem *item);
     void setEngine(QQmlApplicationEngine *engine);
+    void connectVideoDisplay();
 
     MediaEngine *mediaEngine() const;
     PlaylistModel *playlistModel() const;

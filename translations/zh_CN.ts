@@ -390,8 +390,8 @@
     </message>
     <message>
         <location filename="../qml/SettingsDialog.qml" line="185"/>
-        <source>Version 1.0</source>
-        <translation>版本 1.0</translation>
+        <source>Version 2.0</source>
+        <translation>版本 2.0</translation>
     </message>
     <message>
         <location filename="../qml/SettingsDialog.qml" line="192"/>

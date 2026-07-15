@@ -1,5 +1,4 @@
 #include "Applicationcontroller.h"
-#include "MediaEngine.h"
 #include "SettingsManager.h"
 #include "VideoRenderItem.h"
 #include "PlaybackMode.h"
@@ -26,16 +25,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("settingsManager", &SettingsManager::instance());
 
     engine.loadFromModule("SKYvideoplayer", "Main");
-
-    auto rootObjects = engine.rootObjects();
-    if (!rootObjects.isEmpty()) {
-        VideoRenderItem *display = rootObjects.first()->findChild<VideoRenderItem *>("videoRenderItem");
-        if (display) {
-            QObject::connect(controller.mediaEngine(), &MediaEngine::frameReady,
-                             display, &VideoRenderItem::setYUVFrame);
-            controller.setVideoRenderItem(display);
-        }
-    }
+    controller.connectVideoDisplay();
 
     return app.exec();
 }
