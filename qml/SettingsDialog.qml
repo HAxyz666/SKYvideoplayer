@@ -17,6 +17,7 @@ Popup {
 
     property string currentTab: "screenshot"
     property string editingShortcut: ""
+    signal requestScreenshotPath()
 
     background: Rectangle {
         radius: 8
@@ -228,7 +229,9 @@ Popup {
                         implicitHeight: 24
                         onClicked: {
                             settingsPopup.close()
-                            screenshotFolderDialog.open()
+                            Qt.callLater(function() {
+                                settingsPopup.requestScreenshotPath()
+                            })
                         }
                         contentItem: Label {
                             text: parent.text
@@ -534,15 +537,4 @@ Popup {
         }
     }
 
-    FolderDialog {
-        id: screenshotFolderDialog
-        title: qsTr("Select screenshot save folder")
-        onVisibleChanged: appController.modalCount = appController.modalCount + (visible ? 1 : -1)
-        onAccepted: {
-            var path = selectedFolder.toString()
-            if (path.startsWith("file://"))
-                path = path.substring(7)
-            appController.screenshotPath = path
-        }
-    }
 }

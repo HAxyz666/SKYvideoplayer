@@ -146,5 +146,18 @@ Rectangle {
 
     SettingsDialog {
         id: settingsPopup
+        onRequestScreenshotPath: screenshotFolderDialog.open()
+    }
+
+    FolderDialog {
+        id: screenshotFolderDialog
+        title: qsTr("Select screenshot save folder")
+        onVisibleChanged: appController.modalCount = appController.modalCount + (visible ? 1 : -1)
+        onAccepted: {
+            var path = selectedFolder.toString()
+            if (path.startsWith("file://"))
+                path = path.substring(7)
+            appController.screenshotPath = path
+        }
     }
 }
