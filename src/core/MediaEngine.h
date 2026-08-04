@@ -136,7 +136,7 @@ signals:
     void bufferStateChanged(int state);
 
 private:
-    static constexpr int kAudioFrameQueueSize = 32;
+    static constexpr int kAudioFrameQueueSize = 16;
 
     bool initFFmpeg(const QString &filename);
     void cleanup();

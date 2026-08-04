@@ -794,7 +794,7 @@ void MediaEngine::setSpeed(double speed)
     m_speed = speed;
 
     // 不断音变速：不 seek、不清任何缓冲。
-    // 1) 音频解码线程立即切换 sonic 速度（新解码帧按新速度变速）；
+    // 1) 音频解码线程先切换 sonic 速度（新解码帧按新速度变速）；
     // 2) AudioOutput 快照"旧速度预缓冲"（FIFO+帧队列），时钟折算按
     //    旧速度消耗旧数据、耗尽后按新速度，时钟全程连续不冻结；
     // 3) AVSyncController 从旧速率平滑收敛到新速率，视频 delay 折算

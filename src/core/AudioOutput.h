@@ -49,7 +49,7 @@ private:
     AVSyncController *m_syncController;
 
     AVFifo *m_audioFifo;
-    static constexpr int kFifoSize = 256 * 1024;
+    static constexpr int kFifoSize = 96 * 1024;
     double m_bytesPerSecond = 0.0;
     std::atomic<double> m_speed{1.0};
     std::atomic<double> m_oldSpeed{1.0};

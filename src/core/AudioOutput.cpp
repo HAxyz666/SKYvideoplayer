@@ -129,13 +129,15 @@ void AudioOutput::reset()
 void AudioOutput::setSpeed(double speed)
 {
     speed = qBound(0.5, speed, 2.0);
-    if (qFuzzyCompare(m_speed.load(std::memory_order_relaxed), speed))
+    double oldSpeed = m_speed.load(std::memory_order_relaxed);
+    if (qFuzzyCompare(oldSpeed, speed))
         return;
+    m_speed.store(speed, std::memory_order_relaxed);
+    m_oldSpeed.store(oldSpeed, std::memory_order_relaxed);
 
-    m_oldSpeed.store(m_speed.load(std::memory_order_relaxed), std::memory_order_relaxed);
     // 旧速度预缓冲 = FIFO 中已填充字节 + 解码帧队列中剩余字节。
-    // 帧队列必须计入：sonic 切速是异步的，切速瞬间队列里还有一批旧速度音频
-    //（约 0.4~1.5s），若按新速度折算会让时钟超前，视频因此落后卡顿。
+    // 帧队列必须计入：sonic 切速是异步的，切速瞬间队列里还有一批旧速度音频，
+    // 若按新速度折算会让时钟超前，视频因此落后卡顿。
     if (m_audioDeviceID != 0)
         SDL_LockAudioDevice(m_audioDeviceID);
     double queuedBytes = m_frameQueue ? static_cast<double>(m_frameQueue->totalBytes()) : 0.0;
@@ -144,7 +146,6 @@ void AudioOutput::setSpeed(double speed)
     m_transitionNotified.store(false, std::memory_order_relaxed);
     if (m_audioDeviceID != 0)
         SDL_UnlockAudioDevice(m_audioDeviceID);
-    m_speed.store(speed, std::memory_order_relaxed);
 }
 
 void AudioOutput::fillAudioFifo()
