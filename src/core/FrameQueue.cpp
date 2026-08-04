@@ -99,3 +99,16 @@ int FrameQueue::size() const
     std::lock_guard lock(m_mutex);
     return m_queue.size();
 }
+
+size_t FrameQueue::totalBytes() const
+{
+    std::lock_guard lock(m_mutex);
+    size_t total = 0;
+    for (const AVFrame *f : m_queue) {
+        if (f->linesize[0] > 0)
+            total += static_cast<size_t>(f->linesize[0]);
+        else
+            total += static_cast<size_t>(f->nb_samples) * f->ch_layout.nb_channels * 2;
+    }
+    return total;
+}

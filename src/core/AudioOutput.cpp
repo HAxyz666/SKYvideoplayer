@@ -119,17 +119,32 @@ void AudioOutput::reset()
         SDL_LockAudioDevice(m_audioDeviceID);
     if (m_audioFifo)
         av_fifo_reset2(m_audioFifo);
-    m_oldBytesRemaining = 0.0;
-    m_oldSpeed = m_speed.load(std::memory_order_relaxed);
+    m_oldBytesRemaining.store(0.0, std::memory_order_relaxed);
+    m_oldSpeed.store(m_speed.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    m_transitionNotified.store(true, std::memory_order_relaxed);
     if (m_audioDeviceID != 0)
         SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::setSpeed(double speed)
 {
-    m_oldSpeed = m_speed.load(std::memory_order_relaxed);
-    m_oldBytesRemaining = static_cast<double>(av_fifo_can_read(m_audioFifo));
-    m_speed.store(qBound(0.5, speed, 2.0), std::memory_order_relaxed);
+    speed = qBound(0.5, speed, 2.0);
+    if (qFuzzyCompare(m_speed.load(std::memory_order_relaxed), speed))
+        return;
+
+    m_oldSpeed.store(m_speed.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    // 旧速度预缓冲 = FIFO 中已填充字节 + 解码帧队列中剩余字节。
+    // 帧队列必须计入：sonic 切速是异步的，切速瞬间队列里还有一批旧速度音频
+    //（约 0.4~1.5s），若按新速度折算会让时钟超前，视频因此落后卡顿。
+    if (m_audioDeviceID != 0)
+        SDL_LockAudioDevice(m_audioDeviceID);
+    double queuedBytes = m_frameQueue ? static_cast<double>(m_frameQueue->totalBytes()) : 0.0;
+    double fifoBytes = static_cast<double>(av_fifo_can_read(m_audioFifo));
+    m_oldBytesRemaining.store(fifoBytes + queuedBytes, std::memory_order_relaxed);
+    m_transitionNotified.store(false, std::memory_order_relaxed);
+    if (m_audioDeviceID != 0)
+        SDL_UnlockAudioDevice(m_audioDeviceID);
+    m_speed.store(speed, std::memory_order_relaxed);
 }
 
 void AudioOutput::fillAudioFifo()
@@ -159,9 +174,10 @@ void AudioOutput::fillAudioFifo()
             if (m_bytesPerSecond > 0.0) {
                 double bufferedBytes = static_cast<double>(av_fifo_can_read(m_audioFifo));
                 double speed = m_speed.load(std::memory_order_relaxed);
-                double oldBytes = qMin(bufferedBytes, m_oldBytesRemaining);
+                double oldBytes = qMin(bufferedBytes, m_oldBytesRemaining.load(std::memory_order_relaxed));
                 double newBytes = bufferedBytes - oldBytes;
-                clock -= (oldBytes * m_oldSpeed + newBytes * speed) / m_bytesPerSecond;
+                clock -= (oldBytes * m_oldSpeed.load(std::memory_order_relaxed)
+                          + newBytes * speed) / m_bytesPerSecond;
             }
             m_syncController->updateAudioClock(clock);
         }
@@ -196,7 +212,19 @@ void AudioOutput::sdlAudioCallback(void *userdata, Uint8 *stream, int len)
         av_fifo_read(output->m_audioFifo, buf, toRead);
 
         // 消费数据后递减旧速度剩余量，确保时钟计算准确
-        output->m_oldBytesRemaining = qMax(0.0, output->m_oldBytesRemaining - toRead);
+        double oldRemaining = output->m_oldBytesRemaining.load(std::memory_order_relaxed);
+        if (oldRemaining > 0.0) {
+            oldRemaining = qMax(0.0, oldRemaining - toRead);
+            output->m_oldBytesRemaining.store(oldRemaining, std::memory_order_relaxed);
+
+            // 旧速度预缓冲耗尽：通知主线程旧数据已播完，节奏已切换到新速度。
+            if (oldRemaining <= 0.0) {
+                bool expected = false;
+                if (output->m_transitionNotified.compare_exchange_strong(expected, true,
+                                                                        std::memory_order_relaxed))
+                    emit output->speedTransitionFinished();
+            }
+        }
 
         SDL_MixAudioFormat(stream, buf, output->m_audioSpec.format,
                            (Uint32)toRead, volume);

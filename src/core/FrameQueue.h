@@ -22,6 +22,7 @@ public:
     void setFinished(bool finished);
     void flush();
     int size() const;
+    size_t totalBytes() const;
 
     // 设置退出标志，唤醒所有等待的线程
     void requestQuit();

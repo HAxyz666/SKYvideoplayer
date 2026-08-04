@@ -167,6 +167,13 @@ private:
     // 缓冲检测
     void checkBufferState();
 
+    // 变速过渡（不断音方案）
+    // m_displaySpeed：界面显示用速度。变速瞬间新速度先作用于解码/时钟，
+    // 而旧速度预缓冲（FIFO+帧队列）会以旧节奏继续播完，因此显示速度先保持旧值、
+    // 待 AudioOutput 发出 speedTransitionFinished 后再切为新速度并重锚定，
+    // 保证进度条与听感位置全程一致。
+    void onSpeedTransitionFinished();
+
     QString m_filename;
 
     AVFormatContext *m_fmtCtx;
@@ -194,6 +201,11 @@ private:
     QThread *m_displayThread{nullptr};
     std::atomic<bool> m_displayStopRequested{false};
 
+    // 帧率检测与同步统计
+    double m_lastDisplayedPts{-1.0};   // 上一帧显示的PTS
+    int m_fpsFrameCount{0};             // 帧率计算用帧计数
+    QElapsedTimer m_fpsTimer;           // 帧率计算用计时器
+
     AVRational m_videoTimeBase{1, 90000};
 
     std::atomic<bool> m_paused;
@@ -209,6 +221,7 @@ private:
     bool m_muted;
     bool m_audioOutputReady;
     double m_speed;
+    double m_displaySpeed{1.0};     // 界面显示用速度（变速过渡期保持旧值）
     bool m_isLoading{false};
     QString m_loadingText;
 

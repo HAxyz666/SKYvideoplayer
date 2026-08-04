@@ -116,6 +116,9 @@ MediaEngine::MediaEngine(QObject *parent)
     m_bufferCheckTimer = new QTimer(this);
     m_bufferCheckTimer->setInterval(500);
     connect(m_bufferCheckTimer, &QTimer::timeout, this, &MediaEngine::checkBufferState);
+
+    connect(m_audioOutput, &AudioOutput::speedTransitionFinished,
+            this, &MediaEngine::onSpeedTransitionFinished);
 }
 
 MediaEngine::~MediaEngine()
@@ -377,6 +380,7 @@ void MediaEngine::startPlayback()
     m_startTimeUs = av_gettime();
     m_pausedDurationUs = 0;
     m_pauseStartUs = 0;
+    m_displaySpeed = m_speed;   // 界面显示速度跟随当前倍速
 
     startThreads();
     initAudioOutput();
@@ -782,30 +786,59 @@ bool MediaEngine::isLiveStream() const
 
 void MediaEngine::setSpeed(double speed)
 {
-    // 匹配音频 atempo 滤镜的工作范围，保持音画同步。
+    // 匹配音频 sonic/atempo 的工作范围，保持音画同步。
     speed = qBound(0.5, speed, 2.0);
     if (qFuzzyCompare(m_speed, speed))
         return;
     double oldSpeed = m_speed;
     m_speed = speed;
 
-    // 重新锚定挂钟起始时间，使显示位置在变速时连续。
-    // 暂停时以暂停时刻为锚点，避免恢复播放时跳变。
-    if (m_startTimeUs != 0) {
-        qint64 refTime = m_paused ? m_pauseStartUs : av_gettime();
-        double currentPos = (refTime - m_startTimeUs - m_pausedDurationUs) * oldSpeed / 1000000.0;
-        m_startTimeUs = refTime - m_pausedDurationUs
-                        - static_cast<qint64>(currentPos * 1000000.0 / speed);
-    }
-
-    // 音频侧立即生效：sonic 变速 + FIFO 内部时钟分段处理旧/新数据。
-    // 视频侧通过 AVSyncController 实测音频推进速率来平滑跟随，
-    // 过渡期间 m_actualAudioRate 在旧速和新速之间渐变，视频自然匹配。
-    m_syncController->setSpeed(speed);
+    // 不断音变速：不 seek、不清任何缓冲。
+    // 1) 音频解码线程立即切换 sonic 速度（新解码帧按新速度变速）；
+    // 2) AudioOutput 快照"旧速度预缓冲"（FIFO+帧队列），时钟折算按
+    //    旧速度消耗旧数据、耗尽后按新速度，时钟全程连续不冻结；
+    // 3) AVSyncController 从旧速率平滑收敛到新速率，视频 delay 折算
+    //    跟随音频实际推进节奏，画面既不冻结也不快进跳变。
     if (m_audioThread)
         m_audioThread->setSpeed(speed);
-    m_audioOutput->setSpeed(speed);
+    if (m_audioOutput)
+        m_audioOutput->setSpeed(speed);
+    if (m_syncController)
+        m_syncController->setSpeed(speed);
+
+    // 界面位置：内容在旧缓冲耗尽前仍按旧节奏前进，显示速度先保持旧值，
+    // 重锚定到当前听感位置；AudioOutput 检测到旧数据耗尽时切为新速度。
+    if (m_startTimeUs != 0) {
+        double contentPos = m_syncController ? m_syncController->audioClock() : 0.0;
+        if (!(contentPos > 0.0))   // 音频时钟不可用（刚开始播放）时退回界面位置
+            contentPos = m_position;
+        m_displaySpeed = oldSpeed;
+        m_startTimeUs = av_gettime()
+            - static_cast<qint64>(contentPos * 1000000.0 / qMax(oldSpeed, 0.1));
+        m_pausedDurationUs = 0;
+        if (m_paused)
+            m_pauseStartUs = av_gettime();
+    }
+
     emit speedChanged(m_speed);
+}
+
+void MediaEngine::onSpeedTransitionFinished()
+{
+    // 旧速度预缓冲已全部消费：管线内只剩新速度数据，播放节奏已完全切换。
+    if (m_displaySpeed == m_speed || m_startTimeUs == 0)
+        return;
+    m_displaySpeed = m_speed;
+
+    // 重新锚定到听感位置（内容已按新速度推进），界面继续以新速度前进。
+    double contentPos = m_syncController ? m_syncController->audioClock() : 0.0;
+    if (!(contentPos > 0.0))
+        contentPos = m_position;
+    m_startTimeUs = av_gettime()
+        - static_cast<qint64>(contentPos * 1000000.0 / qMax(m_speed, 0.1));
+    m_pausedDurationUs = 0;
+    if (m_paused)
+        m_pauseStartUs = av_gettime();
 }
 
 double MediaEngine::speed() const
@@ -849,7 +882,7 @@ void MediaEngine::updatePosition()
     if (m_paused || m_startTimeUs == 0)
         return;
 
-    double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs) * m_speed / 1000000.0;
+    double pos = (av_gettime() - m_startTimeUs - m_pausedDurationUs) * m_displaySpeed / 1000000.0;
     if (pos < 0) pos = 0;
     if (m_duration > 0 && pos > m_duration) pos = m_duration;
 
@@ -1484,10 +1517,37 @@ void MediaEngine::displayLoop()
         if (frame->pts != AV_NOPTS_VALUE)
             pts = frame->pts * av_q2d(m_videoTimeBase);
 
-        double delay = m_syncController->computeFrameDelay(pts);
+        // 使用新的 computeFrameSync 接口获取同步动作
+        SyncResult sync = m_syncController->computeFrameSync(pts);
 
-        if (delay > 0.0) {
-            av_usleep(static_cast<qint64>(delay * 1000000.0));
+        // 计算 A-V diff 用于统计
+        double audioClock = m_syncController->audioClock();
+        double avDiff = pts - audioClock;
+        m_syncController->recordSyncEvent(sync.action, avDiff);
+
+        switch (sync.action) {
+        case SyncAction::SkipFrame:
+            // 丢弃当前帧
+            frame = m_videoFrameQueue->tryPop(0);
+            if (frame) {
+                m_syncController->onFrameDisplayed(pts);
+                av_frame_free(&frame);
+            }
+            continue;  // 不显示，继续下一帧
+
+        case SyncAction::RepeatFrame:
+            // 等待后重复显示上一帧（不取新帧）
+            if (sync.delay > 0.0)
+                av_usleep(static_cast<qint64>(sync.delay * 1000000.0));
+            // 继续循环，重新 peek 同一帧
+            continue;
+
+        case SyncAction::DelayFrame:
+        case SyncAction::ShowNormal:
+        default:
+            if (sync.delay > 0.0)
+                av_usleep(static_cast<qint64>(sync.delay * 1000000.0));
+            break;
         }
 
         if (m_displayStopRequested.load(std::memory_order_acquire))
@@ -1500,6 +1560,23 @@ void MediaEngine::displayLoop()
             continue;
 
         m_syncController->onFrameDisplayed(pts);
+
+        // 帧率检测：每2秒更新一次
+        if (m_lastDisplayedPts >= 0.0 && pts > m_lastDisplayedPts) {
+            m_fpsFrameCount++;
+            if (m_fpsTimer.isValid()) {
+                double elapsed = m_fpsTimer.elapsed() / 1000.0;
+                if (elapsed >= 2.0) {
+                    double fps = m_fpsFrameCount / elapsed;
+                    m_syncController->updateFrameRate(fps);
+                    m_fpsFrameCount = 0;
+                    m_fpsTimer.restart();
+                }
+            } else {
+                m_fpsTimer.start();
+            }
+        }
+        m_lastDisplayedPts = pts;
 
         // 字幕更新：跨线程调用，通过事件循环排队到主线程执行。
         double subPts = pts;

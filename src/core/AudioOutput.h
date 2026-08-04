@@ -31,6 +31,11 @@ public:
 
     void setSpeed(double speed);
 
+signals:
+    // 变速后旧速度预缓冲（FIFO + 解码帧队列）全部被消费完毕，
+    // 此时管线内只剩新速度数据，播放节奏已完全切换（SDL 音频线程发出）。
+    void speedTransitionFinished();
+
 private:
     static void sdlAudioCallback(void *userdata, Uint8 *stream, int len);
     void fillAudioFifo();
@@ -47,6 +52,7 @@ private:
     static constexpr int kFifoSize = 256 * 1024;
     double m_bytesPerSecond = 0.0;
     std::atomic<double> m_speed{1.0};
-    double m_oldSpeed{1.0};
-    double m_oldBytesRemaining{0.0}; // 旧速度数据在 FIFO 中剩余字节
+    std::atomic<double> m_oldSpeed{1.0};
+    std::atomic<double> m_oldBytesRemaining{0.0}; // 旧速度数据（FIFO+帧队列）剩余字节
+    std::atomic<bool> m_transitionNotified{false}; // 本次变速的耗尽信号是否已发出
 };
