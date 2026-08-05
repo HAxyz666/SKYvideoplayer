@@ -150,6 +150,11 @@ private:
 
     void updateSubtitle(double clockSeconds);
     void updateLyric(double clockSeconds);
+    // 取指定流的 start_time 偏移（微秒）。主时钟（音频时钟）为流内原始时间戳，
+    // 外挂字幕/歌词条目加载时加上该偏移对齐，查询侧无需任何换算。
+    qint64 streamStartUs(int streamIdx) const;
+    // 加载外挂字幕文件并偏移对齐到音频流时间轴（与内置字幕条目同基）
+    QList<SubtitleEntry> loadExternalSubtitleFile(const QString &path) const;
 
     void detectExternalSubtitles(const QString &videoPath);
     void detectLyrics(const QString &audioPath);
@@ -193,6 +198,12 @@ private:
     PacketQueue *m_videoPacketQueue;
     PacketQueue *m_audioPacketQueue;
     PacketQueue *m_subtitlePacketQueue;
+    // 播放中切换字幕流时退役的旧字幕包队列：demux 线程可能仍有在途 push，
+    // 需等 demux 退出（stopThreads/cleanup）后再统一销毁。
+    QList<PacketQueue *> m_retiredSubtitleQueues;
+    // 音频流 start_time 偏移（微秒）：主时钟（音频时钟）为流内原始时间戳，
+    // 外挂字幕与歌词条目加载时加上该偏移，使条目与内置字幕同基，查询侧零换算。
+    qint64 m_audioStartUs{0};
     FrameQueue *m_videoFrameQueue;
     FrameQueue *m_audioFrameQueue{nullptr};
 

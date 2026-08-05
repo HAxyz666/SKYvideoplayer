@@ -47,16 +47,41 @@ static QString parseAssDialogue(const QString &ass)
     return cleanSubtitleText(s.mid(lastComma + 1));
 }
 
+// 结束时间缺失/非法（<= 开始时间）时：补为下一条开始时间，末条补到播放结束。
+// 调用前须保证 subs 已按 startUs 升序。
+static void patchMissingEnds(QList<SubtitleEntry> &subs)
+{
+    for (int i = 0; i < subs.size(); ++i) {
+        if (subs[i].endUs <= subs[i].startUs) {
+            if (i + 1 < subs.size())
+                subs[i].endUs = subs[i + 1].startUs;
+            else
+                subs[i].endUs = INT64_MAX;
+        }
+    }
+}
+
 // --- 外挂字幕解析辅助 ---
 
-// SRT 时间戳 HH:MM:SS,mmm 转毫秒
+// SRT 时间戳 H:MM:SS,mmm 转毫秒（支持小时个位、毫秒 1~3 位）
 static qint64 parseSrtTime(const QString &s)
 {
-    if (s.length() < 12) return -1;
-    qint64 h = s.mid(0, 2).toLongLong();
-    qint64 m = s.mid(3, 2).toLongLong();
-    qint64 sec = s.mid(6, 2).toLongLong();
-    qint64 ms = s.mid(9, 3).toLongLong();
+    QStringList hm = s.split(u':');
+    if (hm.size() != 3)
+        return -1;
+    QStringList secMs = hm[2].split(u',');
+    if (secMs.size() != 2)
+        return -1;
+
+    qint64 h = hm[0].toLongLong();
+    qint64 m = hm[1].toLongLong();
+    qint64 sec = secMs[0].toLongLong();
+    QString frac = secMs[1];
+    while (frac.size() < 3)
+        frac += u'0';
+    if (frac.size() > 3)
+        frac.truncate(3);
+    qint64 ms = frac.toLongLong();
     return ((h * 60 + m) * 60 + sec) * 1000 + ms;
 }
 
@@ -135,9 +160,16 @@ void SubtitleDecodeThread::setExternalSubtitles(const QList<SubtitleEntry> &subs
 QString SubtitleDecodeThread::getSubtitleAt(qint64 positionUs) const
 {
     QMutexLocker lock(&m_subMutex);
-    for (const auto &entry : m_subtitles) {
-        if (positionUs >= entry.startUs && positionUs < entry.endUs)
-            return entry.text;
+    // 二分定位最后一条 startUs <= positionUs 的条目，再向前回退：
+    // SRT/ASS 条目允许重叠（一条未结束、下一条已开始），
+    // 应显示"最晚开始且仍在显示区间内"的一条，避免前一条被提前截断。
+    auto it = std::upper_bound(m_subtitles.begin(), m_subtitles.end(), positionUs,
+        [](qint64 val, const SubtitleEntry &e) { return val < e.startUs; });
+    const int kMaxWalkback = 16;
+    for (int i = 0; i < kMaxWalkback && it != m_subtitles.begin(); ++i) {
+        --it;
+        if (positionUs >= it->startUs && positionUs < it->endUs)
+            return it->text;
     }
     return {};
 }
@@ -161,6 +193,7 @@ void SubtitleDecodeThread::run()
 
         int64_t pktPts = pkt->pts;
         if (pktPts == AV_NOPTS_VALUE) pktPts = 0;
+        int64_t pktDuration = pkt->duration;
 
         AVSubtitle sub;
         int gotSubtitle = 0;
@@ -172,11 +205,15 @@ void SubtitleDecodeThread::run()
 
         if (gotSubtitle) {
             SubtitleEntry entry;
+            // 条目保持原始流时间戳（与主时钟/音频时钟同基），不做任何偏移换算。
             qint64 ptsUs = av_rescale_q(pktPts, m_timeBase, AV_TIME_BASE_Q);
             entry.startUs = ptsUs + static_cast<qint64>(sub.start_display_time) * 1000;
-            entry.endUs   = ptsUs + static_cast<qint64>(sub.end_display_time) * 1000;
-            if (entry.endUs <= entry.startUs)
-                entry.endUs = entry.startUs + 3000000;
+            // 结束时间优先级：end_display_time > 包 duration（MKV BlockDuration）> 下一条字幕开始时间
+            entry.endUs = INT64_MAX;
+            if (sub.end_display_time > 0)
+                entry.endUs = ptsUs + static_cast<qint64>(sub.end_display_time) * 1000;
+            else if (pktDuration > 0)
+                entry.endUs = av_rescale_q(pktPts + pktDuration, m_timeBase, AV_TIME_BASE_Q);
 
             for (unsigned i = 0; i < sub.num_rects; i++) {
                 AVSubtitleRect *rect = sub.rects[i];
@@ -184,22 +221,32 @@ void SubtitleDecodeThread::run()
 
                 if (rect->type == SUBTITLE_ASS && rect->ass) {
                     QString raw = QString::fromUtf8(rect->ass);
+#ifdef QT_DEBUG
                     qDebug().noquote() << "[sub] ASS raw:" << raw;
+#endif
                     text = parseAssDialogue(raw);
                 } else if (rect->type == SUBTITLE_TEXT && rect->text) {
                     QString raw = QString::fromUtf8(rect->text);
+#ifdef QT_DEBUG
                     qDebug().noquote() << "[sub] TEXT raw:" << raw;
+#endif
                     text = cleanSubtitleText(raw);
                 } else if (rect->ass) {
                     QString raw = QString::fromUtf8(rect->ass);
+#ifdef QT_DEBUG
                     qDebug().noquote() << "[sub] ASS(type fallback) raw:" << raw;
+#endif
                     text = parseAssDialogue(raw);
                 } else if (rect->text) {
                     QString raw = QString::fromUtf8(rect->text);
+#ifdef QT_DEBUG
                     qDebug().noquote() << "[sub] TEXT(type fallback) raw:" << raw;
+#endif
                     text = cleanSubtitleText(raw);
                 }
+#ifdef QT_DEBUG
                 qDebug().noquote() << "[sub] cleaned:" << text;
+#endif
 
                 if (!text.isEmpty()) {
                     if (!entry.text.isEmpty()) entry.text += u'\n';
@@ -209,12 +256,27 @@ void SubtitleDecodeThread::run()
 
             if (!entry.text.isEmpty()) {
                 QMutexLocker lock(&m_subMutex);
+                // 上一条字幕若结束时间未知，收尾到本条开始时间
+                if (!m_subtitles.isEmpty()) {
+                    SubtitleEntry &last = m_subtitles.last();
+                    if (last.endUs == INT64_MAX && entry.startUs > last.startUs)
+                        last.endUs = entry.startUs;
+                }
                 auto it = std::upper_bound(m_subtitles.begin(), m_subtitles.end(), entry.startUs,
                     [](qint64 val, const SubtitleEntry &e) { return val < e.startUs; });
                 m_subtitles.insert(it, entry);
             }
 
             avsubtitle_free(&sub);
+        }
+    }
+
+    // 解码结束：中间仍有未知结束时间的条目（乱序插入场景），收尾到各自下一条
+    {
+        QMutexLocker lock(&m_subMutex);
+        for (int i = 0; i + 1 < m_subtitles.size(); ++i) {
+            if (m_subtitles[i].endUs == INT64_MAX && m_subtitles[i + 1].startUs > m_subtitles[i].startUs)
+                m_subtitles[i].endUs = m_subtitles[i + 1].startUs;
         }
     }
 }
@@ -244,7 +306,12 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadSrt(const QString &path)
 
         if (lineIdx >= lines.size()) continue;
         QRegularExpressionMatch m = timeRe.match(lines[lineIdx]);
-        if (!m.hasMatch()) continue;
+        if (!m.hasMatch()) {
+#ifdef QT_DEBUG
+            qDebug().noquote() << "[sub] srt block skipped (no time line):" << lines[lineIdx].left(48);
+#endif
+            continue;
+        }
 
         QString startStr = m.captured(1).replace(u'.', u',');
         QString endStr = m.captured(2).replace(u'.', u',');
@@ -259,13 +326,19 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadSrt(const QString &path)
         SubtitleEntry e;
         e.startUs = startMs * 1000;
         e.endUs = endMs * 1000;
-        if (e.endUs <= e.startUs) e.endUs = e.startUs + 3000000;
         e.text = text;
         subs.append(e);
     }
 
     std::stable_sort(subs.begin(), subs.end(),
         [](const SubtitleEntry &a, const SubtitleEntry &b) { return a.startUs < b.startUs; });
+    patchMissingEnds(subs);
+#ifdef QT_DEBUG
+    for (const SubtitleEntry &e : subs) {
+        qDebug().noquote() << QStringLiteral("[sub] srt %1us..%2us \"%3\"")
+            .arg(e.startUs).arg(e.endUs).arg(e.text.left(16));
+    }
+#endif
     qDebug() << "[extsub] SRT loaded:" << subs.size() << "entries from" << QFileInfo(path).fileName();
     return subs;
 }
@@ -334,7 +407,6 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadAss(const QString &path)
             SubtitleEntry e;
             e.startUs = startMs * 1000;
             e.endUs = endMs * 1000;
-            if (e.endUs <= e.startUs) e.endUs = e.startUs + 3000000;
             e.text = text;
             subs.append(e);
         }
@@ -342,6 +414,7 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadAss(const QString &path)
 
     std::stable_sort(subs.begin(), subs.end(),
         [](const SubtitleEntry &a, const SubtitleEntry &b) { return a.startUs < b.startUs; });
+    patchMissingEnds(subs);
     qDebug() << "[extsub] ASS loaded:" << subs.size() << "entries from" << QFileInfo(path).fileName();
     return subs;
 }
@@ -356,6 +429,8 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadLrc(const QString &path)
     static const QRegularExpression tsRe(QStringLiteral(R"(\[(\d{1,3}):(\d{2})[.:](\d{2,3})\])"));
     QStringList lines = content.split(QRegularExpression(QStringLiteral("\\r?\\n")));
 
+    qint64 offsetMs = 0;   // [offset:] 元数据，需加到所有时间戳上
+
     for (const QString &line : lines) {
         QString trimmed = line.trimmed();
         if (trimmed.isEmpty())
@@ -363,9 +438,11 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadLrc(const QString &path)
 
         // 跳过元数据标签 [ti:xxx], [ar:xxx], [al:xxx], [by:xxx], [offset:xxx]
         if (trimmed.startsWith(u'[') && trimmed.contains(u':') && !trimmed[1].isDigit()) {
-            // 解析 offset（单位：毫秒）
             if (trimmed.startsWith(u"[offset:", Qt::CaseInsensitive)) {
-                // 会在后面统一处理
+                bool ok = false;
+                qint64 off = trimmed.mid(8).trimmed().remove(u']').toLongLong(&ok);
+                if (ok)
+                    offsetMs = off;
             }
             continue;
         }
@@ -394,7 +471,7 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadLrc(const QString &path)
 
         for (qint64 ts : timestamps) {
             SubtitleEntry e;
-            e.startUs = ts * 1000;  // 转换为微秒
+            e.startUs = (ts + offsetMs) * 1000;  // 转换为微秒（含 offset 偏移）
             e.text = text;
             entries.append(e);
         }

@@ -10,7 +10,6 @@ DemuxThread::DemuxThread(QObject *parent)
     , m_subtitleStreamIdx(-1)
     , m_videoQueue(nullptr)
     , m_audioQueue(nullptr)
-    , m_subtitleQueue(nullptr)
     , m_quit(false)
     , m_paused(nullptr)
 {
@@ -53,10 +52,10 @@ void DemuxThread::stopRead()
         m_audioQueue->flush();
         m_audioQueue->setFinished(true);
     }
-    if (m_subtitleQueue) {
-        m_subtitleQueue->requestQuit();
-        m_subtitleQueue->flush();
-        m_subtitleQueue->setFinished(true);
+    if (auto *subQueue = m_subtitleQueue.load(std::memory_order_acquire)) {
+        subQueue->requestQuit();
+        subQueue->flush();
+        subQueue->setFinished(true);
     }
 }
 
@@ -91,7 +90,8 @@ void DemuxThread::run()
                 // 通知解码线程不再有新包，然后等待队列排空
                 if (m_videoQueue) m_videoQueue->setFinished(true);
                 if (m_audioQueue) m_audioQueue->setFinished(true);
-                if (m_subtitleQueue) m_subtitleQueue->setFinished(true);
+                if (auto *subQueue = m_subtitleQueue.load(std::memory_order_acquire))
+                    subQueue->setFinished(true);
 
                 // 等待解码线程消费完队列中的剩余包（最多10秒）
                 for (int i = 0; i < 1000 && !m_quit; ++i) {
@@ -129,8 +129,9 @@ void DemuxThread::run()
             m_videoQueue->push(pkt);
         } else if (pkt->stream_index == m_audioStreamIdx && m_audioQueue) {
             m_audioQueue->push(pkt);
-        } else if (pkt->stream_index == m_subtitleStreamIdx.load(std::memory_order_acquire) && m_subtitleQueue) {
-            m_subtitleQueue->push(pkt);
+        } else if (pkt->stream_index == m_subtitleStreamIdx.load(std::memory_order_acquire)
+                   && m_subtitleQueue.load(std::memory_order_acquire)) {
+            m_subtitleQueue.load(std::memory_order_acquire)->push(pkt);
         }
 
         av_packet_unref(pkt);
@@ -140,5 +141,6 @@ void DemuxThread::run()
 
     if (m_videoQueue) m_videoQueue->setFinished(true);
     if (m_audioQueue) m_audioQueue->setFinished(true);
-    if (m_subtitleQueue) m_subtitleQueue->setFinished(true);
+    if (auto *subQueue = m_subtitleQueue.load(std::memory_order_acquire))
+        subQueue->setFinished(true);
 }

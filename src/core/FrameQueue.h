@@ -20,6 +20,7 @@ public:
     AVFrame *peek();
     void clear();
     void setFinished(bool finished);
+    bool isFinished() const;
     void flush();
     int size() const;
     size_t totalBytes() const;

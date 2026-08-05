@@ -83,6 +83,12 @@ void FrameQueue::setFinished(bool finished)
     m_notFull.notify_all();
 }
 
+bool FrameQueue::isFinished() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_finished;
+}
+
 void FrameQueue::flush()
 {
     std::lock_guard lock(m_mutex);

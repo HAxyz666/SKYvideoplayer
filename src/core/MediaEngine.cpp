@@ -149,6 +149,18 @@ void MediaEngine::setupInterruptCallback()
     }
 }
 
+// 取指定流的 start_time 偏移（微秒）。仅取正值且不超过 1 小时（滤掉直播流/异常值）。
+qint64 MediaEngine::streamStartUs(int streamIdx) const
+{
+    if (streamIdx < 0 || !m_fmtCtx)
+        return 0;
+    AVStream *st = m_fmtCtx->streams[streamIdx];
+    if (!st || st->start_time == AV_NOPTS_VALUE || st->start_time <= 0)
+        return 0;
+    qint64 startUs = av_rescale_q(st->start_time, st->time_base, AV_TIME_BASE_Q);
+    return (startUs > 0 && startUs < 3600LL * AV_TIME_BASE) ? startUs : 0;
+}
+
 bool MediaEngine::initFFmpeg(const QString &filename)
 {
     m_videoStreamIndex = -1;
@@ -224,6 +236,16 @@ bool MediaEngine::initFFmpeg(const QString &filename)
             });
         }
     }
+
+    // 音频流 start_time 偏移（微秒）：主时钟（音频时钟）为流内原始时间戳，
+    // 外挂字幕/歌词条目加载时加上该偏移对齐（与内置字幕条目同基），
+    // 查询侧零换算。仅取正值且不超过 1 小时（滤掉直播流/异常值）。
+    // 须在 detectExternalSubtitles/detectLyrics 之前计算。
+    m_audioStartUs = streamStartUs(m_audioStreamIndex);
+#ifdef QT_DEBUG
+    if (m_audioStartUs > 0)
+        qDebug().noquote() << "[sub] audio stream start offset (raw pts base):" << m_audioStartUs << "us";
+#endif
 
     detectExternalSubtitles(m_filename);
     detectLyrics(m_filename);
@@ -321,8 +343,10 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     if (!m_subtitleStreamsInfo.isEmpty()) {
         m_currentSubtitleStreamIndex = 0;
         if (m_subtitleStreamsInfo[0].isExternal) {
-            // 无内嵌字幕，仅有外挂：直接激活外挂字幕
-            activateExternalSubtitle(0);
+            // 无内嵌字幕，仅有外挂：仅预载条目（含音频流偏移对齐），
+            // 被动查询线程由 startThreads 统一创建
+            m_externalMode = true;
+            m_externalSubtitles = loadExternalSubtitleFile(m_subtitleStreamsInfo[0].filePath);
         } else {
             int selIdx = m_subtitleStreamsInfo[0].streamIndex;
             AVCodecParameters *subPar = m_fmtCtx->streams[selIdx]->codecpar;
@@ -676,7 +700,21 @@ void MediaEngine::seek(double seconds)
                 delete m_videoThread; m_videoThread = nullptr;
                 delete m_audioThread; m_audioThread = nullptr;
                 if (m_subtitleThread) {
-                    delete m_subtitleThread; m_subtitleThread = nullptr;
+                    // 先唤醒退出（stopDecode 会 flush 队列，pop 立即返回）再销毁，
+                    // 避免销毁仍在运行中的线程。
+                    m_subtitleThread->stopDecode();
+                    m_subtitleThread->wait();
+                    delete m_subtitleThread;
+                    m_subtitleThread = nullptr;
+                }
+                if (m_subtitlePacketQueue) {
+                    // 旧队列退役：demux 已停止，在途 push 不再产生，
+                    // 由下一次 stopThreads/cleanup 统一回收。
+                    m_subtitlePacketQueue->requestQuit();
+                    m_subtitlePacketQueue->flush();
+                    m_subtitlePacketQueue->clear();
+                    m_retiredSubtitleQueues.append(m_subtitlePacketQueue);
+                    m_subtitlePacketQueue = nullptr;
                 }
 
                 // 重新启动
@@ -891,22 +929,15 @@ void MediaEngine::updatePosition()
         emit positionChanged(m_position);
     }
 
-    // 歌词同步：始终跟随播放位置
-    {
-        double lyricTime = m_syncController->audioClock();
-        if (m_audioStreamIndex == -1 || lyricTime <= 0.0)
-            lyricTime = pos;
-        updateLyric(lyricTime);
-    }
-
-    // 字幕同步：有视频流时由 displayLoop 以帧显示频率驱动；
-    // 无视频流（纯音频+字幕）时在此以 250ms 粒度兜底。
-    if (m_subtitleThread && !m_videoFrameQueue) {
-        double subTime = m_syncController->audioClock();
-        if (m_audioStreamIndex == -1 || subTime <= 0.0)
-            subTime = pos;
-        updateSubtitle(subTime);
-    }
+    // 字幕/歌词同步：以主时钟（音频时钟）驱动，字幕与听感内容严格一致。
+    // 音频时钟为流内原始时间戳，内置字幕条目同基；外挂/歌词条目加载时已按
+    // 音频流 start_time 偏移对齐，因此查询侧零换算。
+    // 无音频流（或时钟尚未启动）时退回 0 基墙钟位置 m_position。
+    double mainClock = m_syncController->audioClock();
+    if (m_audioStreamIndex == -1 || mainClock <= 0.0)
+        mainClock = pos;
+    updateSubtitle(mainClock);
+    updateLyric(mainClock);
 }
 
 void MediaEngine::checkBufferState()
@@ -942,10 +973,18 @@ void MediaEngine::updateSubtitle(double clockSeconds)
     if (!m_subtitleThread)
         return;
 
+    // clockSeconds 已由调用方统一换算为 0 基内容时间：
+    // 内嵌/外挂字幕条目同为 0 基，查询无需区分模式。
     qint64 posUs = static_cast<qint64>(clockSeconds * 1000000);
     QString sub = m_subtitleThread->getSubtitleAt(posUs);
     if (sub != m_currentSubtitle) {
         m_currentSubtitle = sub;
+#ifdef QT_DEBUG
+        qDebug().noquote() << QStringLiteral("[sub] change clock=%1s posUs=%2us -> \"%3\"")
+            .arg(clockSeconds, 0, 'f', 3)
+            .arg(posUs)
+            .arg(sub.left(24));
+#endif
         emit currentSubtitleChanged(m_currentSubtitle);
     }
 }
@@ -970,6 +1009,22 @@ void MediaEngine::updateLyric(double clockSeconds)
     }
 }
 
+// 加载外挂字幕文件，并将条目偏移对齐到音频流时间轴：
+// 主时钟（音频时钟）为流内原始时间戳，外挂文件为 0 基文件时间，
+// 加载时加上音频流 start_time 偏移，使条目与内置字幕（原始流时间）同基。
+QList<SubtitleEntry> MediaEngine::loadExternalSubtitleFile(const QString &path) const
+{
+    QList<SubtitleEntry> subs = SubtitleDecodeThread::loadFromFile(path);
+    if (m_audioStartUs > 0) {
+        for (SubtitleEntry &e : subs) {
+            e.startUs += m_audioStartUs;
+            if (e.endUs != INT64_MAX)
+                e.endUs += m_audioStartUs;
+        }
+    }
+    return subs;
+}
+
 void MediaEngine::detectLyrics(const QString &audioPath)
 {
     if (audioPath.isEmpty())
@@ -983,6 +1038,14 @@ void MediaEngine::detectLyrics(const QString &audioPath)
     QString lrcPath = dir.absoluteFilePath(base + u".lrc");
     if (QFileInfo::exists(lrcPath)) {
         QList<SubtitleEntry> lyrics = SubtitleDecodeThread::loadLrc(lrcPath);
+        // 与主时钟同基：加上音频流 start_time 偏移
+        if (m_audioStartUs > 0) {
+            for (SubtitleEntry &e : lyrics) {
+                e.startUs += m_audioStartUs;
+                if (e.endUs != INT64_MAX)
+                    e.endUs += m_audioStartUs;
+            }
+        }
         if (!lyrics.isEmpty()) {
             m_lyrics = lyrics;
             qDebug() << "[lyric] loaded:" << lrcPath;
@@ -1125,6 +1188,10 @@ void MediaEngine::stopThreads()
     delete m_subtitlePacketQueue; m_subtitlePacketQueue = nullptr;
     delete m_videoFrameQueue; m_videoFrameQueue = nullptr;
     delete m_audioFrameQueue; m_audioFrameQueue = nullptr;
+
+    // demux 已退出，可安全回收播放中切换字幕流时退役的队列
+    qDeleteAll(m_retiredSubtitleQueues);
+    m_retiredSubtitleQueues.clear();
 }
 
 void MediaEngine::cleanup()
@@ -1173,6 +1240,8 @@ void MediaEngine::cleanup()
     m_subtitleStreamsInfo.clear();
     m_externalMode = false;
     m_externalSubtitles.clear();
+    qDeleteAll(m_retiredSubtitleQueues);
+    m_retiredSubtitleQueues.clear();
     emit subtitleStreamsChanged();
 
     if (m_networkManager->isNetworkStream() || m_networkManager->isLiveStream()) {
@@ -1205,14 +1274,29 @@ QVariantList MediaEngine::subtitleStreams() const
 
 void MediaEngine::stopSubtitleThread()
 {
+    // 先切断 demux 线程的字幕推送（索引与队列指针），
+    // 避免其把字幕包 push 到正在销毁的队列（use-after-free）。
+    if (m_demuxThread) {
+        m_demuxThread->setSubtitleStreamIndex(-1);
+        m_demuxThread->clearSubtitleQueue();
+    }
+
     if (m_subtitleThread) {
         m_subtitleThread->stopDecode();
         m_subtitleThread->wait();
         delete m_subtitleThread;
         m_subtitleThread = nullptr;
     }
-    delete m_subtitlePacketQueue;
-    m_subtitlePacketQueue = nullptr;
+
+    // 队列延迟销毁：demux 线程可能仍有在途 push，先退役，
+    // 待 demux 退出（stopThreads/cleanup）后再统一回收。
+    if (m_subtitlePacketQueue) {
+        m_subtitlePacketQueue->requestQuit();
+        m_subtitlePacketQueue->flush();
+        m_subtitlePacketQueue->clear();
+        m_retiredSubtitleQueues.append(m_subtitlePacketQueue);
+        m_subtitlePacketQueue = nullptr;
+    }
     if (m_subtitleCodecCtx) {
         avcodec_free_context(&m_subtitleCodecCtx);
         m_subtitleCodecCtx = nullptr;
@@ -1279,10 +1363,6 @@ void MediaEngine::setCurrentSubtitleStream(int index)
     m_subtitleStreamIndex = newStreamIdx;
     m_currentSubtitleStreamIndex = index;
 
-    // 更新解复用线程的字幕流索引
-    if (m_demuxThread)
-        m_demuxThread->setSubtitleStreamIndex(m_subtitleStreamIndex);
-
     // 启动新字幕线程
     m_subtitlePacketQueue = new PacketQueue(16);
     m_subtitleThread = new SubtitleDecodeThread(this);
@@ -1290,6 +1370,13 @@ void MediaEngine::setCurrentSubtitleStream(int index)
     m_subtitleThread->setPacketQueue(m_subtitlePacketQueue);
     m_subtitleThread->setTimeBase(m_fmtCtx->streams[m_subtitleStreamIndex]->time_base);
     m_subtitleThread->setPausedRef(m_paused);
+
+    // 先让 demux 指向新队列，再切换字幕流索引，
+    // 确保字幕包进入新队列而非已退役的旧队列。
+    if (m_demuxThread) {
+        m_demuxThread->setSubtitleQueue(m_subtitlePacketQueue);
+        m_demuxThread->setSubtitleStreamIndex(m_subtitleStreamIndex);
+    }
     m_subtitleThread->start();
 
     emit currentSubtitleStreamChanged(index);
@@ -1356,7 +1443,7 @@ void MediaEngine::activateExternalSubtitle(int infoIndex)
     if (!info.isExternal)
         return;
 
-    QList<SubtitleEntry> subs = SubtitleDecodeThread::loadFromFile(info.filePath);
+    QList<SubtitleEntry> subs = loadExternalSubtitleFile(info.filePath);
     m_externalSubtitles = subs;
     m_externalMode = true;
     m_subtitleStreamIndex = -1;
@@ -1578,13 +1665,9 @@ void MediaEngine::displayLoop()
         }
         m_lastDisplayedPts = pts;
 
-        // 字幕更新：跨线程调用，通过事件循环排队到主线程执行。
-        double subPts = pts;
-        QMetaObject::invokeMethod(this, [this, subPts]() {
-            updateSubtitle(subPts);
-            updateLyric(subPts);
-        }, Qt::QueuedConnection);
-
+        // 字幕/歌词不在此驱动：统一由 updatePosition（主时钟/音频时钟）
+        // 以 250ms 粒度更新，保证字幕与听感内容一致，
+        // 避免视频轨容器级延迟导致字幕提前出现。
         YUVFrame yuv;
         AVFrame *convFrame = nullptr;
         AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);

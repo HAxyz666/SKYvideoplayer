@@ -23,6 +23,9 @@ public:
     // m_subtitleStreamIdx may change during playback (user switches subtitle
     // track) from the GUI thread while run() reads it here — atomic needed.
     void setSubtitleStreamIndex(int idx) { m_subtitleStreamIdx.store(idx, std::memory_order_release); }
+    // m_subtitleQueue 同样在播放中可变（切换字幕流时被替换/清空），须原子访问
+    void setSubtitleQueue(PacketQueue *queue) { m_subtitleQueue.store(queue, std::memory_order_release); }
+    void clearSubtitleQueue() { m_subtitleQueue.store(nullptr, std::memory_order_release); }
     void stopRead();
     void setPausedRef(const std::atomic<bool> &paused);
 
@@ -40,7 +43,7 @@ private:
     std::atomic<int> m_subtitleStreamIdx;
     PacketQueue *m_videoQueue;
     PacketQueue *m_audioQueue;
-    PacketQueue *m_subtitleQueue;
+    std::atomic<PacketQueue *> m_subtitleQueue{nullptr};
 
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;
