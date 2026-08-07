@@ -42,6 +42,8 @@ class MediaEngine : public QObject
     Q_PROPERTY(QString currentSubtitle READ currentSubtitle NOTIFY currentSubtitleChanged)
     Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY subtitleStreamsChanged)
     Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream WRITE setCurrentSubtitleStream NOTIFY currentSubtitleStreamChanged)
+    Q_PROPERTY(QVariantList audioStreams READ audioStreams NOTIFY audioStreamsChanged)
+    Q_PROPERTY(int currentAudioStream READ currentAudioStream WRITE setCurrentAudioStream NOTIFY currentAudioStreamChanged)
     Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
@@ -80,6 +82,11 @@ public:
     QVariantList subtitleStreams() const;
     int currentSubtitleStream() const { return m_currentSubtitleStreamIndex; }
     Q_INVOKABLE void setCurrentSubtitleStream(int index);
+
+    // --- 音轨 ---
+    QVariantList audioStreams() const;
+    int currentAudioStream() const { return m_currentAudioStreamIndex; }
+    Q_INVOKABLE void setCurrentAudioStream(int index);
 
     // --- 速度控制 ---
     void setSpeed(double speed);
@@ -123,6 +130,8 @@ signals:
     void currentSubtitleChanged(QString text);
     void subtitleStreamsChanged();
     void currentSubtitleStreamChanged(int index);
+    void audioStreamsChanged();
+    void currentAudioStreamChanged(int index);
     void rotationChanged(int angle);          // 画面旋转角度变化信号
     void flipVerticalChanged(bool flip);      // 垂直翻转状态变化信号
     void coverArtChanged();
@@ -161,6 +170,13 @@ private:
 
     void activateExternalSubtitle(int infoIndex);
     void stopSubtitleThread();
+
+    // 为指定流打开并返回音频解码器上下文（失败返回 nullptr）
+    AVCodecContext *openAudioCodecForStream(int streamIdx);
+    // 播放中切换音轨：停止旧音频链路、换入新解码器，
+    // 以当前主时钟为锚点迷你 seek 重建全部线程（直播流则原地重建）。
+    // 新音轨 PTS 重基到锚点，保证切换前后音频时钟轴不变、音画连续。
+    void switchAudioToStream(int newStreamIdx);
 
     // 网络流异步初始化完成回调
     void onNetworkInitFinished();
@@ -204,6 +220,23 @@ private:
     // 音频流 start_time 偏移（微秒）：主时钟（音频时钟）为流内原始时间戳，
     // 外挂字幕与歌词条目加载时加上该偏移，使条目与内置字幕同基，查询侧零换算。
     qint64 m_audioStartUs{0};
+    // 音轨切换时待注入新音频线程的 PTS 重基锚点（秒）：
+    // startThreads 创建音频线程时消费一次，-1 表示无锚点（正常播放/seek）。
+    // 锚点 = 切换前的主时钟（旧音轨时间基），新音轨首帧原始 PTS 重基到该值，
+    // 使切换前后音频时钟轴不变，A-V diff 连续，画面不跳变/不冻结。
+    double m_pendingAudioPtsAnchor{-1.0};
+    // 与锚点配套的原始 PTS 丢弃阈值（秒，新音轨时间基）：seek 落点在视频
+    // 关键帧前时，新音轨会从锚点之前的内容起播，须丢弃这些帧（否则重基后
+    // 音频内容整体落后于画面）。-1 表示不丢弃。阈值 = 锚点 + 新音轨 start_time。
+    double m_pendingAudioPtsDropBefore{-1.0};
+    // 音轨切换时待注入视频线程的 PTS 丢弃阈值（秒，视频流原始时间基）：
+    // seek(anchor) 为 backward seek，落在 anchor 之前的上一关键帧，解码出的
+    // 锚点前旧画面须丢弃（否则旧画面按正常节奏走完整个 GOP：画面卡旧内容，
+    // 且视频队列积压阻塞 demux、饿死音频队列导致声音卡住）。seek 时一次性消费。
+    double m_pendingVideoPtsDropBefore{-1.0};
+    // 视频线程 PTS 丢弃阈值（秒，视频流原始时间基）：普通 seek 直接按目标位置
+    // 计算；startThreads 创建视频线程时注入。-1 表示不丢弃。
+    double m_videoPtsDropBefore{-1.0};
     FrameQueue *m_videoFrameQueue;
     FrameQueue *m_audioFrameQueue{nullptr};
 
@@ -259,6 +292,16 @@ private:
     int m_currentSubtitleStreamIndex{-1};
     QString m_currentSubtitle;
 
+    struct AudioStreamInfo {
+        int streamIndex = -1;
+        QString language;
+        QString title;
+        int channels = 0;
+        int sampleRate = 0;
+    };
+    QVector<AudioStreamInfo> m_audioStreamsInfo;
+    int m_currentAudioStreamIndex{-1};
+
     // 中断回调上下文
     struct InterruptContext {
         std::atomic<bool> interrupted{false};
@@ -273,6 +316,9 @@ private:
     BufferState m_bufferState{BufferPlaying};
     QTimer *m_bufferCheckTimer{nullptr};
     bool m_bufferSuppressed{false}; // seek 后临时抑制缓冲检测
+    // EOF 排空门控定时器（50ms）：demux 报 EOF 后轮询帧队列/FIFO，
+    // 全部播完才发 playbackFinished（短视频不丢尾）。
+    QTimer *m_eofDrainTimer{nullptr};
 
     std::atomic<bool> m_seekInProgress{false}; // 后台 seek 进行中标志
 

@@ -6,10 +6,7 @@ DemuxThread::DemuxThread(QObject *parent)
     : QThread(parent)
     , m_fmtCtx(nullptr)
     , m_videoStreamIdx(-1)
-    , m_audioStreamIdx(-1)
-    , m_subtitleStreamIdx(-1)
     , m_videoQueue(nullptr)
-    , m_audioQueue(nullptr)
     , m_quit(false)
     , m_paused(nullptr)
 {
@@ -35,7 +32,7 @@ void DemuxThread::setPacketQueues(PacketQueue *videoQueue, PacketQueue *audioQue
 {
     m_videoQueue = videoQueue;
     m_audioQueue = audioQueue;
-    m_subtitleQueue = subtitleQueue;
+    m_subtitleQueue.store(subtitleQueue, std::memory_order_release);
 }
 
 void DemuxThread::stopRead()
@@ -47,15 +44,15 @@ void DemuxThread::stopRead()
         m_videoQueue->flush();
         m_videoQueue->setFinished(true);
     }
-    if (m_audioQueue) {
-        m_audioQueue->requestQuit();
-        m_audioQueue->flush();
-        m_audioQueue->setFinished(true);
-    }
     if (auto *subQueue = m_subtitleQueue.load(std::memory_order_acquire)) {
         subQueue->requestQuit();
         subQueue->flush();
         subQueue->setFinished(true);
+    }
+    if (m_audioQueue) {
+        m_audioQueue->requestQuit();
+        m_audioQueue->flush();
+        m_audioQueue->setFinished(true);
     }
 }
 

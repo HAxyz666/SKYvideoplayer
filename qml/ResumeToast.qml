@@ -29,19 +29,27 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        Label {
+        // 用 Button（而非 Label+TapHandler）消费点击事件，
+        // 否则点击会穿透到播放区的 TapHandler，触发播放/暂停。
+        Button {
             text: qsTr("Play from start")
-            color: "#4FC3F7"
-            font.pixelSize: 13
-            font.bold: true
+            flat: true
+            padding: 0
             anchors.verticalCenter: parent.verticalCenter
-
-            TapHandler {
-                onTapped: {
-                    appController.resumeFromBeginning()
-                    resumeToast.visible = false
-                    resumeHideTimer.stop()
-                }
+            contentItem: Text {
+                text: parent.text
+                font.pixelSize: 13
+                font.bold: true
+                color: "#4FC3F7"
+            }
+            background: Rectangle {
+                radius: 4
+                color: parent.hovered ? "#30ffffff" : "transparent"
+            }
+            onClicked: {
+                appController.resumeFromBeginning()
+                resumeToast.visible = false
+                resumeHideTimer.stop()
             }
         }
     }

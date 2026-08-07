@@ -63,6 +63,12 @@ void AVSyncController::updateAudioClock(double pts)
     m_audioClock = pts;
 }
 
+void AVSyncController::setClock(double pts)
+{
+    QMutexLocker lock(&m_mutex);
+    m_audioClock = pts;
+}
+
 double AVSyncController::audioClock() const
 {
     QMutexLocker lock(&m_mutex);

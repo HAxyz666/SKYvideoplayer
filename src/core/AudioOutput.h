@@ -31,6 +31,9 @@ public:
 
     void setSpeed(double speed);
 
+    // FIFO 中是否已无待播数据（EOF 排空检测用；与 SDL 回调线程并发读，仅作门控）
+    bool fifoEmpty() const;
+
 signals:
     // 变速后旧速度预缓冲（FIFO + 解码帧队列）全部被消费完毕，
     // 此时管线内只剩新速度数据，播放节奏已完全切换（SDL 音频线程发出）。

@@ -144,6 +144,8 @@ Rectangle {
 
             SubtitleSelector { }
 
+            AudioSelector { }
+
             Button {
                 id: videoBtn
                 icon.source: "qrc:/icons/icons/video_adjust.svg"

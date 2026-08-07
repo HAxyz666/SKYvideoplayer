@@ -50,6 +50,11 @@ public:
 
     void onFrameDisplayed(double videoPts);
     void updateAudioClock(double pts);
+    // 直接设置主时钟（seek/切换音轨时使用）：只更新时钟值，不参与实际速率
+    // 测量。若用 updateAudioClock 重设时钟，seek 间隙（首帧音频尚未入队，
+    // 墙钟走了几百毫秒而时钟增量仅一个音频帧）会测得虚假的低速率，
+    // 导致画面以极慢速度播放（卡顿/冻结）。
+    void setClock(double pts);
     double audioClock() const;
 
     void setSpeed(double speed);

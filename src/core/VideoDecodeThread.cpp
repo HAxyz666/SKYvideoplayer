@@ -48,6 +48,16 @@ void VideoDecodeThread::setPausedRef(const std::atomic<bool> &paused)
     m_paused = &paused;
 }
 
+void VideoDecodeThread::setTimeBase(AVRational tb)
+{
+    m_timeBase = tb;
+}
+
+void VideoDecodeThread::setPtsDropBefore(double sec)
+{
+    m_ptsDropBefore.store(sec, std::memory_order_release);
+}
+
 #ifdef ENABLE_HWACCEL
 void VideoDecodeThread::setHwContext(AVBufferRef *ctx, AVPixelFormat pixFmt)
 {
@@ -90,6 +100,19 @@ void VideoDecodeThread::run()
             if (ret < 0) {
                 av_frame_free(&frame);
                 break;
+            }
+
+            // 丢弃 seek/切换锚点之前的旧画面帧：backward seek 落在上一关键帧，
+            // 整段 GOP 会先被解码出来，若进入显示队列会以正常节奏走完（画面卡
+            // 旧内容），且视频队列积压阻塞 demux、饿死音频队列。
+            // 此处直接丢弃，帧队列只保留锚点之后的帧，显示端即播即放。
+            double dropBefore = m_ptsDropBefore.load(std::memory_order_acquire);
+            if (dropBefore >= 0.0 && frame->pts != AV_NOPTS_VALUE) {
+                double ptsSec = static_cast<double>(frame->pts) * av_q2d(m_timeBase);
+                if (ptsSec + 1e-6 < dropBefore) {
+                    av_frame_free(&frame);
+                    continue;
+                }
             }
 
 #ifdef ENABLE_HWACCEL

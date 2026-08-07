@@ -82,6 +82,16 @@ void AudioDecodeThread::setSpeed(double speed)
     m_currentSpeed.store(speed, std::memory_order_release);
 }
 
+void AudioDecodeThread::setPtsAnchor(double sec)
+{
+    m_ptsAnchor.store(sec, std::memory_order_release);
+}
+
+void AudioDecodeThread::setPtsDropBefore(double sec)
+{
+    m_ptsDropBefore.store(sec, std::memory_order_release);
+}
+
 bool AudioDecodeThread::initSwrContext()
 {
     if (!m_codecCtx)
@@ -231,6 +241,13 @@ void AudioDecodeThread::run()
     m_lastSpeed = 1.0;
     m_sonicOutputPts = 0.0;
 
+    // 音轨切换 PTS 重基：新音轨的首帧原始 pts 映射到锚点（切换时刻的主时钟），
+    // 其后所有帧保持原始相对间隔，使音频时钟连续推进。
+    double ptsAnchor = m_ptsAnchor.load(std::memory_order_acquire);
+    bool rebaseActive = ptsAnchor >= 0.0;
+    bool rebaseInit = false;
+    double firstRawPtsSec = 0.0;
+
     AVFrame *frame = av_frame_alloc();
     if (!frame)
         return;
@@ -278,6 +295,27 @@ void AudioDecodeThread::run()
             if (!resampled) {
                 av_frame_unref(frame);
                 continue;
+            }
+
+            if (resampled->pts != AV_NOPTS_VALUE) {
+                double rawSec = static_cast<double>(resampled->pts) / rate;
+                // 丢弃锚点/seek 目标之前的帧：seek 落在视频关键帧前时，新音轨可能从
+                // 更早的内容位置起播；若保留并重基，音频内容会整体落后于画面。
+                // 丢弃判定独立于重基（初始 seek 场景仅丢弃、不重基）。
+                double dropBefore = m_ptsDropBefore.load(std::memory_order_acquire);
+                if (dropBefore >= 0.0 && rawSec + 1e-6 < dropBefore) {
+                    av_frame_free(&resampled);
+                    av_frame_unref(frame);
+                    continue;
+                }
+                if (rebaseActive) {
+                    if (!rebaseInit) {
+                        rebaseInit = true;
+                        firstRawPtsSec = rawSec;
+                    }
+                    double rebased = ptsAnchor + (rawSec - firstRawPtsSec);
+                    resampled->pts = static_cast<qint64>(rebased * rate);
+                }
             }
 
             speed = m_currentSpeed.load(std::memory_order_acquire);

@@ -113,6 +113,11 @@ void AudioOutput::closeDevice()
         av_fifo_reset2(m_audioFifo);
 }
 
+bool AudioOutput::fifoEmpty() const
+{
+    return m_audioFifo == nullptr || av_fifo_can_read(m_audioFifo) == 0;
+}
+
 void AudioOutput::reset()
 {
     if (m_audioDeviceID != 0)

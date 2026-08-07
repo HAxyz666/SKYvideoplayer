@@ -51,6 +51,8 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::currentSubtitleChanged, this, &ApplicationController::currentSubtitleChanged);
     connect(m_mediaEngine, &MediaEngine::subtitleStreamsChanged, this, &ApplicationController::subtitleStreamsChanged);
     connect(m_mediaEngine, &MediaEngine::currentSubtitleStreamChanged, this, &ApplicationController::currentSubtitleStreamChanged);
+    connect(m_mediaEngine, &MediaEngine::audioStreamsChanged, this, &ApplicationController::audioStreamsChanged);
+    connect(m_mediaEngine, &MediaEngine::currentAudioStreamChanged, this, &ApplicationController::currentAudioStreamChanged);
     // 转发 MediaEngine 画面旋转 / 翻转信号到 QML 层 (UC-07)
     connect(m_mediaEngine, &MediaEngine::rotationChanged, this, &ApplicationController::rotationChanged);
     connect(m_mediaEngine, &MediaEngine::flipVerticalChanged, this, &ApplicationController::flipVerticalChanged);
@@ -428,6 +430,21 @@ int ApplicationController::currentSubtitleStream() const
 void ApplicationController::setCurrentSubtitleStream(int index)
 {
     m_mediaEngine->setCurrentSubtitleStream(index);
+}
+
+QVariantList ApplicationController::audioStreams() const
+{
+    return m_mediaEngine->audioStreams();
+}
+
+int ApplicationController::currentAudioStream() const
+{
+    return m_mediaEngine->currentAudioStream();
+}
+
+void ApplicationController::setCurrentAudioStream(int index)
+{
+    m_mediaEngine->setCurrentAudioStream(index);
 }
 
 bool ApplicationController::isAudioOnly() const

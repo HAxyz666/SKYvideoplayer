@@ -14,14 +14,21 @@ Rectangle {
 
     property alias showControls: controlBar.showControls
 
-    // 当任意弹窗/对话框处于打开状态时返回 true，用于避免点击穿透到播放区
+    // 按下时若已处于弹窗上方，该次 tap 不再触发播放控制。
+    // 弹窗要到 release 才可能被关闭，因此按下时的判定不受关闭时序影响。
+    property bool pressOverPopup: false
+
+    // 当任意弹窗/对话框处于打开状态时返回 true，用于避免点击穿透到播放区。
+    // 打开的 Popup 在 Overlay 中表现为可见的 QQuickPopupItem：它自身没有
+    // opened 属性（只有 visible 为 true），关闭时会被移出 Overlay，
+    // 因此按 visible 判定。
     function anyOpenPopupUnder(item) {
         if (!item || !item.children)
             return false
         var kids = item.children
         for (var i = 0; i < kids.length; ++i) {
             var c = kids[i]
-            if (c && c.opened === true)
+            if (c && (c.opened === true || c.visible === true))
                 return true
             if (anyOpenPopupUnder(c))
                 return true
@@ -74,8 +81,12 @@ Rectangle {
     }
 
     TapHandler {
+        onPressedChanged: {
+            if (pressed)
+                pressOverPopup = playerView.isAnyPopupOpen()
+        }
         onTapped: {
-            if (playerView.isAnyPopupOpen())
+            if (pressOverPopup || playerView.isAnyPopupOpen())
                 return
             if (point.position.y >= playerView.height - controlBar.height)
                 return

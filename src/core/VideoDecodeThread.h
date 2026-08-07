@@ -30,6 +30,12 @@ public:
     void setFrameQueue(FrameQueue *queue);
     void stopDecode();
     void setPausedRef(const std::atomic<bool> &paused);
+    void setTimeBase(AVRational tb);
+    // PTS 丢弃阈值（秒，视频流原始时间基）：seek/音轨切换后 backward seek 落在
+    // 上一关键帧，解码出的锚点前帧直接丢弃，不进入显示队列。
+    // 否则旧画面会以正常节奏走完整个 GOP（画面卡旧内容），
+    // 且视频队列积压会阻塞 demux，饿死音频队列（声音卡住）。
+    void setPtsDropBefore(double sec);
 #ifdef ENABLE_HWACCEL
     void setHwContext(AVBufferRef *ctx, AVPixelFormat pixFmt);
 #endif
@@ -43,6 +49,8 @@ private:
     FrameQueue *m_frameQueue;
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;
+    AVRational m_timeBase{1, 90000};
+    std::atomic<double> m_ptsDropBefore{-1.0};
 #ifdef ENABLE_HWACCEL
     AVBufferRef *m_hwDeviceCtx{nullptr};
     AVPixelFormat m_hwPixFmt{AV_PIX_FMT_NONE};

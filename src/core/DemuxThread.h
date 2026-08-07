@@ -39,10 +39,10 @@ signals:
 private:
     AVFormatContext *m_fmtCtx;
     int m_videoStreamIdx;
-    int m_audioStreamIdx;
-    std::atomic<int> m_subtitleStreamIdx;
+    int m_audioStreamIdx{-1};
+    std::atomic<int> m_subtitleStreamIdx{-1};
     PacketQueue *m_videoQueue;
-    PacketQueue *m_audioQueue;
+    PacketQueue *m_audioQueue{nullptr};
     std::atomic<PacketQueue *> m_subtitleQueue{nullptr};
 
     std::atomic<bool> m_quit;

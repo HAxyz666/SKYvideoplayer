@@ -118,6 +118,7 @@ qt6_add_qml_module(SKYvideoplayer
         qml/PlaylistPanel.qml
         qml/RecentHistory.qml
         qml/SubtitleSelector.qml
+        qml/AudioSelector.qml
         qml/VolumeControl.qml
         qml/NetworkDialog.qml
         qml/SettingsDialog.qml

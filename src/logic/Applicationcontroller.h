@@ -29,6 +29,8 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString currentSubtitle READ currentSubtitle NOTIFY currentSubtitleChanged)
     Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY subtitleStreamsChanged)
     Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream NOTIFY currentSubtitleStreamChanged)
+    Q_PROPERTY(QVariantList audioStreams READ audioStreams NOTIFY audioStreamsChanged)
+    Q_PROPERTY(int currentAudioStream READ currentAudioStream NOTIFY currentAudioStreamChanged)
     Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
@@ -98,6 +100,9 @@ public:
     QVariantList subtitleStreams() const;
     int currentSubtitleStream() const;
     Q_INVOKABLE void setCurrentSubtitleStream(int index);
+    QVariantList audioStreams() const;
+    int currentAudioStream() const;
+    Q_INVOKABLE void setCurrentAudioStream(int index);
     Q_INVOKABLE bool isNetworkUrl(const QString &url) const;
     int rotation() const;                   // 当前画面旋转角度
     bool flipVertical() const;              // 当前垂直翻转状态
@@ -124,6 +129,8 @@ signals:
     void currentSubtitleChanged(QString text);
     void subtitleStreamsChanged();
     void currentSubtitleStreamChanged(int index);
+    void audioStreamsChanged();
+    void currentAudioStreamChanged(int index);
     void themeChanged();
     void rotationChanged(int angle);        // 画面旋转角度变化信号
     void flipVerticalChanged(bool flip);    // 垂直翻转状态变化信号
