@@ -119,6 +119,151 @@ Button {
                 color: appController.theme === "dark" ? "#555" : "#bbb"
             }
 
+            // === 字幕延迟调节（每次 0.1s，长按连续调节） ===
+            // 提示文字与调节按钮同行，构成同一区域
+            Item {
+                id: delayRow
+                width: 8 + 64 + 8 + 30 + 2 + 52 + 2 + 30
+                anchors.right: parent.right
+                height: 32
+
+                function delayText() {
+                    var ms = appController.subtitleDelayMs
+                    var sec = ms / 1000
+                    return (ms > 0 ? "+" : "") + sec.toFixed(1) + "s"
+                }
+
+                // 区域提示文字：与调节按钮拉开一点距离
+                Text {
+                    id: label
+                    text: qsTr("延迟微调")
+                    width: 64
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: 8
+                    font.pixelSize: 12
+                    color: appController.theme === "dark" ? "white" : "#333"
+                }
+
+                ItemDelegate {
+                    id: minusBtn
+                    width: 30
+                    height: parent.height
+                    padding: 0
+                    hoverEnabled: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: label.right
+                    anchors.leftMargin: 8
+
+                    contentItem: Text {
+                        text: "−"
+                        font.pixelSize: 16
+                        font.bold: true
+                        color: appController.theme === "dark" ? "white" : "#333"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered
+                            ? (appController.theme === "dark" ? "#30ffffff" : "#20000000")
+                            : "transparent"
+                    }
+
+                    // 长按连发（按下 350ms 后开始，每 60ms 调节一次）
+                    onPressedChanged: {
+                        if (pressed) {
+                            repeatTimer.delta = -100
+                            repeatDelayTimer.restart()
+                        } else {
+                            repeatDelayTimer.stop()
+                            repeatTimer.running = false
+                        }
+                    }
+                    onClicked: appController.nudgeSubtitleDelay(-100)
+                }
+
+                Text {
+                    id: delayValue
+                    text: parent.delayText()
+                    width: 52
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: minusBtn.right
+                    anchors.leftMargin: 2
+                    font.pixelSize: 12
+                    color: appController.theme === "dark" ? "white" : "#333"
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+
+                    // 说明提示：悬停显示延迟含义
+                    ToolTip.text: qsTr("字幕延迟：+ 表示字幕推迟出现\n按住 - / + 可连续调节（每次 0.1s）")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                }
+
+                ItemDelegate {
+                    id: plusBtn
+                    width: 30
+                    height: parent.height
+                    padding: 0
+                    hoverEnabled: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: delayValue.right
+                    anchors.leftMargin: 2
+
+                    contentItem: Text {
+                        text: "+"
+                        font.pixelSize: 16
+                        font.bold: true
+                        color: appController.theme === "dark" ? "white" : "#333"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered
+                            ? (appController.theme === "dark" ? "#30ffffff" : "#20000000")
+                            : "transparent"
+                    }
+
+                    // 长按连发（按下 350ms 后开始，每 60ms 调节一次）
+                    onPressedChanged: {
+                        if (pressed) {
+                            repeatTimer.delta = 100
+                            repeatDelayTimer.restart()
+                        } else {
+                            repeatDelayTimer.stop()
+                            repeatTimer.running = false
+                        }
+                    }
+                    onClicked: appController.nudgeSubtitleDelay(100)
+                }
+            }
+
+            // 长按连发：先经 350ms 首次延迟再进入 60ms 连发，单击不误触
+            Timer {
+                id: repeatDelayTimer
+                interval: 350
+                repeat: false
+                onTriggered: repeatTimer.running = true
+            }
+            Timer {
+                id: repeatTimer
+                property int delta: 0
+                interval: 60
+                repeat: true
+                onTriggered: appController.nudgeSubtitleDelay(delta)
+            }
+
+            // 分隔线
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: appController.theme === "dark" ? "#555" : "#bbb"
+            }
+
             // === 字幕样式入口 ===
             ItemDelegate {
                 width: parent.width

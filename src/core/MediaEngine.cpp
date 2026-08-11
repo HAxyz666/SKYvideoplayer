@@ -471,6 +471,18 @@ void MediaEngine::initAudioOutput()
 
 void MediaEngine::stop()
 {
+    // 使在途网络 seek 的重启回调作废：它若在 stop 之后执行会重新创建管线
+    // （旧 fmtCtx/队列已清理），造成状态错乱。
+    ++m_seekGeneration;
+
+    // 先等待后台 seek 完成再拆卸线程：后台任务期间仍持有线程对象指针
+    // （stopRead/stopDecode），并发删除会造成 use-after-free。
+    int waitMs = 0;
+    while (m_seekInProgress.load() && waitMs < 5000) {
+        QThread::msleep(10);
+        waitMs += 10;
+    }
+
     m_positionTimer->stop();
     m_eofDrainTimer->stop();
     stopDisplayThread();
@@ -498,13 +510,6 @@ void MediaEngine::stop()
     m_paused = true;
 
     stopThreads();
-
-    // 等待后台 seek 完成，避免 use-after-free
-    int waitMs = 0;
-    while (m_seekInProgress.load() && waitMs < 5000) {
-        QThread::msleep(10);
-        waitMs += 10;
-    }
 
     cleanup();
     m_position = 0.0;
@@ -663,6 +668,10 @@ void MediaEngine::seek(double seconds)
     if (m_networkManager->isLiveStream())
         return;
 
+    // 本 seek 启动后，任何更早排队的网络 seek 重启回调都应作废
+    // （它们捕获的代数已过期）。
+    ++m_seekGeneration;
+
     m_positionTimer->stop();
     stopDisplayThread();
 
@@ -680,9 +689,10 @@ void MediaEngine::seek(double seconds)
         // 保存需要的上下文
         bool wasPaused = m_paused;
         double speed = m_speed;
+        const int gen = m_seekGeneration;
 
         m_seekInProgress.store(true);
-        (void)QtConcurrent::run([this, seconds, wasPaused, speed]() {
+        (void)QtConcurrent::run([this, seconds, wasPaused, speed, gen]() {
             // 停止线程
             if (m_interruptCtx)
                 m_interruptCtx->interrupted.store(true);
@@ -725,7 +735,12 @@ void MediaEngine::seek(double seconds)
             m_seekInProgress.store(false);
 
             // 回到主线程完成后续操作
-            QMetaObject::invokeMethod(this, [this, seconds, wasPaused, speed]() {
+            QMetaObject::invokeMethod(this, [this, seconds, wasPaused, speed, gen]() {
+                // 期间若已发生更新的 seek / 音轨切换 / stop，本回调作废：
+                // 线程已由后续操作重建或销毁，继续执行会重复删除/重启管线。
+                if (gen != m_seekGeneration)
+                    return;
+
                 m_syncController->reset();
                 m_syncController->setSpeed(speed);
                 m_syncController->setClock(seconds);
@@ -766,6 +781,17 @@ void MediaEngine::seek(double seconds)
                     m_retiredSubtitleQueues.append(m_subtitlePacketQueue);
                     m_subtitlePacketQueue = nullptr;
                 }
+                // 音频/视频队列同线程一并回收：后台任务已停止 demux 与解码线程，
+                // 无在途 push/pop，可直接删除（否则每次网络 seek 泄漏上一代队列
+                // 及其中的帧缓存）。
+                if (m_videoPacketQueue) m_videoPacketQueue->requestQuit();
+                if (m_audioPacketQueue) m_audioPacketQueue->requestQuit();
+                if (m_videoFrameQueue) m_videoFrameQueue->requestQuit();
+                if (m_audioFrameQueue) m_audioFrameQueue->requestQuit();
+                delete m_videoPacketQueue; m_videoPacketQueue = nullptr;
+                delete m_audioPacketQueue; m_audioPacketQueue = nullptr;
+                delete m_videoFrameQueue; m_videoFrameQueue = nullptr;
+                delete m_audioFrameQueue; m_audioFrameQueue = nullptr;
 
                 // 重新启动
                 startThreads();
@@ -1038,6 +1064,10 @@ void MediaEngine::updateSubtitle(double clockSeconds)
     // clockSeconds 已由调用方统一换算为 0 基内容时间：
     // 内嵌/外挂字幕条目同为 0 基，查询无需区分模式。
     qint64 posUs = static_cast<qint64>(clockSeconds * 1000000);
+    // 字幕延迟：正值 = 字幕推迟出现。推迟 N 毫秒等于按 (当前时间 - N) 查询，
+    // 查询位置早于实际播放位置，落在前一条字幕的显示区间内。
+    if (m_subtitleDelayMs != 0)
+        posUs -= m_subtitleDelayMs * 1000;
     QString sub = m_subtitleThread->getSubtitleAt(posUs);
     if (sub != m_currentSubtitle) {
         m_currentSubtitle = sub;
@@ -1417,6 +1447,23 @@ void MediaEngine::stopSubtitleThread()
     m_externalSubtitles.clear();
 }
 
+void MediaEngine::setSubtitleDelayMs(qint64 delayMs)
+{
+    // 限制在 ±60s，超出范围的输入直接截断
+    delayMs = qBound<qint64>(-60000LL, delayMs, 60000LL);
+    if (m_subtitleDelayMs == delayMs)
+        return;
+    m_subtitleDelayMs = delayMs;
+    // 立即用新偏移重查当前位置（主时钟 = 音频时钟，同 updatePosition），
+    // 无需等下一个位置定时器 tick。
+    double mainClock = m_syncController->audioClock();
+    if (m_audioStreamIndex == -1 || mainClock <= 0.0)
+        mainClock = m_position;
+    if (m_subtitleThread)
+        updateSubtitle(mainClock);
+    emit subtitleDelayMsChanged(m_subtitleDelayMs);
+}
+
 void MediaEngine::setCurrentSubtitleStream(int index)
 {
     if (index == m_currentSubtitleStreamIndex)
@@ -1534,6 +1581,24 @@ void MediaEngine::setCurrentAudioStream(int index)
         return;
     }
 
+    // 网络流 seek 为异步：在途时把切换推迟到事件循环重试。在途 seek 的重启
+    // 回调比本次重试更早排队，必然先执行，故重试时管线已稳定（不会与后台
+    // 任务交错；也不阻塞主线程）。此时代数已更新，旧回调作废。
+    if (m_seekInProgress.load()) {
+        if (m_switchRetryStartUs < 0) {
+            m_switchRetryStartUs = av_gettime();
+        } else if (av_gettime() - m_switchRetryStartUs > 10000000) {
+            m_switchRetryStartUs = -1;
+            qWarning() << "[audio] switch aborted: async seek stuck";
+            return;
+        }
+        QMetaObject::invokeMethod(this, [this, index]() {
+            setCurrentAudioStream(index);
+        }, Qt::QueuedConnection);
+        return;
+    }
+    m_switchRetryStartUs = -1;
+
     const AudioStreamInfo &info = m_audioStreamsInfo[index];
     qDebug().noquote() << "[audio] switch to track" << index
                        << "stream" << info.streamIndex
@@ -1551,19 +1616,6 @@ void MediaEngine::switchAudioToStream(int newStreamIdx)
 {
     if (newStreamIdx < 0 || !m_fmtCtx || newStreamIdx == m_audioStreamIndex)
         return;
-
-    // 0) 等待在途的后台 seek 完成（网络流 seek 为异步）：连续切换时若
-    //    并发执行两次异步 seek，两个后台任务会交错 startThreads，第二次会
-    //    覆盖第一次创建的线程并丢失 PTS 锚点，导致新音轨不重基（音画不同步）。
-    int waitMs = 0;
-    while (m_seekInProgress.load() && waitMs < 10000) {
-        QThread::msleep(10);
-        waitMs += 10;
-    }
-    if (m_seekInProgress.load()) {
-        qWarning() << "[audio] switch aborted: async seek in progress";
-        return;
-    }
 
     // 1) 先打开新解码器：失败则放弃切换，保持原音轨不动。
     AVCodecContext *newCtx = openAudioCodecForStream(newStreamIdx);
@@ -1658,7 +1710,7 @@ void MediaEngine::detectExternalSubtitles(const QString &videoPath)
     QString base = vfi.completeBaseName();
 
     // 支持的扩展名
-    static const QStringList exts = { QStringLiteral("srt"), QStringLiteral("ass"), QStringLiteral("ssa") };
+    static const QStringList exts = { QStringLiteral("srt"), QStringLiteral("vtt"), QStringLiteral("ass"), QStringLiteral("ssa") };
 
     // 匹配 base.ext 和 base.*.ext
     for (const QString &ext : exts) {

@@ -43,6 +43,9 @@ class ApplicationController : public QObject
     Q_PROPERTY(int bufferState READ bufferState NOTIFY bufferStateChanged)
     Q_PROPERTY(QString screenshotPath READ screenshotPath WRITE setScreenshotPath NOTIFY screenshotPathChanged)
     Q_PROPERTY(int modalCount READ modalCount WRITE setModalCount NOTIFY modalCountChanged)
+    Q_PROPERTY(qint64 subtitleDelayMs READ subtitleDelayMs WRITE setSubtitleDelayMs NOTIFY subtitleDelayMsChanged)
+    Q_PROPERTY(bool subtitleDelayToastVisible READ subtitleDelayToastVisible NOTIFY subtitleDelayToastVisibleChanged)
+    Q_PROPERTY(QString subtitleDelayToastText READ subtitleDelayToastText NOTIFY subtitleDelayToastTextChanged)
 
 public:
     explicit ApplicationController(QObject *parent = nullptr);
@@ -75,6 +78,17 @@ public:
     Q_INVOKABLE void resetRotation();        // 重置画面旋转 (UC-07)
     Q_INVOKABLE void resumeFromBeginning();  // 从头播放（跳过恢复位置）
     Q_INVOKABLE QString takeScreenshot();    // 截图保存
+
+    // 字幕延迟微调：deltaMs 为调整量（毫秒），正值 = 字幕推迟出现。
+    // 用于快捷键 [ / ] 与字幕弹窗 −/+ 按钮（每次 0.1s，长按连续调节）。
+    Q_INVOKABLE void nudgeSubtitleDelay(qint64 deltaMs);
+
+    // 当前文件字幕延迟（毫秒，正值 = 推迟）。设置后按文件记忆（PlaybackHistory）。
+    qint64 subtitleDelayMs() const;
+    void setSubtitleDelayMs(qint64 delayMs);
+
+    bool subtitleDelayToastVisible() const;
+    QString subtitleDelayToastText() const;
 
     QString screenshotPath() const;
     void setScreenshotPath(const QString &path);
@@ -148,6 +162,9 @@ signals:
     void playlistsChanged();
     void screenshotPathChanged(const QString &path);
     void modalCountChanged(int count);
+    void subtitleDelayMsChanged(qint64 delayMs);
+    void subtitleDelayToastVisibleChanged();
+    void subtitleDelayToastTextChanged();
 
 private:
     MediaEngine *m_mediaEngine;
@@ -161,6 +178,10 @@ private:
     QString m_currentFilePath;
     double m_lastPosition{0.0};
     QTimer *m_saveTimer{nullptr};
+    qint64 m_subtitleDelayMs{0};        // 当前文件字幕延迟（ms）
+    bool m_subtitleDelayToastVisible{false};
+    QString m_subtitleDelayToastText;
+    QTimer *m_subtitleDelayToastTimer{nullptr};  // 延迟提示自动隐藏
 
     QList<PlaylistModel *> m_allPlaylists;  // 所有播放列表
     QStringList m_playlistNames;            // 各列表名称

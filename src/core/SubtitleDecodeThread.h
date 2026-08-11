@@ -59,5 +59,6 @@ private:
 
     // 外挂字幕解析实现
     static QList<SubtitleEntry> loadSrt(const QString &path);
+    static QList<SubtitleEntry> loadVtt(const QString &path);
     static QList<SubtitleEntry> loadAss(const QString &path);
 };

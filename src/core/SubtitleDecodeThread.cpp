@@ -493,11 +493,94 @@ QList<SubtitleEntry> SubtitleDecodeThread::loadLrc(const QString &path)
     return entries;
 }
 
+QList<SubtitleEntry> SubtitleDecodeThread::loadVtt(const QString &path)
+{
+    QList<SubtitleEntry> subs;
+    QString content = readAllText(path);
+    if (content.isEmpty())
+        return subs;
+
+    // VTT 时间戳：HH:MM:SS.mmm 或 MM:SS.mmm（小时可省略），小数 1~3 位，
+    // 秒与毫秒之间可用 . 或 ,。--> 之后的文本是 cue settings，忽略。
+    static const QRegularExpression tsRe(
+        QStringLiteral(R"((?:(\d{1,3}):)?(\d{2,3}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,3}):)?(\d{2,3}):(\d{2})[.,](\d{1,3}))"));
+
+    static const QRegularExpression blockSep(QStringLiteral("\\r?\\n\\s*\\r?\\n"));
+    QStringList blocks = content.split(blockSep, Qt::SkipEmptyParts);
+
+    for (int b = 0; b < blocks.size(); ++b) {
+        QStringList lines = blocks[b].split(QRegularExpression(QStringLiteral("\\r?\\n")), Qt::SkipEmptyParts);
+        if (lines.isEmpty()) continue;
+
+        QString first = lines[0].trimmed();
+        // 文件头：WEBVTT 标志块（可能带标题），整体跳过
+        if (b == 0 && first.startsWith(u"WEBVTT", Qt::CaseInsensitive))
+            continue;
+
+        // NOTE / STYLE / REGION 块：整块跳过
+        if (first.startsWith(u"NOTE", Qt::CaseInsensitive)
+            || first.startsWith(u"STYLE", Qt::CaseInsensitive)
+            || first.startsWith(u"REGION", Qt::CaseInsensitive))
+            continue;
+
+        // 定位时间行：第一行是 cue id 时用第二行
+        int timeIdx = 0;
+        if (!first.contains(u"-->") && lines.size() > 1)
+            timeIdx = 1;
+
+        QRegularExpressionMatch m = tsRe.match(lines[timeIdx].trimmed());
+        if (!m.hasMatch()) {
+#ifdef QT_DEBUG
+            qDebug().noquote() << "[sub] vtt block skipped (no timing):" << lines[timeIdx].left(48);
+#endif
+            continue;
+        }
+
+        auto toMs = [&m](int h, int mm, int ss, int frac) -> qint64 {
+            QString fracStr = m.captured(frac);
+            while (fracStr.size() < 3)
+                fracStr += u'0';
+            if (fracStr.size() > 3)
+                fracStr.truncate(3);
+            qint64 ms = fracStr.toLongLong();
+            qint64 minutes = m.captured(mm).toLongLong();
+            qint64 secs = m.captured(ss).toLongLong();
+            qint64 total = (minutes * 60 + secs) * 1000 + ms;
+            if (!m.captured(h).isEmpty())
+                total += m.captured(h).toLongLong() * 3600000;
+            return total;
+        };
+
+        qint64 startMs = toMs(1, 2, 3, 4);
+        qint64 endMs = toMs(5, 6, 7, 8);
+        if (startMs < 0 || endMs <= startMs)
+            continue;
+
+        QString text = lines.mid(timeIdx + 1).join(u'\n');
+        text = cleanSubtitleText(text);
+        if (text.isEmpty()) continue;
+
+        SubtitleEntry e;
+        e.startUs = startMs * 1000;
+        e.endUs = endMs * 1000;
+        e.text = text;
+        subs.append(e);
+    }
+
+    std::stable_sort(subs.begin(), subs.end(),
+        [](const SubtitleEntry &a, const SubtitleEntry &b) { return a.startUs < b.startUs; });
+    patchMissingEnds(subs);
+    qDebug() << "[extsub] VTT loaded:" << subs.size() << "entries from" << QFileInfo(path).fileName();
+    return subs;
+}
+
 QList<SubtitleEntry> SubtitleDecodeThread::loadFromFile(const QString &path)
 {
     QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == u"srt")
         return loadSrt(path);
+    if (suffix == u"vtt")
+        return loadVtt(path);
     if (suffix == u"ass" || suffix == u"ssa")
         return loadAss(path);
     if (suffix == u"lrc")

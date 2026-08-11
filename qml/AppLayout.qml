@@ -121,6 +121,30 @@ Item {
         }
     }
 
+    // 字幕延迟调整提示条（快捷键 [/] 触发，2.5s 自动隐藏）
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 90
+        width: Math.min(subDelayLabel.implicitWidth + 40, parent.width * 0.6)
+        height: 36
+        radius: 18
+        color: "#cc333333"
+        visible: appController.subtitleDelayToastVisible
+        z: 100
+
+        Label {
+            id: subDelayLabel
+            anchors.centerIn: parent
+            width: parent.width - 40
+            text: appController.subtitleDelayToastText
+            font.pixelSize: 13
+            color: "#ffffff"
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
+    }
+
     Connections {
         target: appController
         function onRequestOpenFile() { fileDialog.open() }

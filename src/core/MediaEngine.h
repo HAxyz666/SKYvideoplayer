@@ -42,6 +42,7 @@ class MediaEngine : public QObject
     Q_PROPERTY(QString currentSubtitle READ currentSubtitle NOTIFY currentSubtitleChanged)
     Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY subtitleStreamsChanged)
     Q_PROPERTY(int currentSubtitleStream READ currentSubtitleStream WRITE setCurrentSubtitleStream NOTIFY currentSubtitleStreamChanged)
+    Q_PROPERTY(qint64 subtitleDelayMs READ subtitleDelayMs WRITE setSubtitleDelayMs NOTIFY subtitleDelayMsChanged)
     Q_PROPERTY(QVariantList audioStreams READ audioStreams NOTIFY audioStreamsChanged)
     Q_PROPERTY(int currentAudioStream READ currentAudioStream WRITE setCurrentAudioStream NOTIFY currentAudioStreamChanged)
     Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
@@ -82,6 +83,11 @@ public:
     QVariantList subtitleStreams() const;
     int currentSubtitleStream() const { return m_currentSubtitleStreamIndex; }
     Q_INVOKABLE void setCurrentSubtitleStream(int index);
+
+    // 字幕显示延迟（毫秒）：正值 = 字幕推迟出现（相对音频/画面滞后时往前调）。
+    // 应用层负责按文件记忆并在打开文件时恢复。
+    qint64 subtitleDelayMs() const { return m_subtitleDelayMs; }
+    void setSubtitleDelayMs(qint64 delayMs);
 
     // --- 音轨 ---
     QVariantList audioStreams() const;
@@ -130,6 +136,7 @@ signals:
     void currentSubtitleChanged(QString text);
     void subtitleStreamsChanged();
     void currentSubtitleStreamChanged(int index);
+    void subtitleDelayMsChanged(qint64 delayMs);
     void audioStreamsChanged();
     void currentAudioStreamChanged(int index);
     void rotationChanged(int angle);          // 画面旋转角度变化信号
@@ -321,9 +328,18 @@ private:
     QTimer *m_eofDrainTimer{nullptr};
 
     std::atomic<bool> m_seekInProgress{false}; // 后台 seek 进行中标志
+    // seek 代数（仅主线程读写）：网络流 seek 异步完成后排队一个"重启管线"
+    // 回调。期间若发生更新的 seek/音轨切换/stop，该回调须作废（代数不匹配则
+    // 直接返回），否则会与后续操作交错删除线程、重启管线（use-after-free）。
+    int m_seekGeneration{0};
+    // 音轨切换因在途后台 seek 而推迟的起始时刻（av_gettime 微秒，-1 未推迟）：
+    // 超过上限放弃切换，防止事件循环反复重排队导致无限循环。
+    qint64 m_switchRetryStartUs{-1};
 
     bool m_externalMode{false};
     QList<SubtitleEntry> m_externalSubtitles;
+    // 字幕显示延迟（毫秒，正值 = 推迟）。updateSubtitle 按此偏移查询位置。
+    qint64 m_subtitleDelayMs{0};
 
 #ifdef ENABLE_HWACCEL
     AVBufferRef *m_hwDeviceCtx{nullptr};

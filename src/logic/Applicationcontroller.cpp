@@ -51,6 +51,7 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::currentSubtitleChanged, this, &ApplicationController::currentSubtitleChanged);
     connect(m_mediaEngine, &MediaEngine::subtitleStreamsChanged, this, &ApplicationController::subtitleStreamsChanged);
     connect(m_mediaEngine, &MediaEngine::currentSubtitleStreamChanged, this, &ApplicationController::currentSubtitleStreamChanged);
+    connect(m_mediaEngine, &MediaEngine::subtitleDelayMsChanged, this, &ApplicationController::subtitleDelayMsChanged);
     connect(m_mediaEngine, &MediaEngine::audioStreamsChanged, this, &ApplicationController::audioStreamsChanged);
     connect(m_mediaEngine, &MediaEngine::currentAudioStreamChanged, this, &ApplicationController::currentAudioStreamChanged);
     // 转发 MediaEngine 画面旋转 / 翻转信号到 QML 层 (UC-07)
@@ -77,6 +78,15 @@ ApplicationController::ApplicationController(QObject *parent)
         m_currentFilePath = url;
         emit currentFilePathChanged();
         m_recentFiles->addFile(url);
+    });
+
+    // 字幕延迟调整提示（OSD），2.5 秒后自动隐藏
+    m_subtitleDelayToastTimer = new QTimer(this);
+    m_subtitleDelayToastTimer->setSingleShot(true);
+    m_subtitleDelayToastTimer->setInterval(2500);
+    connect(m_subtitleDelayToastTimer, &QTimer::timeout, this, [this]() {
+        m_subtitleDelayToastVisible = false;
+        emit subtitleDelayToastVisibleChanged();
     });
 }
 
@@ -432,6 +442,53 @@ void ApplicationController::setCurrentSubtitleStream(int index)
     m_mediaEngine->setCurrentSubtitleStream(index);
 }
 
+qint64 ApplicationController::subtitleDelayMs() const
+{
+    return m_subtitleDelayMs;
+}
+
+void ApplicationController::setSubtitleDelayMs(qint64 delayMs)
+{
+    delayMs = qBound<qint64>(-60000LL, delayMs, 60000LL);
+    if (m_subtitleDelayMs == delayMs)
+        return;
+    m_subtitleDelayMs = delayMs;
+    m_mediaEngine->setSubtitleDelayMs(delayMs);
+    // 按文件记忆（0 = 清除记录）
+    if (!m_currentFilePath.isEmpty())
+        PlaybackHistory::instance().saveSubtitleDelay(m_currentFilePath, delayMs);
+    emit subtitleDelayMsChanged(m_subtitleDelayMs);
+}
+
+void ApplicationController::nudgeSubtitleDelay(qint64 deltaMs)
+{
+    setSubtitleDelayMs(m_subtitleDelayMs + deltaMs);
+
+    // OSD 提示当前延迟；归零时提示"已重置"
+    double sec = m_subtitleDelayMs / 1000.0;
+    if (m_subtitleDelayMs == 0)
+        m_subtitleDelayToastText = tr("字幕延迟已重置");
+    else if (m_subtitleDelayMs > 0)
+        m_subtitleDelayToastText = tr("字幕延迟 +%1s").arg(sec, 0, 'f', 1);
+    else
+        m_subtitleDelayToastText = tr("字幕延迟 %1s").arg(sec, 0, 'f', 1);
+    emit subtitleDelayToastTextChanged();
+
+    m_subtitleDelayToastVisible = true;
+    emit subtitleDelayToastVisibleChanged();
+    m_subtitleDelayToastTimer->start();
+}
+
+bool ApplicationController::subtitleDelayToastVisible() const
+{
+    return m_subtitleDelayToastVisible;
+}
+
+QString ApplicationController::subtitleDelayToastText() const
+{
+    return m_subtitleDelayToastText;
+}
+
 QVariantList ApplicationController::audioStreams() const
 {
     return m_mediaEngine->audioStreams();
@@ -513,6 +570,9 @@ bool ApplicationController::openAndResume(const QString &filePath)
         m_currentFilePath = filePath;
         m_lastPosition = 0.0;
         emit currentFilePathChanged();
+
+        // 恢复该文件记忆的字幕延迟（按文件记忆）
+        setSubtitleDelayMs(PlaybackHistory::instance().getSubtitleDelay(filePath));
 
         if (initialSeekPos > 0.0) {
             emit resumePositionFound(filePath, savedPos);

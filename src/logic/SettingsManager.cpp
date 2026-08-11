@@ -46,7 +46,9 @@ void SettingsManager::load()
             { QStringLiteral("stepBackwardLarge"), QStringLiteral("Ctrl+Left") },
             { QStringLiteral("stepForwardLarge"), QStringLiteral("Ctrl+Right") },
             { QStringLiteral("toggleFullscreen"), QStringLiteral("F11") },
-            { QStringLiteral("exitFullscreen"), QStringLiteral("Escape") }
+            { QStringLiteral("exitFullscreen"), QStringLiteral("Escape") },
+            { QStringLiteral("subtitleDelayBackward"), QStringLiteral("[") },
+            { QStringLiteral("subtitleDelayForward"), QStringLiteral("]") }
         };
     }
 

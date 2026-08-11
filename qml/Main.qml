@@ -81,6 +81,10 @@ ApplicationWindow {
 
     Shortcut { sequence: settingsManager.shortcuts["toggleFullscreen"] || "F11"; onActivated: window.toggleMaximize() }
 
+    // 字幕延迟微调：[/] 每次 ±0.1s，按文件记忆
+    Shortcut { sequence: settingsManager.shortcuts["subtitleDelayBackward"] || "["; onActivated: appController.nudgeSubtitleDelay(-100) }
+    Shortcut { sequence: settingsManager.shortcuts["subtitleDelayForward"] || "]"; onActivated: appController.nudgeSubtitleDelay(100) }
+
     Shortcut { sequence: settingsManager.shortcuts["exitFullscreen"] || "Escape"; onActivated: {
         if (window.isFullscreen) window.toggleMaximize()
     }}

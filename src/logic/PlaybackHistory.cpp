@@ -32,6 +32,22 @@ double PlaybackHistory::getPosition(const QString &filePath) const
     return m_progressMap.value(filePath, 0.0);
 }
 
+void PlaybackHistory::saveSubtitleDelay(const QString &filePath, qint64 delayMs)
+{
+    if (filePath.isEmpty())
+        return;
+    if (delayMs == 0)
+        m_subtitleDelayMap.remove(filePath);
+    else
+        m_subtitleDelayMap.insert(filePath, delayMs);
+    saveToSettings();
+}
+
+qint64 PlaybackHistory::getSubtitleDelay(const QString &filePath) const
+{
+    return m_subtitleDelayMap.value(filePath, 0);
+}
+
 bool PlaybackHistory::shouldResume(const QString &filePath, double duration) const
 {
     double pos = getPosition(filePath);
@@ -59,14 +75,18 @@ void PlaybackHistory::clearAll()
 void PlaybackHistory::loadFromSettings()
 {
     m_progressMap.clear();
+    m_subtitleDelayMap.clear();
     m_settings.beginGroup("PlaybackHistory");
     int count = m_settings.value("count", 0).toInt();
     for (int i = 0; i < count; ++i) {
         QString prefix = QStringLiteral("item%1_").arg(i);
         QString path = m_settings.value(prefix + "path").toString();
         double pos = m_settings.value(prefix + "position", 0.0).toDouble();
+        qint64 delay = m_settings.value(prefix + "subtitleDelay", 0).toLongLong();
         if (!path.isEmpty() && pos > 0.0)
             m_progressMap.insert(path, pos);
+        if (!path.isEmpty() && delay != 0)
+            m_subtitleDelayMap.insert(path, delay);
     }
     m_settings.endGroup();
 }
@@ -76,7 +96,12 @@ void PlaybackHistory::saveToSettings()
     m_settings.beginGroup("PlaybackHistory");
     m_settings.remove(""); // 清除整个组
 
+    // 进度与字幕延迟共享同一组，条目集合取并集，避免某文件只有延迟记录时被丢弃
     QStringList keys = m_progressMap.keys();
+    for (const QString &path : m_subtitleDelayMap.keys()) {
+        if (!keys.contains(path))
+            keys.append(path);
+    }
     int count = qMin(keys.size(), kMaxEntries);
     m_settings.setValue("count", count);
 
@@ -84,6 +109,7 @@ void PlaybackHistory::saveToSettings()
         QString prefix = QStringLiteral("item%1_").arg(i);
         m_settings.setValue(prefix + "path", keys.at(i));
         m_settings.setValue(prefix + "position", m_progressMap.value(keys.at(i)));
+        m_settings.setValue(prefix + "subtitleDelay", m_subtitleDelayMap.value(keys.at(i)));
     }
     m_settings.endGroup();
 }

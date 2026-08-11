@@ -19,6 +19,10 @@ public:
     // 读取上次播放位置（秒），文件无记录时返回 0
     double getPosition(const QString &filePath) const;
 
+    // 保存/读取每个文件的字幕延迟（毫秒，正值 = 字幕推迟出现）
+    void saveSubtitleDelay(const QString &filePath, qint64 delayMs);
+    qint64 getSubtitleDelay(const QString &filePath) const;
+
     // 判断是否值得恢复：position > 5s 且 < 95% duration
     bool shouldResume(const QString &filePath, double duration) const;
 
@@ -35,5 +39,6 @@ private:
 
     QSettings m_settings;
     QMap<QString, double> m_progressMap; // filePath -> position (seconds)
+    QMap<QString, qint64> m_subtitleDelayMap; // filePath -> 字幕延迟 (ms)
     static constexpr int kMaxEntries = 200;
 };

@@ -321,8 +321,10 @@ void AudioDecodeThread::run()
             speed = m_currentSpeed.load(std::memory_order_acquire);
 
             if (qFuzzyCompare(speed, 1.0)) {
+                // push 会克隆帧，此处必须释放本地引用，否则每帧数据缓冲泄漏
+                // （5.2KB/帧，连续播放一小时可累积数 GB）。
                 m_frameQueue->push(resampled);
-                resampled = nullptr;
+                av_frame_free(&resampled);
             } else {
                 double inputPtsSec = resampled->pts != AV_NOPTS_VALUE
                     ? (double)resampled->pts / rate : m_sonicOutputPts;
@@ -380,7 +382,9 @@ void AudioDecodeThread::run()
                     f->pts = static_cast<qint64>(pts * rate);
                     f->time_base = (AVRational){1, rate};
                     m_frameQueue->push(f);
-                    soFar += f->nb_samples;
+                    int fb = f->nb_samples;
+                    av_frame_free(&f);
+                    soFar += fb;
                 }
 
                 m_sonicOutputPts = writePts + inputDuration;
