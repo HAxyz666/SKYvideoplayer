@@ -7,6 +7,7 @@ layout(location = 0) out vec2 vTexCoord;
 
 layout(binding = 3, std140) uniform UniformBlock {
     mat4 mvp;
+    vec4 params; // x=亮度偏移  y=对比度  z=饱和度  w=保留
 } ubo;
 
 void main()

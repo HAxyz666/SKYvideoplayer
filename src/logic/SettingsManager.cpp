@@ -48,11 +48,23 @@ void SettingsManager::load()
             { QStringLiteral("toggleFullscreen"), QStringLiteral("F11") },
             { QStringLiteral("exitFullscreen"), QStringLiteral("Escape") },
             { QStringLiteral("subtitleDelayBackward"), QStringLiteral("[") },
-            { QStringLiteral("subtitleDelayForward"), QStringLiteral("]") }
+            { QStringLiteral("subtitleDelayForward"), QStringLiteral("]") },
+            { QStringLiteral("brightnessDown"), QStringLiteral("3") },
+            { QStringLiteral("brightnessUp"), QStringLiteral("4") },
+            { QStringLiteral("contrastDown"), QStringLiteral("5") },
+            { QStringLiteral("contrastUp"), QStringLiteral("6") },
+            { QStringLiteral("saturationDown"), QStringLiteral("7") },
+            { QStringLiteral("saturationUp"), QStringLiteral("8") },
+            { QStringLiteral("cycleAspectMode"), QStringLiteral("Z") }
         };
     }
 
     m_language = m_settings.value("language", QStringLiteral("en")).toString();
+
+    m_brightness = qBound(-100, m_settings.value("brightness", 0).toInt(), 100);
+    m_contrast = qBound(-100, m_settings.value("contrast", 0).toInt(), 100);
+    m_saturation = qBound(-100, m_settings.value("saturation", 0).toInt(), 100);
+    m_scaleMode = qBound(0, m_settings.value("scaleMode", 0).toInt(), 2);
 
     m_settings.endGroup();
 }
@@ -130,5 +142,58 @@ void SettingsManager::setLanguage(const QString &lang)
     m_settings.endGroup();
 
     emit languageChanged(m_language);
+    emit settingsChanged();
+}
+
+int SettingsManager::brightness() const { return m_brightness; }
+int SettingsManager::contrast() const { return m_contrast; }
+int SettingsManager::saturation() const { return m_saturation; }
+int SettingsManager::scaleMode() const { return m_scaleMode; }
+
+void SettingsManager::setBrightness(int value)
+{
+    int v = qBound(-100, value, 100);
+    if (m_brightness == v) return;
+    m_brightness = v;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue("brightness", m_brightness);
+    m_settings.endGroup();
+    emit brightnessChanged(m_brightness);
+    emit settingsChanged();
+}
+
+void SettingsManager::setContrast(int value)
+{
+    int v = qBound(-100, value, 100);
+    if (m_contrast == v) return;
+    m_contrast = v;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue("contrast", m_contrast);
+    m_settings.endGroup();
+    emit contrastChanged(m_contrast);
+    emit settingsChanged();
+}
+
+void SettingsManager::setSaturation(int value)
+{
+    int v = qBound(-100, value, 100);
+    if (m_saturation == v) return;
+    m_saturation = v;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue("saturation", m_saturation);
+    m_settings.endGroup();
+    emit saturationChanged(m_saturation);
+    emit settingsChanged();
+}
+
+void SettingsManager::setScaleMode(int mode)
+{
+    int m = qBound(0, mode, 2);
+    if (m_scaleMode == m) return;
+    m_scaleMode = m;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue("scaleMode", m_scaleMode);
+    m_settings.endGroup();
+    emit scaleModeChanged(m_scaleMode);
     emit settingsChanged();
 }

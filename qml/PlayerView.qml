@@ -109,6 +109,10 @@ Rectangle {
         visible: !controller.isAudioOnly
         videoRotation: appController.rotation
         flipVertical: appController.flipVertical
+        brightness: settingsManager.brightness
+        contrast: settingsManager.contrast
+        saturation: settingsManager.saturation
+        scaleMode: settingsManager.scaleMode
     }
 
     LoadingOverlay {}

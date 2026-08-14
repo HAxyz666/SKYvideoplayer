@@ -467,11 +467,11 @@ void ApplicationController::nudgeSubtitleDelay(qint64 deltaMs)
     // OSD 提示当前延迟；归零时提示"已重置"
     double sec = m_subtitleDelayMs / 1000.0;
     if (m_subtitleDelayMs == 0)
-        m_subtitleDelayToastText = tr("字幕延迟已重置");
+        m_subtitleDelayToastText = tr("Subtitle delay reset");
     else if (m_subtitleDelayMs > 0)
-        m_subtitleDelayToastText = tr("字幕延迟 +%1s").arg(sec, 0, 'f', 1);
+        m_subtitleDelayToastText = tr("Subtitle delay +%1s").arg(sec, 0, 'f', 1);
     else
-        m_subtitleDelayToastText = tr("字幕延迟 %1s").arg(sec, 0, 'f', 1);
+        m_subtitleDelayToastText = tr("Subtitle delay %1s").arg(sec, 0, 'f', 1);
     emit subtitleDelayToastTextChanged();
 
     m_subtitleDelayToastVisible = true;

@@ -85,6 +85,15 @@ ApplicationWindow {
     Shortcut { sequence: settingsManager.shortcuts["subtitleDelayBackward"] || "["; onActivated: appController.nudgeSubtitleDelay(-100) }
     Shortcut { sequence: settingsManager.shortcuts["subtitleDelayForward"] || "]"; onActivated: appController.nudgeSubtitleDelay(100) }
 
+    // 画面调节快捷键（mpv 风格）：3/4 亮度、5/6 对比度、7/8 饱和度，Z 循环缩放模式
+    Shortcut { sequence: settingsManager.shortcuts["brightnessDown"] || "3"; context: Qt.ApplicationShortcut; onActivated: settingsManager.brightness = Math.max(-100, settingsManager.brightness - 5) }
+    Shortcut { sequence: settingsManager.shortcuts["brightnessUp"] || "4";   context: Qt.ApplicationShortcut; onActivated: settingsManager.brightness = Math.min(100, settingsManager.brightness + 5) }
+    Shortcut { sequence: settingsManager.shortcuts["contrastDown"] || "5";   context: Qt.ApplicationShortcut; onActivated: settingsManager.contrast = Math.max(-100, settingsManager.contrast - 5) }
+    Shortcut { sequence: settingsManager.shortcuts["contrastUp"] || "6";     context: Qt.ApplicationShortcut; onActivated: settingsManager.contrast = Math.min(100, settingsManager.contrast + 5) }
+    Shortcut { sequence: settingsManager.shortcuts["saturationDown"] || "7"; context: Qt.ApplicationShortcut; onActivated: settingsManager.saturation = Math.max(-100, settingsManager.saturation - 5) }
+    Shortcut { sequence: settingsManager.shortcuts["saturationUp"] || "8";   context: Qt.ApplicationShortcut; onActivated: settingsManager.saturation = Math.min(100, settingsManager.saturation + 5) }
+    Shortcut { sequence: settingsManager.shortcuts["cycleAspectMode"] || "Z"; context: Qt.ApplicationShortcut; onActivated: settingsManager.scaleMode = (settingsManager.scaleMode + 1) % 3 }
+
     Shortcut { sequence: settingsManager.shortcuts["exitFullscreen"] || "Escape"; onActivated: {
         if (window.isFullscreen) window.toggleMaximize()
     }}

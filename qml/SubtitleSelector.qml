@@ -136,7 +136,7 @@ Button {
                 // 区域提示文字：与调节按钮拉开一点距离
                 Text {
                     id: label
-                    text: qsTr("延迟微调")
+                    text: qsTr("Delay Adjust")
                     width: 64
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
@@ -197,7 +197,7 @@ Button {
                     elide: Text.ElideRight
 
                     // 说明提示：悬停显示延迟含义
-                    ToolTip.text: qsTr("字幕延迟：+ 表示字幕推迟出现\n按住 - / + 可连续调节（每次 0.1s）")
+                    ToolTip.text: qsTr("Subtitle delay: + means subtitles appear later\nHold - / + to adjust continuously (0.1s steps)")
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                 }

@@ -36,6 +36,10 @@ public:
     bool needsUpload = false;
     int videoRotation = 0;
     bool flipVertical = false;
+    int brightness = 0;
+    int contrast = 0;
+    int saturation = 0;
+    int scaleMode = 0;
 
     explicit VideoRenderItemRenderer(QMutex &mtx) : mutex(mtx) {}
 
@@ -68,6 +72,10 @@ public:
         // 画面旋转 / 翻转状态同步到渲染线程
         videoRotation = ri->m_videoRotation;
         flipVertical = ri->m_flipVertical;
+        brightness = ri->m_brightness;
+        contrast = ri->m_contrast;
+        saturation = ri->m_saturation;
+        scaleMode = ri->m_scaleMode;
         itemSize = item->size();
     }
 
@@ -84,7 +92,8 @@ public:
         samplerLinear->create();
 
         //周代森：创建Uniform缓冲，存放着色器的常量数据（1每帧都更新mvp矩阵；2用途：着色器常量缓冲；3，大小）
-        uniformBuf = rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 64);
+        // 布局：mat4 mvp (64B) + vec4 画面调节参数 (16B)，std140 对齐
+        uniformBuf = rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 80);
         uniformBuf->create();
 
         //周代森：创建顶点缓冲，存放画面四个顶点数据（1顶点固定不变；2用途：作为顶点输出；3四个顶点[矩形画面]）
@@ -151,8 +160,17 @@ public:
 
         const bool hasFrame = hasFrameData && pipeline && texY;
 
-        if (hasFrame)
+        if (hasFrame) {
             batch->updateDynamicBuffer(uniformBuf, 0, 64, mvpMatrix().constData());
+            // 画面调节参数：[-100,100] 归一化到 shader 期望区间
+            const float params[4] = {
+                brightness / 100.0f,
+                (contrast + 100.0f) / 100.0f,
+                (saturation + 100.0f) / 100.0f,
+                0.0f
+            };
+            batch->updateDynamicBuffer(uniformBuf, 64, 16, params);
+        }
 
         //周代森：强制渲染当前画面，修复了暂停+按下全屏时的画面尺寸问题
         // beginPass always clears to Qt::black, so an empty frame (e.g. after
@@ -185,8 +203,16 @@ private:
 
             float ar = float(effective.width()) / effective.height();
             float ir = float(itemSize.width()) / itemSize.height();
-            if (ar > ir) mvp.scale(1.0f, ir / ar);
-            else         mvp.scale(ar / ir, 1.0f);
+            // 缩放模式：Fit 完整显示留边；Fill 铺满裁剪；Stretch 拉伸变形
+            if (scaleMode == 2) {
+                // 不缩放
+            } else if (ar > ir) {
+                if (scaleMode == 1) mvp.scale(ar / ir, 1.0f);
+                else                mvp.scale(1.0f, ir / ar);
+            } else {
+                if (scaleMode == 1) mvp.scale(1.0f, ir / ar);
+                else                mvp.scale(ar / ir, 1.0f);
+            }
 
             // 变换作用于顶点顺序：翻转 → 旋转 → 适配缩放
             if (videoRotation != 0)
@@ -300,6 +326,42 @@ void VideoRenderItem::setFlipVertical(bool flip)
     if (m_flipVertical == flip) return;
     m_flipVertical = flip;
     emit flipVerticalChanged();
+    update();
+}
+
+void VideoRenderItem::setBrightness(int value)
+{
+    int v = qBound(-100, value, 100);
+    if (m_brightness == v) return;
+    m_brightness = v;
+    emit brightnessChanged();
+    update();
+}
+
+void VideoRenderItem::setContrast(int value)
+{
+    int v = qBound(-100, value, 100);
+    if (m_contrast == v) return;
+    m_contrast = v;
+    emit contrastChanged();
+    update();
+}
+
+void VideoRenderItem::setSaturation(int value)
+{
+    int v = qBound(-100, value, 100);
+    if (m_saturation == v) return;
+    m_saturation = v;
+    emit saturationChanged();
+    update();
+}
+
+void VideoRenderItem::setScaleMode(int mode)
+{
+    int m = qBound(0, mode, 2);
+    if (m_scaleMode == m) return;
+    m_scaleMode = m;
+    emit scaleModeChanged();
     update();
 }
 

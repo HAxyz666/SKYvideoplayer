@@ -281,7 +281,16 @@ Popup {
                                 { key: "stepBackwardLarge", label: "Large Backward" },
                                 { key: "stepForwardLarge", label: "Large Forward" },
                                 { key: "toggleFullscreen", label: "Toggle Fullscreen" },
-                                { key: "exitFullscreen", label: "Exit Fullscreen" }
+                                { key: "exitFullscreen", label: "Exit Fullscreen" },
+                                { key: "subtitleDelayBackward", label: qsTr("Subtitle Delay -") },
+                                { key: "subtitleDelayForward", label: qsTr("Subtitle Delay +") },
+                                { key: "brightnessDown", label: qsTr("Brightness -") },
+                                { key: "brightnessUp", label: qsTr("Brightness +") },
+                                { key: "contrastDown", label: qsTr("Contrast -") },
+                                { key: "contrastUp", label: qsTr("Contrast +") },
+                                { key: "saturationDown", label: qsTr("Saturation -") },
+                                { key: "saturationUp", label: qsTr("Saturation +") },
+                                { key: "cycleAspectMode", label: qsTr("Cycle Aspect Mode") }
                             ]
 
                             RowLayout {
