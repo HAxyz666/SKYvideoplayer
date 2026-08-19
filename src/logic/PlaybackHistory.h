@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSettings>
 #include <QMap>
+#include <QVariantMap>
 
 // 记录并持久化每个文件的播放位置，用于实现"记住播放进度"功能。
 // 单例模式 — 通过 instance() 全局访问。
@@ -23,11 +24,13 @@ public:
     void saveSubtitleDelay(const QString &filePath, qint64 delayMs);
     qint64 getSubtitleDelay(const QString &filePath) const;
 
-    // 判断是否值得恢复：position > 5s 且 < 95% duration
-    bool shouldResume(const QString &filePath, double duration) const;
+    // 保存/读取每个文件的播放偏好（音轨/字幕轨/倍速/旋转/翻转等）。
+    // 支持键：audioStream(int, 音轨列表索引)、subtitleStream(int, -1=关闭)、
+    // speed(double)、rotation(int, 0/90/180/270)、flipVertical(bool)。
+    void savePrefs(const QString &filePath, const QVariantMap &prefs);
+    QVariantMap prefs(const QString &filePath) const;
 
     void removeEntry(const QString &filePath);
-    void clearAll();
 
     void loadFromSettings();
     void saveToSettings();
@@ -40,5 +43,6 @@ private:
     QSettings m_settings;
     QMap<QString, double> m_progressMap; // filePath -> position (seconds)
     QMap<QString, qint64> m_subtitleDelayMap; // filePath -> 字幕延迟 (ms)
+    QMap<QString, QVariantMap> m_prefsMap; // filePath -> 播放偏好
     static constexpr int kMaxEntries = 200;
 };

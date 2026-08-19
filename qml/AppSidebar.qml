@@ -22,7 +22,6 @@ Rectangle {
             color: "transparent"
 
             Image {
-                id: logoImg
                 anchors.centerIn: parent
                 source: appController.theme === "dark" ? "qrc:/icons/logos/LogoD.svg" : "qrc:/icons/logos/LogoL.svg"
                 sourceSize: Qt.size(80, 80)
@@ -40,6 +39,9 @@ Rectangle {
             spacing: 0
 
             component MenuButton: Button {
+                // 文字颜色（常规/悬停），Exit 按钮通过这两个属性定制为红色系
+                property color textColor: appController.theme === "dark" ? "#ffffff" : "#333333"
+                property color textHoverColor: appController.theme === "dark" ? "#ffffff" : "#000000"
                 width: parent.width
                 height: 40
                 flat: true
@@ -48,9 +50,7 @@ Rectangle {
                     text: parent.text
                     verticalAlignment: Text.AlignVCenter
                     leftPadding: 20
-                    color: parent.hovered
-                        ? (appController.theme === "dark" ? "#ffffff" : "#000000")
-                        : (appController.theme === "dark" ? "#ffffff" : "#333333")
+                    color: parent.hovered ? parent.textHoverColor : parent.textColor
                 }
                 background: Rectangle {
                     color: parent.hovered
@@ -75,25 +75,10 @@ Rectangle {
             }
             // ...
 
-            component ExitButton: Button {
+            MenuButton {
                 text: qsTr("Exit")
-                width: parent.width
-                height: 40
-                flat: true
-                font.pixelSize: 14
-                contentItem: Label {
-                    text: parent.text
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: 20
-                    color: parent.hovered ? "#A93226" : "#C0392B"
-                }
-                background: Rectangle {
-                    color: parent.hovered
-                        ? (appController.theme === "dark" ? "#3d3d3d" : "#d0d0d0")
-                        : "transparent"
-                }
-            }
-            ExitButton{
+                textColor: "#C0392B"
+                textHoverColor: "#A93226"
                 onClicked: Qt.quit()
             }
         }

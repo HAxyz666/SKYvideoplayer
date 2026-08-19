@@ -134,11 +134,10 @@ Item {
                     }
                 }
 
-                RowLayout {
+                Item {
                     anchors.fill: parent
                     anchors.leftMargin: 4
                     anchors.rightMargin: 4
-                    spacing: 8
 
                     CheckBox {
                         id: itemCheck
@@ -152,15 +151,34 @@ Item {
                     }
 
                     Label {
-                        id: historyNameLabel
                         text: model.fileName
-                        font.pixelSize: 14
-                        color: appController.theme === "dark" ? "#ffffff" : "#333333"
+                        font.pixelSize: 13
+                        color: appController.theme === "dark" ? "#ffffff" : "#000000"
                         elide: Text.ElideRight
-                        Layout.fillWidth: true
+                        anchors.left: itemCheck.visible ? itemCheck.right : parent.left
+                        anchors.right: parent.horizontalCenter
+                        anchors.rightMargin: 78
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Item {
+                        id: rightHalf
+                        anchors.left: parent.horizontalCenter
+                        anchors.right: parent.right
+                    }
+
+                    Label {
+                        text: model.filePath
+                        font.pixelSize: 10
+                        color: appController.theme === "dark" ? "#888888" : "#999999"
+                        elide: Text.ElideRight
+                        width: 140
+                        anchors.horizontalCenter: rightHalf.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
                         ToolTip.text: model.filePath
-                        ToolTip.visible: historyNameHover.hovered && contentWidth > width
-                        HoverHandler { id: historyNameHover }
+                        ToolTip.visible: historyPathHover.hovered
+                        ToolTip.delay: 0
+                        HoverHandler { id: historyPathHover }
                     }
 
                     Label {
@@ -169,6 +187,8 @@ Item {
                             : ""
                         font.pixelSize: 11
                         color: appController.theme === "dark" ? "#888888" : "#999999"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                     }
                 }
             }

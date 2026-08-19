@@ -63,6 +63,9 @@ protected:
 
 private:
     friend class VideoRenderItemRenderer;
+    // 设置钳制到 [min,max] 的 int 属性：值未变化则跳过，统一 emit + 重绘
+    void setClampedInt(int &member, int value, int min, int max,
+                       void (VideoRenderItem::*notify)());
     YUVFrame m_pendingFrame;
     bool m_clearRequested{false};
     QMutex m_mutex;

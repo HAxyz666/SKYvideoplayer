@@ -23,8 +23,6 @@ Dialog {
     header: Item { height: 0 }
     footer: Item { height: 0 }
 
-    property alias url: urlInput.text
-
     contentItem: ColumnLayout {
         spacing: 14
 
@@ -114,7 +112,6 @@ Dialog {
     onAccepted: {
         if (urlInput.text.trim().length > 0)
             controller.openFile(urlInput.text.trim())
-        urlInput.text = ""
     }
 
     onClosed: {

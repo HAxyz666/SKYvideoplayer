@@ -48,14 +48,20 @@ qint64 PlaybackHistory::getSubtitleDelay(const QString &filePath) const
     return m_subtitleDelayMap.value(filePath, 0);
 }
 
-bool PlaybackHistory::shouldResume(const QString &filePath, double duration) const
+void PlaybackHistory::savePrefs(const QString &filePath, const QVariantMap &prefs)
 {
-    double pos = getPosition(filePath);
-    if (pos < 5.0)
-        return false;
-    if (duration > 0 && pos >= duration * 0.95)
-        return false;
-    return true;
+    if (filePath.isEmpty())
+        return;
+    if (prefs.isEmpty())
+        m_prefsMap.remove(filePath);
+    else
+        m_prefsMap.insert(filePath, prefs);
+    saveToSettings();
+}
+
+QVariantMap PlaybackHistory::prefs(const QString &filePath) const
+{
+    return m_prefsMap.value(filePath);
 }
 
 void PlaybackHistory::removeEntry(const QString &filePath)
@@ -64,18 +70,11 @@ void PlaybackHistory::removeEntry(const QString &filePath)
         saveToSettings();
 }
 
-void PlaybackHistory::clearAll()
-{
-    if (m_progressMap.isEmpty())
-        return;
-    m_progressMap.clear();
-    saveToSettings();
-}
-
 void PlaybackHistory::loadFromSettings()
 {
     m_progressMap.clear();
     m_subtitleDelayMap.clear();
+    m_prefsMap.clear();
     m_settings.beginGroup("PlaybackHistory");
     int count = m_settings.value("count", 0).toInt();
     for (int i = 0; i < count; ++i) {
@@ -83,10 +82,13 @@ void PlaybackHistory::loadFromSettings()
         QString path = m_settings.value(prefix + "path").toString();
         double pos = m_settings.value(prefix + "position", 0.0).toDouble();
         qint64 delay = m_settings.value(prefix + "subtitleDelay", 0).toLongLong();
+        QVariant prefs = m_settings.value(prefix + "prefs");
         if (!path.isEmpty() && pos > 0.0)
             m_progressMap.insert(path, pos);
         if (!path.isEmpty() && delay != 0)
             m_subtitleDelayMap.insert(path, delay);
+        if (!path.isEmpty() && prefs.isValid() && !prefs.toMap().isEmpty())
+            m_prefsMap.insert(path, prefs.toMap());
     }
     m_settings.endGroup();
 }
@@ -96,9 +98,14 @@ void PlaybackHistory::saveToSettings()
     m_settings.beginGroup("PlaybackHistory");
     m_settings.remove(""); // 清除整个组
 
-    // 进度与字幕延迟共享同一组，条目集合取并集，避免某文件只有延迟记录时被丢弃
+    // 进度 / 字幕延迟 / 播放偏好共享同一组，条目集合取并集，
+    // 避免某文件只有延迟或偏好记录时被丢弃
     QStringList keys = m_progressMap.keys();
     for (const QString &path : m_subtitleDelayMap.keys()) {
+        if (!keys.contains(path))
+            keys.append(path);
+    }
+    for (const QString &path : m_prefsMap.keys()) {
         if (!keys.contains(path))
             keys.append(path);
     }
@@ -110,6 +117,7 @@ void PlaybackHistory::saveToSettings()
         m_settings.setValue(prefix + "path", keys.at(i));
         m_settings.setValue(prefix + "position", m_progressMap.value(keys.at(i)));
         m_settings.setValue(prefix + "subtitleDelay", m_subtitleDelayMap.value(keys.at(i)));
+        m_settings.setValue(prefix + "prefs", m_prefsMap.value(keys.at(i)));
     }
     m_settings.endGroup();
 }

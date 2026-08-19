@@ -75,6 +75,16 @@
 <context>
     <name>ApplicationController</name>
     <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="698"/>
+        <source>A-B loop cleared</source>
+        <translation>已清除 A-B 循环</translation>
+    </message>
+    <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="695"/>
+        <source>A-B loop: %1 → %2</source>
+        <translation>A-B 循环：%1 → %2</translation>
+    </message>
+    <message>
         <location filename="../src/logic/Applicationcontroller.cpp" line="30"/>
         <location filename="../src/logic/Applicationcontroller.cpp" line="679"/>
         <location filename="../src/logic/Applicationcontroller.cpp" line="690"/>
@@ -91,6 +101,11 @@
         <location filename="../src/logic/Applicationcontroller.cpp" line="300"/>
         <source>List %1</source>
         <translation>列表 %1</translation>
+    </message>
+    <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="692"/>
+        <source>Loop start A: %1, press again to set B</source>
+        <translation>循环起点 A：%1，再次按下设置终点 B</translation>
     </message>
     <message>
         <location filename="../src/logic/Applicationcontroller.cpp" line="470"/>
@@ -118,6 +133,16 @@
 </context>
 <context>
     <name>ControlBar</name>
+    <message>
+        <location filename="../qml/ControlBar.qml" line="227"/>
+        <source>A-B loop active, click to clear</source>
+        <translation>A-B 循环进行中，点击清除</translation>
+    </message>
+    <message>
+        <location filename="../qml/ControlBar.qml" line="228"/>
+        <source>A-B loop: set A, then B</source>
+        <translation>A-B 循环：先设 A，再设 B</translation>
+    </message>
     <message>
         <location filename="../qml/ControlBar.qml" line="62"/>
         <source>Prev</source>
@@ -411,6 +436,16 @@
         <location filename="../qml/SettingsDialog.qml" line="72"/>
         <source>Shortcuts</source>
         <translation>快捷键</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="288"/>
+        <source>Step Frame</source>
+        <translation>逐帧步进</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="287"/>
+        <source>A-B Loop</source>
+        <translation>A-B 循环</translation>
     </message>
     <message>
         <location filename="../qml/SettingsDialog.qml" line="93"/>

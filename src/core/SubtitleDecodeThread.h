@@ -36,6 +36,9 @@ public:
     void stopDecode();
     void setPausedRef(const std::atomic<bool> &paused);
     void clearSubtitles();
+    // 冲刷唤醒（轻量 seek）：demux 完成容器 seek 并投入冲刷标记后置位，
+    // 使暂停中的本线程醒来消费标记，就地冲刷字幕解码器并清空条目。
+    void wakeFlush() { m_flushWake.store(true, std::memory_order_release); }
 
     QString getSubtitleAt(qint64 positionUs) const;
 
@@ -53,6 +56,7 @@ private:
     AVRational m_timeBase;
     std::atomic<bool> m_quit{false};
     const std::atomic<bool> *m_paused = nullptr;
+    std::atomic<bool> m_flushWake{false};
 
     mutable QMutex m_subMutex;
     QList<SubtitleEntry> m_subtitles;

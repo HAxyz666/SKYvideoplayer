@@ -6,8 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui Concurrent)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Svg ShaderTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui Concurrent Qml Svg ShaderTools)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -31,7 +30,6 @@ set(CORE_SOURCES
     src/core/MediaEngine.cpp
     src/core/AVSyncController.cpp
     src/core/AudioOutput.cpp
-    src/core/VideoRenderItem.cpp
     src/core/PacketQueue.cpp
     src/core/FrameQueue.cpp
     src/core/DemuxThread.cpp
@@ -104,6 +102,8 @@ qt6_add_resources(SKYvideoplayer "translations"
     FILES translations/zh_CN.qm
 )
 
+set_source_files_properties(qml/TimeUtils.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt6_add_qml_module(SKYvideoplayer
     URI SKYvideoplayer
     VERSION 1.0
@@ -127,6 +127,7 @@ qt6_add_qml_module(SKYvideoplayer
         qml/LoadingOverlay.qml
         qml/ResumeToast.qml
         qml/SpeedPopup.qml
+        qml/TimeUtils.qml
         qml/VideoAdjustPopup.qml
     SOURCES
         src/core/VideoRenderItem.cpp
@@ -164,6 +165,8 @@ qt6_add_shaders(SKYvideoplayer "shaders"
 
 target_include_directories(SKYvideoplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/logic
+    ${LIBSONIC_INCLUDE_DIRS}
 )
 
 get_target_property(_qt6gui_inc Qt6::Gui INTERFACE_INCLUDE_DIRECTORIES)
@@ -177,15 +180,12 @@ foreach(_incdir IN LISTS _qt6gui_inc)
     endif()
 endforeach()
 
-target_include_directories(SKYvideoplayer PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/logic
-)
 target_link_libraries(SKYvideoplayer PRIVATE
     Qt6::Core
     Qt6::Quick
     Qt6::Gui
-    Qt6::Svg
     Qt6::Concurrent
+    Qt6::Svg
     PkgConfig::AVCODEC
     PkgConfig::AVFORMAT
     PkgConfig::AVUTIL
@@ -193,10 +193,6 @@ target_link_libraries(SKYvideoplayer PRIVATE
     PkgConfig::SWSCALE
     PkgConfig::SDL2
     ${LIBSONIC_LIBRARIES}
-)
-
-target_include_directories(SKYvideoplayer PRIVATE
-    ${LIBSONIC_INCLUDE_DIRS}
 )
 
 if(UNIX AND NOT APPLE AND LIBVA_FOUND AND LIBDRM_FOUND)

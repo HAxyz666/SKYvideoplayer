@@ -20,7 +20,6 @@ public:
     AVFrame *peek();
     void clear();
     void setFinished(bool finished);
-    bool isFinished() const;
     void flush();
     int size() const;
     size_t totalBytes() const;
@@ -29,6 +28,7 @@ public:
     void requestQuit();
 
 private:
+    void drain(bool notifyEmpty);
     QQueue<AVFrame *> m_queue;
     mutable std::mutex m_mutex;
     std::condition_variable m_notEmpty;

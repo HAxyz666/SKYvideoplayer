@@ -4,7 +4,6 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QList>
-#include <QImage>
 #include <QFutureWatcher>
 #include <atomic>
 
@@ -47,6 +46,9 @@ class MediaEngine : public QObject
     Q_PROPERTY(int currentAudioStream READ currentAudioStream WRITE setCurrentAudioStream NOTIFY currentAudioStreamChanged)
     Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
+    Q_PROPERTY(int abLoopState READ abLoopState NOTIFY abLoopStateChanged)
+    Q_PROPERTY(double abLoopA READ abLoopA NOTIFY abLoopChanged)
+    Q_PROPERTY(double abLoopB READ abLoopB NOTIFY abLoopChanged)
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
     Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
     Q_PROPERTY(bool isNetworkStream READ isNetworkStream NOTIFY isNetworkStreamChanged)
@@ -67,6 +69,7 @@ public:
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
     Q_INVOKABLE void seek(double seconds);
+    bool isPaused() const { return m_paused.load(std::memory_order_acquire); }
     bool hasVideo() const { return m_videoStreamIndex >= 0; }
 
     double position() const;
@@ -123,6 +126,29 @@ public:
     Q_INVOKABLE void setFlipVertical(bool flip);      // 设置垂直翻转
     Q_INVOKABLE void resetRotation();                 // 重置画面
 
+    // --- A-B 区间循环 ---
+    // 三态状态机：未激活 → 已设 A（等待 B）→ A-B 循环中 → 未激活。
+    // 循环激活时播放到 B 点自动跳回 A 点；到文件末尾同样跳回。
+    enum ABLoopState { NoLoop = 0, APending = 1, Looping = 2 };
+    Q_ENUM(ABLoopState)
+    int abLoopState() const { return m_abLoopState; }
+    double abLoopA() const { return m_abLoopA; }
+    double abLoopB() const { return m_abLoopB; }
+    Q_INVOKABLE void toggleABLoop();
+    // 统一的状态变更出口：置状态并成对发出状态/坐标信号，
+    // 避免调用点各自手写 emit 块（QML 依赖两信号同批到达刷新提示）。
+    void setABLoopState(int state);
+    void resetABLoop();
+
+    // --- 逐帧步进 ---
+    // 暂停态下解码并显示恰好一帧后冻结（画面推进一帧，不 seek、不触发重排）。
+    Q_INVOKABLE void stepFrameForward();
+
+    // --- 进度条拖动预览 ---
+    // 暂停并 seek 到目标位置，随后解码并显示该处的一帧画面后冻结。
+    // 拖动进度条时逐次调用即可实时预览目标画面（配合节流使用）。
+    Q_INVOKABLE void seekAndShowFrame(double seconds);
+
 signals:
     void frameReady(const YUVFrame &frame);
     void playbackFinished();
@@ -141,6 +167,8 @@ signals:
     void currentAudioStreamChanged(int index);
     void rotationChanged(int angle);          // 画面旋转角度变化信号
     void flipVerticalChanged(bool flip);      // 垂直翻转状态变化信号
+    void abLoopStateChanged(int state);       // A-B 循环状态变化信号
+    void abLoopChanged();                     // A/B 点坐标变化信号
     void coverArtChanged();
     void currentLyricChanged(QString lyric);
     void isNetworkStreamChanged(bool isNetwork);
@@ -158,6 +186,27 @@ private:
     void cleanup();
     void startThreads();
     void stopThreads();
+    // 本地文件 seek 重路径：拆卸全部线程与队列，主线程执行
+    // avformat_seek_file + 编解码器冲刷，再整体重建（音轨切换专用/回退用）。
+    void seekHeavy(double seconds);
+    // 本地文件 seek 轻路径（线程常驻）：demux 线程执行 avformat_seek_file +
+    // 清空包队列 + 投入冲刷标记，解码线程消费标记就地冲刷编解码器与帧队列，
+    // 不拆线程/队列，毫秒级完成。仅当解码管线线程全部存活时可用。
+    void seekLight(double seconds);
+    // 两条 seek 路径共用的片段（避免重/轻路径间复制粘贴）
+    qint64 clampSeekTarget(double seconds) const;
+    void prepareSeekDropBefore(double seconds);
+    void clearSeekOverlayText();
+    void anchorClockTo(double seconds);
+    void restartAfterSeek();
+    // 容器 seek + 三个解码器冲刷（open 初始 seek/网络回调/重路径共用）
+    void performSeekAndFlush(int64_t targetUs);
+    // 字幕包队列退役：demux 可能仍有在途 push，延迟到 stopThreads/cleanup 回收
+    void retireSubtitleQueue();
+    // 主时钟（音频时钟），无音频/时钟未启动时退回墙钟位置
+    double mainClockOrPosition(double pos) const;
+    // 以当前听感位置重锚定时间基准（变速过渡与结束共用）
+    void reanchorToContentPosition(double speed);
     void initAudioOutput();
     void updatePosition();
     void startDisplayThread();
@@ -169,6 +218,7 @@ private:
     // 取指定流的 start_time 偏移（微秒）。主时钟（音频时钟）为流内原始时间戳，
     // 外挂字幕/歌词条目加载时加上该偏移对齐，查询侧无需任何换算。
     qint64 streamStartUs(int streamIdx) const;
+    double streamStartSeconds(int streamIdx) const;
     // 加载外挂字幕文件并偏移对齐到音频流时间轴（与内置字幕条目同基）
     QList<SubtitleEntry> loadExternalSubtitleFile(const QString &path) const;
 
@@ -279,6 +329,13 @@ private:
     // 画面旋转 / 翻转状态 (UC-07)
     int m_rotation{0};
     bool m_flipVertical{false};
+
+    // A-B 循环状态机：0=未激活 1=已设A 2=循环中；A/B 点坐标（秒）
+    int m_abLoopState{NoLoop};
+    double m_abLoopA{0.0};
+    double m_abLoopB{0.0};
+    // 逐帧步进标志（跨线程）：显示线程在暂停态下解码并显示恰好一帧后冻结
+    std::atomic<bool> m_stepOneFrame{false};
 
     QString m_coverArtUrl;
 

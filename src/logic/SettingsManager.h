@@ -51,7 +51,6 @@ signals:
     void contrastChanged(int value);
     void saturationChanged(int value);
     void scaleModeChanged(int mode);
-    void settingsChanged();
 
 private:
     SettingsManager(QObject *parent = nullptr);
@@ -59,6 +58,12 @@ private:
     Q_DISABLE_COPY_MOVE(SettingsManager)
 
     void load();
+    // 通用 setter：值未变化则跳过；写入设置并发出对应信号
+    template <typename T, typename Signal>
+    void setSetting(T &member, const T &value, const char *key, Signal changed);
+    // 钳制到 [min,max] 的 int 设置
+    void setClampedInt(int &member, int value, int min, int max, const char *key,
+                       void (SettingsManager::*changed)(int));
 
     QSettings m_settings;
 

@@ -64,13 +64,31 @@ bool AudioOutput::initialize(const SDL_AudioSpec &spec)
     return true;
 }
 
+// SDL 音频设备锁 RAII：设备未初始化（id == 0）时为空操作。
+// 回调线程同样经由 SDL 内部锁访问这些状态，配对加锁避免竞争。
+class SdlDeviceLock
+{
+public:
+    explicit SdlDeviceLock(SDL_AudioDeviceID id)
+        : m_id(id)
+    {
+        if (m_id != 0)
+            SDL_LockAudioDevice(m_id);
+    }
+    ~SdlDeviceLock()
+    {
+        if (m_id != 0)
+            SDL_UnlockAudioDevice(m_id);
+    }
+
+private:
+    SDL_AudioDeviceID m_id;
+};
+
 void AudioOutput::setFrameQueue(FrameQueue *queue)
 {
-    if (m_audioDeviceID != 0)
-        SDL_LockAudioDevice(m_audioDeviceID);
+    SdlDeviceLock lock(m_audioDeviceID);
     m_frameQueue = queue;
-    if (m_audioDeviceID != 0)
-        SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::setSyncController(AVSyncController *ctrl)
@@ -120,15 +138,12 @@ bool AudioOutput::fifoEmpty() const
 
 void AudioOutput::reset()
 {
-    if (m_audioDeviceID != 0)
-        SDL_LockAudioDevice(m_audioDeviceID);
+    SdlDeviceLock lock(m_audioDeviceID);
     if (m_audioFifo)
         av_fifo_reset2(m_audioFifo);
     m_oldBytesRemaining.store(0.0, std::memory_order_relaxed);
     m_oldSpeed.store(m_speed.load(std::memory_order_relaxed), std::memory_order_relaxed);
     m_transitionNotified.store(true, std::memory_order_relaxed);
-    if (m_audioDeviceID != 0)
-        SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::setSpeed(double speed)
@@ -143,14 +158,11 @@ void AudioOutput::setSpeed(double speed)
     // 旧速度预缓冲 = FIFO 中已填充字节 + 解码帧队列中剩余字节。
     // 帧队列必须计入：sonic 切速是异步的，切速瞬间队列里还有一批旧速度音频，
     // 若按新速度折算会让时钟超前，视频因此落后卡顿。
-    if (m_audioDeviceID != 0)
-        SDL_LockAudioDevice(m_audioDeviceID);
+    SdlDeviceLock lock(m_audioDeviceID);
     double queuedBytes = m_frameQueue ? static_cast<double>(m_frameQueue->totalBytes()) : 0.0;
     double fifoBytes = static_cast<double>(av_fifo_can_read(m_audioFifo));
     m_oldBytesRemaining.store(fifoBytes + queuedBytes, std::memory_order_relaxed);
     m_transitionNotified.store(false, std::memory_order_relaxed);
-    if (m_audioDeviceID != 0)
-        SDL_UnlockAudioDevice(m_audioDeviceID);
 }
 
 void AudioOutput::fillAudioFifo()

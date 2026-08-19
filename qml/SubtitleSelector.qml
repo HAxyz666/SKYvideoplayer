@@ -7,8 +7,16 @@ Button {
     id: root
     text: qsTr("Subtitles")
     visible: appController.subtitleStreams.length > 0
-    onClicked: subtitlePopup.open()
+    onClicked: {
+        if (subtitlePopup.opened)
+            subtitlePopup.close()
+        else
+            subtitlePopup.open()
+    }
     flat: true
+
+    signal popupClosed()
+    property bool isPopupOpen: subtitlePopup.opened
     contentItem: Text {
         text: root.text
         font: root.font
@@ -40,7 +48,8 @@ Button {
         x: 0
         width: 220
         padding: 0
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnReleaseOutsideParent
+        onClosed: root.popupClosed()
 
         background: Rectangle {
             color: appController.theme === "dark" ? "#3d3d3d" : "#e8e8e8"
@@ -122,7 +131,6 @@ Button {
             // === 字幕延迟调节（每次 0.1s，长按连续调节） ===
             // 提示文字与调节按钮同行，构成同一区域
             Item {
-                id: delayRow
                 width: 8 + 64 + 8 + 30 + 2 + 52 + 2 + 30
                 anchors.right: parent.right
                 height: 32

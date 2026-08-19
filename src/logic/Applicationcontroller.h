@@ -33,6 +33,11 @@ class ApplicationController : public QObject
     Q_PROPERTY(int currentAudioStream READ currentAudioStream NOTIFY currentAudioStreamChanged)
     Q_PROPERTY(int rotation READ rotation NOTIFY rotationChanged)
     Q_PROPERTY(bool flipVertical READ flipVertical NOTIFY flipVerticalChanged)
+    Q_PROPERTY(int abLoopState READ abLoopState NOTIFY abLoopStateChanged)
+    Q_PROPERTY(double abLoopA READ abLoopA NOTIFY abLoopChanged)
+    Q_PROPERTY(double abLoopB READ abLoopB NOTIFY abLoopChanged)
+    Q_PROPERTY(bool abLoopToastVisible READ abLoopToastVisible NOTIFY abLoopToastVisibleChanged)
+    Q_PROPERTY(QString abLoopToastText READ abLoopToastText NOTIFY abLoopToastTextChanged)
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
     Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
     Q_PROPERTY(QString currentFilePath READ currentFilePath NOTIFY currentFilePathChanged)
@@ -51,7 +56,7 @@ public:
     explicit ApplicationController(QObject *parent = nullptr);
     ~ApplicationController();
 
-    Q_INVOKABLE bool openFile();
+    Q_INVOKABLE void openFile();
     Q_INVOKABLE bool loadFile(const QString &path);
     Q_INVOKABLE void addFiles(const QStringList &paths);
     Q_INVOKABLE void addUrl(const QString &url);
@@ -62,6 +67,9 @@ public:
     int currentPlaylistIndex() const;
     Q_INVOKABLE void togglePlayback();
     Q_INVOKABLE void seekTo(double seconds);
+    Q_INVOKABLE void scrubStart();          // 拖动进度条开始：暂停播放
+    Q_INVOKABLE void scrubTo(double seconds);  // 拖动中：节流预览目标帧
+    Q_INVOKABLE void scrubEnd(double seconds); // 松开：落在最终位置并恢复播放
     Q_INVOKABLE void stop();
     Q_INVOKABLE void playItem(int index);
     Q_INVOKABLE void playNext();
@@ -76,6 +84,8 @@ public:
     Q_INVOKABLE void rotateRight();          // 画面右旋 90° (UC-07)
     Q_INVOKABLE void toggleFlipVertical();   // 切换垂直翻转 (UC-07)
     Q_INVOKABLE void resetRotation();        // 重置画面旋转 (UC-07)
+    Q_INVOKABLE void toggleABLoop();         // A-B 循环三态切换（A → B → 清除）
+    Q_INVOKABLE void stepFrameForward();     // 逐帧步进（暂停态下推进一帧）
     Q_INVOKABLE void resumeFromBeginning();  // 从头播放（跳过恢复位置）
     Q_INVOKABLE QString takeScreenshot();    // 截图保存
 
@@ -120,6 +130,11 @@ public:
     Q_INVOKABLE bool isNetworkUrl(const QString &url) const;
     int rotation() const;                   // 当前画面旋转角度
     bool flipVertical() const;              // 当前垂直翻转状态
+    int abLoopState() const;                // A-B 循环状态：0=未激活 1=已设A 2=循环中
+    double abLoopA() const;
+    double abLoopB() const;
+    bool abLoopToastVisible() const;
+    QString abLoopToastText() const;
     QString coverArtUrl() const;
     QString currentLyric() const;
     QString currentFilePath() const;
@@ -148,6 +163,10 @@ signals:
     void themeChanged();
     void rotationChanged(int angle);        // 画面旋转角度变化信号
     void flipVerticalChanged(bool flip);    // 垂直翻转状态变化信号
+    void abLoopStateChanged(int state);     // A-B 循环状态变化信号
+    void abLoopChanged();                   // A/B 点坐标变化信号
+    void abLoopToastVisibleChanged();
+    void abLoopToastTextChanged();
     void coverArtChanged();
     void currentLyricChanged(QString lyric);
     void resumePositionFound(const QString &filePath, double position);
@@ -183,12 +202,39 @@ private:
     QString m_subtitleDelayToastText;
     QTimer *m_subtitleDelayToastTimer{nullptr};  // 延迟提示自动隐藏
 
+    int m_abLoopState{0};               // A-B 循环状态（转发自 MediaEngine）
+    double m_abLoopA{0.0};
+    double m_abLoopB{0.0};
+    bool m_abLoopToastVisible{false};
+    QString m_abLoopToastText;
+    QTimer *m_abLoopToastTimer{nullptr};        // A-B 循环提示自动隐藏
+
+    // 进度条拖动预览状态（scrubStart/scrubTo/scrubEnd）
+    bool m_scrubWasPlaying{false};          // 拖动前是否在播放
+    double m_scrubPendingPos{-1.0};         // 节流期间暂存的最新目标位置
+    double m_scrubLastPos{-1.0};            // 上次实际预览 seek 的位置
+    qint64 m_scrubLastSeekMs{0};            // 上次预览 seek 的时刻（ms）
+
     QList<PlaylistModel *> m_allPlaylists;  // 所有播放列表
     QStringList m_playlistNames;            // 各列表名称
     int m_currentPlaylistIndex = 0;         // 当前列表索引
 
     bool openAndResume(const QString &filePath);
+    // 播放指定路径：高亮列表项（index >= 0 时）+ 记录最近播放 + 打开并恢复
+    void playByPath(const QString &filePath, int index);
+    // 快进/快退（delta 为负时后退），钳制到合法区间
+    void stepBy(double delta);
     void saveCurrentProgress();
+    // 把当前文件的音轨/字幕轨/倍速/旋转/翻转偏好写入 PlaybackHistory
+    void saveCurrentPrefs();
+    // A-B 循环状态变化后刷新 OSD 提示（2.5s 自动隐藏）
+    void updateAbLoopToast();
+    // 显示 OSD 提示并启动自动隐藏计时（字幕延迟/A-B 循环共用）
+    void showToast(bool &visible, void (ApplicationController::*visibleChanged)(), QTimer *timer);
+    // 加载/卸载翻译器并刷新静态文本（setEngine 初始化与语言切换共用）
+    void applyLanguage(const QString &lang);
+    // 切换当前列表并通知界面（createPlaylist/switchPlaylist 共用）
+    void activatePlaylist(PlaylistModel *pl);
 
     void savePlaylists();   // 持久化所有列表（含默认列表）
     void loadPlaylists();   // 启动时载入已保存的列表

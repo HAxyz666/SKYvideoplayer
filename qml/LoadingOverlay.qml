@@ -13,7 +13,7 @@ Rectangle {
 
         BusyIndicator {
             anchors.horizontalCenter: parent.horizontalCenter
-            running: appController.isLoading || appController.bufferState === 1
+            running: parent.visible
             width: 48; height: 48
         }
 

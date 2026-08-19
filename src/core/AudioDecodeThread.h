@@ -38,6 +38,9 @@ public:
     // 不丢弃的话重基后音频内容会整体落后于画面（音画不同步）。
     // -1 表示不丢弃（正常播放/seek）。
     void setPtsDropBefore(double sec);
+    // 冲刷唤醒（轻量 seek）：demux 完成容器 seek 并投入冲刷标记后置位，
+    // 使暂停中的本线程醒来消费标记，就地冲刷编解码器、帧队列与 sonic 缓冲。
+    void wakeFlush() { m_flushWake.store(true, std::memory_order_release); }
 
 protected:
     void run() override;
@@ -47,6 +50,8 @@ private:
     AVFrame *resampleFrame(AVFrame *frame);
     void flushSonic();
     void destroySonic();
+    // 丢弃 sonic 残余样本并复位输出时间戳（变速切换/冲刷后旧数据作废）
+    void discardSonic();
 
     AVCodecContext *m_codecCtx;
     PacketQueue *m_packetQueue;
@@ -54,6 +59,7 @@ private:
     SwrContext *m_swrCtx;
     std::atomic<bool> m_quit;
     const std::atomic<bool> *m_paused;
+    std::atomic<bool> m_flushWake{false};
     AVRational m_timeBase;
 
     sonicStream m_sonicStream{nullptr};

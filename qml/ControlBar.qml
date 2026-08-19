@@ -13,13 +13,17 @@ Rectangle {
     signal userInteracted()
 
     property bool showControls: true
+    // 任一子菜单打开时为 true，用于暂停自动隐藏（不含 ToolTip，避免误判）
+    property bool anyPopupOpen: speedPopup.opened
+        || videoPopup.opened
+        || subtitleSelector.isPopupOpen
+        || audioSelector.isPopupOpen
     height: 80
     color: appController.theme === "dark" ? "#80000000" : "#cc000000"
     visible: showControls
 
     HoverHandler {
         onHoveredChanged: {
-            console.log("controlBar hovered =", hovered)
             if (hovered) {
                 controlBar.showControls = true
                 controlBar.userInteracted()
@@ -40,7 +44,14 @@ Rectangle {
             opacity: controller.canSeek ? 1.0 : 0.3
             onSeekRequested: function(pos) {
                 if (controller.canSeek)
-                    controller.seekTo(pos)
+                    appController.seekTo(pos)
+            }
+            onScrubStarted: appController.scrubStart()
+            onScrubPositionChanged: function(pos) {
+                appController.scrubTo(pos)
+            }
+            onScrubEnded: function(pos) {
+                appController.scrubEnd(pos)
             }
         }
 
@@ -139,12 +150,19 @@ Rectangle {
                 SpeedPopup {
                     id: speedPopup
                     controller: controlBar.controller
+                    onClosed: controlBar.userInteracted()
                 }
             }
 
-            SubtitleSelector { }
+            SubtitleSelector {
+                id: subtitleSelector
+                onPopupClosed: controlBar.userInteracted()
+            }
 
-            AudioSelector { }
+            AudioSelector {
+                id: audioSelector
+                onPopupClosed: controlBar.userInteracted()
+            }
 
             Button {
                 id: videoBtn
@@ -173,6 +191,7 @@ Rectangle {
 
                 VideoAdjustPopup {
                     id: videoPopup
+                    onClosed: controlBar.userInteracted()
                 }
             }
 
@@ -203,6 +222,37 @@ Rectangle {
                         screenshotTipTimer.restart()
                     }
                 }
+            }
+
+            Button {
+                id: abLoopBtn
+                text: "AB"
+                flat: true
+                padding: 0
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                font.pixelSize: 11
+                font.bold: true
+                enabled: appController.currentFilePath !== ""
+                ToolTip.visible: hovered
+                ToolTip.text: appController.abLoopState === 2
+                    ? qsTr("A-B loop active, click to clear")
+                    : qsTr("A-B loop: set A, then B")
+                ToolTip.delay: 500
+                contentItem: Text {
+                    text: abLoopBtn.text
+                    font: abLoopBtn.font
+                    color: "white"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 4
+                    color: abLoopBtn.hovered ? "#30ffffff"
+                         : (appController.abLoopState === 2 ? "#4060c0ff"
+                            : (appController.abLoopState === 1 ? "#30ffb74d" : "transparent"))
+                }
+                onClicked: appController.toggleABLoop()
             }
 
             Item { Layout.fillWidth: true }

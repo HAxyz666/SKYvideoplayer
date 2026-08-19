@@ -181,15 +181,30 @@ void SubtitleDecodeThread::run()
 
     while (!m_quit) {
         if (m_paused && m_paused->load()) {
-            while (!m_quit && m_paused->load())
-                msleep(10);
-            if (m_quit) break;
-            continue;
+            // 冲刷唤醒（轻量 seek）时放行本轮消费标记；无请求则挂起等待
+            if (!m_flushWake.load(std::memory_order_acquire)) {
+                while (!m_quit && m_paused->load()
+                       && !m_flushWake.load(std::memory_order_acquire))
+                    msleep(10);
+                if (m_quit) break;
+                if (!m_flushWake.load(std::memory_order_acquire))
+                    continue;
+            }
+            m_flushWake.store(false, std::memory_order_release);
         }
 
         AVPacket *pkt = m_packetQueue->pop();
         if (!pkt)
             break;
+
+        // 冲刷标记（轻量 seek）：FIFO 顺序保证标记之前的旧包已全部处理。
+        // 清除字幕解码器状态与已解析条目，标记之后的包为新位置内容。
+        if (PacketQueue::isFlushMarker(pkt)) {
+            avcodec_flush_buffers(m_codecCtx);
+            clearSubtitles();
+            m_flushWake.store(false, std::memory_order_release);
+            continue;
+        }
 
         int64_t pktPts = pkt->pts;
         if (pktPts == AV_NOPTS_VALUE) pktPts = 0;

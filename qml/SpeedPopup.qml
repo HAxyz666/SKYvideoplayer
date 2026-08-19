@@ -10,6 +10,7 @@ Popup {
     y: parent ? -height - 4 : 0
     width: 80
     padding: 4
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnReleaseOutsideParent
 
     background: Rectangle {
         radius: 8

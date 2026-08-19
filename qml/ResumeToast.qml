@@ -4,7 +4,6 @@ import QtQuick.Controls
 Rectangle {
     id: resumeToast
 
-    property var controller
     anchors.top: parent.top
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.topMargin: 12
@@ -23,7 +22,7 @@ Rectangle {
         spacing: 8
 
         Label {
-            text: qsTr("Last played at ") + controller.formatTime(resumeToast.savedPosition)
+            text: qsTr("Last played at ") + TimeUtils.formatTime(resumeToast.savedPosition)
             color: "white"
             font.pixelSize: 13
             anchors.verticalCenter: parent.verticalCenter

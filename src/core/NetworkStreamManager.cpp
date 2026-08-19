@@ -47,7 +47,6 @@ void NetworkStreamManager::detectLiveStream(AVFormatContext *ctx)
 {
     m_isNetwork = true;
     m_isLive = (ctx->duration <= 0 || ctx->duration == AV_NOPTS_VALUE);
-    emit changed();
 }
 
 void NetworkStreamManager::reset()

@@ -310,15 +310,24 @@ void VideoRenderItem::clearImage()
     update();
 }
 
+// 设置钳制到 [min,max] 的 int 属性：值未变化则跳过，统一 emit + 重绘
+void VideoRenderItem::setClampedInt(int &member, int value, int min, int max,
+                                    void (VideoRenderItem::*notify)())
+{
+    int v = qBound(min, value, max);
+    if (member == v)
+        return;
+    member = v;
+    (this->*notify)();
+    update();
+}
+
 void VideoRenderItem::setVideoRotation(int angle)
 {
     // 规范到 [0, 360)
     int normalized = angle % 360;
     if (normalized < 0) normalized += 360;
-    if (m_videoRotation == normalized) return;
-    m_videoRotation = normalized;
-    emit videoRotationChanged();
-    update();
+    setClampedInt(m_videoRotation, normalized, 0, 359, &VideoRenderItem::videoRotationChanged);
 }
 
 void VideoRenderItem::setFlipVertical(bool flip)
@@ -331,38 +340,22 @@ void VideoRenderItem::setFlipVertical(bool flip)
 
 void VideoRenderItem::setBrightness(int value)
 {
-    int v = qBound(-100, value, 100);
-    if (m_brightness == v) return;
-    m_brightness = v;
-    emit brightnessChanged();
-    update();
+    setClampedInt(m_brightness, value, -100, 100, &VideoRenderItem::brightnessChanged);
 }
 
 void VideoRenderItem::setContrast(int value)
 {
-    int v = qBound(-100, value, 100);
-    if (m_contrast == v) return;
-    m_contrast = v;
-    emit contrastChanged();
-    update();
+    setClampedInt(m_contrast, value, -100, 100, &VideoRenderItem::contrastChanged);
 }
 
 void VideoRenderItem::setSaturation(int value)
 {
-    int v = qBound(-100, value, 100);
-    if (m_saturation == v) return;
-    m_saturation = v;
-    emit saturationChanged();
-    update();
+    setClampedInt(m_saturation, value, -100, 100, &VideoRenderItem::saturationChanged);
 }
 
 void VideoRenderItem::setScaleMode(int mode)
 {
-    int m = qBound(0, mode, 2);
-    if (m_scaleMode == m) return;
-    m_scaleMode = m;
-    emit scaleModeChanged();
-    update();
+    setClampedInt(m_scaleMode, mode, 0, 2, &VideoRenderItem::scaleModeChanged);
 }
 
 QString VideoRenderItem::captureAndSave(const QString &savePath, const QString &baseName)

@@ -284,6 +284,8 @@ Popup {
                                 { key: "exitFullscreen", label: "Exit Fullscreen" },
                                 { key: "subtitleDelayBackward", label: qsTr("Subtitle Delay -") },
                                 { key: "subtitleDelayForward", label: qsTr("Subtitle Delay +") },
+                                { key: "abLoop", label: qsTr("A-B Loop") },
+                                { key: "stepFrame", label: qsTr("Step Frame") },
                                 { key: "brightnessDown", label: qsTr("Brightness -") },
                                 { key: "brightnessUp", label: qsTr("Brightness +") },
                                 { key: "contrastDown", label: qsTr("Contrast -") },
@@ -315,11 +317,7 @@ Popup {
                                         ? "#0078d7"
                                         : (appController.theme === "dark" ? "#555" : "#ccc")
 
-                                    property string shortcutKey: modelData.key
-                                    property string shortcutValue: settingsManager.shortcuts[modelData.key] || ""
-
                                     Text {
-                                        id: shortcutText
                                         anchors.centerIn: parent
                                         text: settingsPopup.editingShortcut === modelData.key ? qsTr("Press new key...") : (settingsManager.shortcuts[modelData.key] || "")
                                         font.pixelSize: 11
@@ -327,10 +325,12 @@ Popup {
                                             ? "#0078d7"
                                             : (appController.theme === "dark" ? "#ffffff" : "#333333")
 
-                                        MouseArea {
-                                            anchors.fill: parent
+                                        HoverHandler {
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
+                                        }
+
+                                        TapHandler {
+                                            onTapped: {
                                                 settingsPopup.editingShortcut = modelData.key
                                                 shortcutRecorder.forceActiveFocus()
                                             }
@@ -506,10 +506,12 @@ Popup {
                                     }
                                 }
 
-                                MouseArea {
-                                    anchors.fill: parent
+                                HoverHandler {
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
+                                }
+
+                                TapHandler {
+                                    onTapped: {
                                         settingsManager.language = modelData.code
                                     }
                                 }

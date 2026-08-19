@@ -15,6 +15,7 @@
 #include <QDir>
 #include <QStringList>
 #include <QBuffer>
+#include <QImage>
 #include <QtConcurrent>
 #include <cstring>
 
@@ -22,7 +23,6 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
-#include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
 
@@ -132,6 +132,12 @@ MediaEngine::MediaEngine(QObject *parent)
                 && !m_audioThread->isRunning());
         if (videoDone && audioDone) {
             m_eofDrainTimer->stop();
+            // A-B 循环激活：到达文件末尾不结束播放，跳回 A 点继续循环。
+            // seek 保持暂停态；播放中则 seek 内部已恢复音频输出。
+            if (m_abLoopState == Looping) {
+                seek(m_abLoopA);
+                return;
+            }
             emit playbackFinished();
         }
     });
@@ -180,6 +186,21 @@ qint64 MediaEngine::streamStartUs(int streamIdx) const
     return (startUs > 0 && startUs < 3600LL * AV_TIME_BASE) ? startUs : 0;
 }
 
+// 取指定流的 start_time 偏移（秒），同 streamStartUs 的过滤规则。
+double MediaEngine::streamStartSeconds(int streamIdx) const
+{
+    return streamStartUs(streamIdx) / (double)AV_TIME_BASE;
+}
+
+// 取流的语言/标题元数据（缺失时为空串）
+static std::pair<QString, QString> streamLangTitle(AVStream *st)
+{
+    AVDictionaryEntry *lang = av_dict_get(st->metadata, "language", nullptr, 0);
+    AVDictionaryEntry *title = av_dict_get(st->metadata, "title", nullptr, 0);
+    return {lang ? QString::fromUtf8(lang->value) : QString(),
+            title ? QString::fromUtf8(title->value) : QString()};
+}
+
 bool MediaEngine::initFFmpeg(const QString &filename)
 {
     m_videoStreamIndex = -1;
@@ -190,6 +211,9 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     m_coverArtUrl = QString();
     m_lyrics.clear();
     m_currentLyric = QString();
+
+    // 新文件：重置 A-B 循环状态
+    resetABLoop();
 
     m_networkManager->reset();
 
@@ -244,22 +268,20 @@ bool MediaEngine::initFFmpeg(const QString &filename)
         if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && m_videoStreamIndex == -1) {
             m_videoStreamIndex = i;
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-            AVDictionaryEntry *lang = av_dict_get(st->metadata, "language", nullptr, 0);
-            AVDictionaryEntry *title = av_dict_get(st->metadata, "title", nullptr, 0);
+            const auto [lang, title] = streamLangTitle(st);
             m_audioStreamsInfo.append({
                 static_cast<int>(i),
-                lang ? QString::fromUtf8(lang->value) : QString(),
-                title ? QString::fromUtf8(title->value) : QString(),
+                lang,
+                title,
                 st->codecpar->ch_layout.nb_channels,
                 st->codecpar->sample_rate
             });
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-            AVDictionaryEntry *lang = av_dict_get(st->metadata, "language", nullptr, 0);
-            AVDictionaryEntry *title = av_dict_get(st->metadata, "title", nullptr, 0);
+            const auto [lang, title] = streamLangTitle(st);
             m_subtitleStreamsInfo.append({
                 static_cast<int>(i),
-                lang ? QString::fromUtf8(lang->value) : QString(),
-                title ? QString::fromUtf8(title->value) : QString()
+                lang,
+                title
             });
         }
     }
@@ -267,6 +289,7 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     // 选择默认音轨：优先带 DEFAULT 标志的，否则取第一条。
     m_currentAudioStreamIndex = -1;
     m_audioStreamIndex = -1;
+
     if (!m_audioStreamsInfo.isEmpty()) {
         for (int i = 0; i < m_audioStreamsInfo.size(); ++i) {
             if (m_fmtCtx->streams[m_audioStreamsInfo[i].streamIndex]->disposition & AV_DISPOSITION_DEFAULT) {
@@ -425,6 +448,14 @@ void MediaEngine::startPlayback()
 
     m_paused = false;
     m_audioOutputReady = false;
+    // 新文件倍速重置为 1x：界面显示与实际播放保持一致
+    // （新建的音频解码线程默认 1x，若沿用旧 m_speed 会出现"显示旧倍速、
+    // 实际 1x 播放"的不一致）。
+    if (!qFuzzyCompare(m_speed, 1.0)) {
+        m_speed = 1.0;
+        m_displaySpeed = 1.0;
+        emit speedChanged(m_speed);
+    }
     m_syncController->reset();
     m_syncController->setSpeed(m_speed);
 
@@ -530,13 +561,6 @@ bool MediaEngine::open(const QString &url, double initialSeekPos)
 
     // 网络流：异步初始化，避免阻塞主线程
     if (NetworkStreamManager::isNetworkUrl(path)) {
-        // 取消旧的初始化（如果正在进行）
-        if (m_networkInitWatcher) {
-            m_networkInitWatcher->cancel();
-            m_networkInitWatcher->deleteLater();
-            m_networkInitWatcher = nullptr;
-        }
-
         m_isLoading = true;
         m_loadingText = QStringLiteral("加载中...");
         emit isLoadingChanged(true);
@@ -565,34 +589,19 @@ bool MediaEngine::open(const QString &url, double initialSeekPos)
             return m_fmtCtx != nullptr;
         }
 
-        int64_t targetUs = static_cast<int64_t>(initialSeekPos * AV_TIME_BASE);
-        if (targetUs < 0) targetUs = 0;
-        if (targetUs > static_cast<int64_t>(dur * AV_TIME_BASE))
-            targetUs = static_cast<int64_t>(dur * AV_TIME_BASE);
-
-        int ret = avformat_seek_file(m_fmtCtx, -1,
-                                     INT64_MIN, targetUs, targetUs,
-                                     AVSEEK_FLAG_BACKWARD);
-        if (ret < 0)
-            qWarning() << "Initial seek failed:" << ret;
-
-        if (m_videoCodecCtx)
-            avcodec_flush_buffers(m_videoCodecCtx);
-        if (m_audioCodecCtx)
-            avcodec_flush_buffers(m_audioCodecCtx);
-        if (m_subtitleCodecCtx)
-            avcodec_flush_buffers(m_subtitleCodecCtx);
+        int64_t targetUs = clampSeekTarget(initialSeekPos);
+        performSeekAndFlush(targetUs);
 
         // 初始 seek 同样丢弃目标位置之前的旧画面帧（backward seek 落在上一关键帧）。
         // 须在 startPlayback（内部 startThreads 创建视频线程）之前设置。
-        double videoStartSec = streamStartUs(m_videoStreamIndex) / (double)AV_TIME_BASE;
-        double audioStartSec = streamStartUs(m_audioStreamIndex) / (double)AV_TIME_BASE;
-        m_videoPtsDropBefore = initialSeekPos + videoStartSec - audioStartSec;
+        prepareSeekDropBefore(initialSeekPos);
         // 音频同丢弃目标位置之前的帧（backward seek 从上一关键帧起读，音频包
-        // 也从容器起点开始）：不重基（锚点 -1，音频按自身原始 PTS 起播），
-        // 只丢弃 initialSeekPos 之前的音频内容。
+        // 也从更早位置开始）：不重基（锚点 -1，音频按自身原始 PTS 起播），
+        // 只丢弃 initialSeekPos 之前的音频内容。阈值直接用 initialSeekPos：
+        // 保存位置 = 音频时钟域 = 音频流时间，无需再加流起始偏移
+        // （视频侧阈值经 prepareSeekDropBefore 换算，两者落在同一内容点）。
         m_pendingAudioPtsAnchor = -1.0;
-        m_pendingAudioPtsDropBefore = initialSeekPos + audioStartSec;
+        m_pendingAudioPtsDropBefore = initialSeekPos;
 
         startPlayback();
 
@@ -713,23 +722,8 @@ void MediaEngine::seek(double seconds)
             m_audioOutput->reset();
 
             // 执行 seek
-            int64_t targetUs = static_cast<int64_t>(seconds * AV_TIME_BASE);
-            if (targetUs < 0) targetUs = 0;
-            if (m_duration > 0 && targetUs > static_cast<int64_t>(m_duration * AV_TIME_BASE))
-                targetUs = static_cast<int64_t>(m_duration * AV_TIME_BASE);
-
-            int ret = avformat_seek_file(m_fmtCtx, -1,
-                                         INT64_MIN, targetUs, targetUs,
-                                         AVSEEK_FLAG_BACKWARD);
-            if (ret < 0)
-                qWarning() << "Seek failed:" << ret;
-
-            if (m_videoCodecCtx)
-                avcodec_flush_buffers(m_videoCodecCtx);
-            if (m_audioCodecCtx)
-                avcodec_flush_buffers(m_audioCodecCtx);
-            if (m_subtitleCodecCtx)
-                avcodec_flush_buffers(m_subtitleCodecCtx);
+            int64_t targetUs = clampSeekTarget(seconds);
+            performSeekAndFlush(targetUs);
 
             // 后台工作完成，允许 stop() 继续
             m_seekInProgress.store(false);
@@ -746,14 +740,9 @@ void MediaEngine::seek(double seconds)
                 m_syncController->setClock(seconds);
 
                 // 视频 PTS 丢弃阈值：同本地 seek（音轨切换时由 switchAudioToStream 预置）
-                if (m_pendingVideoPtsDropBefore >= 0.0) {
-                    m_videoPtsDropBefore = m_pendingVideoPtsDropBefore;
-                    m_pendingVideoPtsDropBefore = -1.0;
-                } else {
-                    double videoStartSec = streamStartUs(m_videoStreamIndex) / (double)AV_TIME_BASE;
-                    double audioStartSec = streamStartUs(m_audioStreamIndex) / (double)AV_TIME_BASE;
-                    m_videoPtsDropBefore = seconds + videoStartSec - audioStartSec;
-                }
+                prepareSeekDropBefore(seconds);
+                // 音频同丢弃目标之前的帧（seek 从上一关键帧起读）
+                m_pendingAudioPtsDropBefore = seconds;
 
                 qint64 now = av_gettime();
                 m_startTimeUs = now - static_cast<qint64>(seconds * 1000000 / qMax(speed, 0.1));
@@ -775,11 +764,7 @@ void MediaEngine::seek(double seconds)
                 if (m_subtitlePacketQueue) {
                     // 旧队列退役：demux 已停止，在途 push 不再产生，
                     // 由下一次 stopThreads/cleanup 统一回收。
-                    m_subtitlePacketQueue->requestQuit();
-                    m_subtitlePacketQueue->flush();
-                    m_subtitlePacketQueue->clear();
-                    m_retiredSubtitleQueues.append(m_subtitlePacketQueue);
-                    m_subtitlePacketQueue = nullptr;
+                    retireSubtitleQueue();
                 }
                 // 音频/视频队列同线程一并回收：后台任务已停止 demux 与解码线程，
                 // 无在途 push/pop，可直接删除（否则每次网络 seek 泄漏上一代队列
@@ -822,48 +807,158 @@ void MediaEngine::seek(double seconds)
         return;
     }
 
-    // 本地文件：同步 seek
-    m_audioOutput->pause();
-    m_audioOutput->reset();
+    // 本地文件：解码管线线程全部存活时走线程常驻的轻量 seek（demux 线程
+    // 执行容器 seek + 队列冲刷标记，解码线程就地冲刷，不拆线程/队列）；
+    // 线程已退出（EOF 排空等）时回退全量重建的重路径。
+    // 外挂字幕被动线程不启动 run()（isRunning 恒 false），不参与判定。
+    bool threadsAlive = m_demuxThread && m_demuxThread->isRunning()
+        && (m_videoThread == nullptr || m_videoThread->isRunning())
+        && (m_audioThread == nullptr || m_audioThread->isRunning())
+        && (m_subtitleThread == nullptr || m_externalMode || m_subtitleThread->isRunning());
+    if (threadsAlive) {
+        seekLight(seconds);
+        return;
+    }
+    seekHeavy(seconds);
+}
+
+// 本地文件 seek 重路径：拆卸全部线程与队列，主线程执行容器 seek 与编解码器
+// 冲刷，再整体重建。音轨切换（switchAudioToStream）与 EOF 后 seek 专用。
+void MediaEngine::seekHeavy(double seconds)
+{
     stopThreads();
 
-    // 视频 PTS 丢弃阈值：backward seek 落在目标位置之前的上一关键帧，解码出的
-    // 锚点前旧画面直接丢弃（普通 seek 按目标位置计算；音轨切换由
-    // switchAudioToStream 预置 m_pendingVideoPtsDropBefore）。
-    if (m_pendingVideoPtsDropBefore >= 0.0) {
-        m_videoPtsDropBefore = m_pendingVideoPtsDropBefore;
-        m_pendingVideoPtsDropBefore = -1.0;
-    } else {
-        double videoStartSec = streamStartUs(m_videoStreamIndex) / (double)AV_TIME_BASE;
-        double audioStartSec = streamStartUs(m_audioStreamIndex) / (double)AV_TIME_BASE;
-        m_videoPtsDropBefore = seconds + videoStartSec - audioStartSec;
+    prepareSeekDropBefore(seconds);
+    // 音频同丢弃目标之前的帧（seek 从上一关键帧起读，音频会早于目标起播）。
+    // 由 startThreads 消费注入新音频线程；音轨切换（switchAudioToStream）已
+    // 预置换算到新音轨时间基的阈值时（以 anchor 调用本函数），不得覆盖。
+    if (m_pendingAudioPtsDropBefore < 0.0)
+        m_pendingAudioPtsDropBefore = seconds;
+
+    int64_t targetUs = clampSeekTarget(seconds);
+    performSeekAndFlush(targetUs);
+
+    clearSeekOverlayText();
+    anchorClockTo(seconds);
+
+    startThreads();
+
+    if (m_audioThread && !qFuzzyCompare(m_speed, 1.0))
+        m_audioThread->setSpeed(m_speed);
+
+    restartAfterSeek();
+}
+
+// 本地文件 seek 轻路径（线程常驻）：仅当解码管线线程全部存活时调用。
+// 与重路径的差异：demux 线程执行 avformat_seek_file 并清空包队列、投入
+// 冲刷标记；解码线程消费标记后就地冲刷编解码器与帧队列，管线不拆卸重建，
+// seek 代价为毫秒级（拖动进度条预览/连续 seek 不再卡顿）。
+void MediaEngine::seekLight(double seconds)
+{
+    // EOF 排空中的 demux 不会响应 seek 请求（排空循环不检查请求），且排空
+    // 期间解码线程可能已退出（队列清空即 pop 返回退出），轻量 seek 无法完成，
+    // 直接回退全量重建（seekHeavy 内部 stopThreads 会中断排空循环）。
+    if (m_demuxThread->isDraining()) {
+        qWarning() << "seekLight: demux is draining, falling back to heavy seek";
+        seekHeavy(seconds);
+        return;
     }
 
+    // 位置定时器与显示线程已由 seek() 停止（与重路径同一契约）；
+    // EOF 排空定时器只有此处停（轻量 seek 不拆线程，stopThreads 不会执行）。
+    m_eofDrainTimer->stop();
+
+    m_audioOutput->pause();
+    m_audioOutput->reset();
+
+    prepareSeekDropBefore(seconds);
+    if (m_videoThread)
+        m_videoThread->setPtsDropBefore(m_videoPtsDropBefore);
+    // 音频同丢弃目标之前的帧（backward seek 从上一关键帧起读，音频包
+    // 也从更早位置开始）：若不丢弃，音频时钟从目标之前起步，画面领先，
+    // 显示循环会判定视频超前而冻结画面等待音频追赶（seek 后卡顿）。
+    // 阈值直接用 seconds：音频时钟域 = 音频流时间。
+    if (m_audioThread)
+        m_audioThread->setPtsDropBefore(seconds);
+
+    int64_t targetUs = clampSeekTarget(seconds);
+
+    clearSeekOverlayText();
+    anchorClockTo(seconds);
+
+    // 由 demux 线程执行容器 seek + 清空包队列 + 投入冲刷标记
+    // （avformat_seek_file 毫秒级；请求可能因线程阻塞于满队列 push 而延迟，
+    // requestSeek 内的 notifySeekWaiters 已将其唤醒）。
+    m_demuxThread->requestSeek(targetUs);
+    int waited = 0;
+    while (!m_demuxThread->seekDone() && waited < 2000) {
+        QThread::msleep(1);
+        ++waited;
+    }
+    if (!m_demuxThread->seekDone()) {
+        // 竞态：demux 在 EOF 排空与退出之间收到请求且未处理。
+        // 线程已死、或仍在排空（即将退出）都无法再消费标记，回退全量重建。
+        if (!m_demuxThread->isRunning() || m_demuxThread->isDraining()) {
+            qWarning() << "seekLight: demux exited or draining before processing seek, falling back to heavy seek";
+            seekHeavy(seconds);
+            return;
+        }
+        // 极端情况（读取阻塞）：请求仍驻留，demux 空闲后会处理，
+        // 时钟已重锚定，按轻量流程继续恢复即可。
+        qWarning() << "seekLight: demux busy, seek will be applied when it frees up";
+    }
+
+    // 冲刷标记已入队：唤醒暂停中的解码线程就地冲刷（播放中的线程自然消费）。
+    // 每线程独立标志，避免共享原子被一线程清除后其余线程仍在门控睡眠。
+    if (m_videoThread)
+        m_videoThread->wakeFlush();
+    if (m_audioThread)
+        m_audioThread->wakeFlush();
+    if (m_subtitleThread && !m_externalMode)
+        m_subtitleThread->wakeFlush();
+
+    restartAfterSeek();
+}
+
+// 两条 seek 路径共用的片段。
+
+// seek 目标钳制到合法区间（秒 → 微秒）。
+qint64 MediaEngine::clampSeekTarget(double seconds) const
+{
     int64_t targetUs = static_cast<int64_t>(seconds * AV_TIME_BASE);
     if (targetUs < 0) targetUs = 0;
     if (m_duration > 0 && targetUs > static_cast<int64_t>(m_duration * AV_TIME_BASE))
         targetUs = static_cast<int64_t>(m_duration * AV_TIME_BASE);
+    return targetUs;
+}
 
-    int ret = avformat_seek_file(m_fmtCtx, -1,
-                                 INT64_MIN, targetUs, targetUs,
-                                 AVSEEK_FLAG_BACKWARD);
-    if (ret < 0)
-        qWarning() << "Seek failed:" << ret;
-
-    if (m_videoCodecCtx)
-        avcodec_flush_buffers(m_videoCodecCtx);
-    if (m_audioCodecCtx)
-        avcodec_flush_buffers(m_audioCodecCtx);
-    if (m_subtitleCodecCtx) {
-        avcodec_flush_buffers(m_subtitleCodecCtx);
-        if (m_subtitleThread)
-            m_subtitleThread->clearSubtitles();
+// 视频 PTS 丢弃阈值：backward seek 落在目标位置之前的上一关键帧，解码出的
+// 锚点前旧画面直接丢弃（普通 seek 按目标位置计算；音轨切换由
+// switchAudioToStream 预置 m_pendingVideoPtsDropBefore）。
+// 重路径在 startThreads 中消费该阈值，轻路径直接注入视频线程。
+void MediaEngine::prepareSeekDropBefore(double seconds)
+{
+    if (m_pendingVideoPtsDropBefore >= 0.0) {
+        m_videoPtsDropBefore = m_pendingVideoPtsDropBefore;
+        m_pendingVideoPtsDropBefore = -1.0;
+    } else {
+        m_videoPtsDropBefore = seconds
+            + streamStartSeconds(m_videoStreamIndex) - streamStartSeconds(m_audioStreamIndex);
     }
+}
+
+// 清字幕/歌词显示（新位置的条目由 updateSubtitle/updateLyric 重新加载）
+void MediaEngine::clearSeekOverlayText()
+{
     m_currentSubtitle = QString();
     emit currentSubtitleChanged(m_currentSubtitle);
     m_currentLyric = QString();
     emit currentLyricChanged(m_currentLyric);
+}
 
+// 主时钟与时间锚点先就位（音频输出已暂停，无并发时钟更新）。
+void MediaEngine::anchorClockTo(double seconds)
+{
     m_syncController->reset();
     m_syncController->setSpeed(m_speed);
     m_syncController->setClock(seconds);
@@ -874,18 +969,70 @@ void MediaEngine::seek(double seconds)
     m_pauseStartUs = m_paused ? now : 0;
     m_position = seconds;
     emit positionChanged(m_position);
+}
 
-    startThreads();
-
-    if (m_audioThread && !qFuzzyCompare(m_speed, 1.0))
-        m_audioThread->setSpeed(m_speed);
-
+// seek 后恢复播放：音频输出、位置定时器与显示线程（轻/重路径共用尾部）。
+void MediaEngine::restartAfterSeek()
+{
     if (!m_paused)
         m_audioOutput->resume();
 
     m_positionTimer->start();
     if (m_videoFrameQueue)
         startDisplayThread();
+}
+
+// 容器 seek + 三个解码器冲刷（open 初始 seek/网络回调/重路径共用）。
+// 调用方保证此时无解码线程在运行（初始 seek 无线程；网络回调与重路径已停线程）。
+void MediaEngine::performSeekAndFlush(int64_t targetUs)
+{
+    int ret = avformat_seek_file(m_fmtCtx, -1,
+                                 INT64_MIN, targetUs, targetUs,
+                                 AVSEEK_FLAG_BACKWARD);
+    if (ret < 0)
+        qWarning() << "Seek failed:" << ret;
+
+    if (m_videoCodecCtx)
+        avcodec_flush_buffers(m_videoCodecCtx);
+    if (m_audioCodecCtx)
+        avcodec_flush_buffers(m_audioCodecCtx);
+    if (m_subtitleCodecCtx)
+        avcodec_flush_buffers(m_subtitleCodecCtx);
+}
+
+// 字幕包队列退役：demux 可能仍有在途 push，先退役（quit+flush+clear），
+// 待 demux 退出（stopThreads/cleanup）后再统一回收。
+void MediaEngine::retireSubtitleQueue()
+{
+    if (!m_subtitlePacketQueue)
+        return;
+    m_subtitlePacketQueue->requestQuit();
+    m_subtitlePacketQueue->flush();
+    m_subtitlePacketQueue->clear();
+    m_retiredSubtitleQueues.append(m_subtitlePacketQueue);
+    m_subtitlePacketQueue = nullptr;
+}
+
+// 主时钟（音频时钟）；无音频流或时钟尚未启动时退回 0 基墙钟位置。
+double MediaEngine::mainClockOrPosition(double pos) const
+{
+    double mainClock = m_syncController->audioClock();
+    if (m_audioStreamIndex == -1 || mainClock <= 0.0)
+        return pos;
+    return mainClock;
+}
+
+// 以当前听感位置重锚定时间基准（变速过渡与结束后共用）。
+void MediaEngine::reanchorToContentPosition(double speed)
+{
+    double contentPos = m_syncController->audioClock();
+    if (!(contentPos > 0.0))   // 音频时钟不可用（刚开始播放）时退回界面位置
+        contentPos = m_position;
+    m_startTimeUs = av_gettime()
+        - static_cast<qint64>(contentPos * 1000000.0 / qMax(speed, 0.1));
+    m_pausedDurationUs = 0;
+    if (m_paused)
+        m_pauseStartUs = av_gettime();
 }
 
 double MediaEngine::position() const
@@ -896,6 +1043,103 @@ double MediaEngine::position() const
 double MediaEngine::duration() const
 {
     return m_duration;
+}
+
+// --- A-B 区间循环 ---
+
+void MediaEngine::toggleABLoop()
+{
+    if (!m_fmtCtx || m_networkManager->isLiveStream())
+        return;
+
+    if (m_abLoopState == Looping) {
+        // 循环中再按：清除循环，播放位置不动
+        resetABLoop();
+        return;
+    }
+
+    if (m_abLoopState == APending) {
+        // 设置 B 点。B 在 A 之前时自动交换，避免反向设置造成困惑。
+        m_abLoopB = position();
+        if (m_abLoopB < m_abLoopA)
+            qSwap(m_abLoopA, m_abLoopB);
+        if (m_abLoopB - m_abLoopA < 0.01) {
+            // 区间过短视为误触：回到未激活
+            resetABLoop();
+            return;
+        }
+        setABLoopState(Looping);
+        // 立即从 A 点开始循环播放
+        seek(m_abLoopA);
+        if (m_paused)
+            resume();
+        return;
+    }
+
+    // 未激活：记录当前播放位置为 A 点
+    m_abLoopA = position();
+    setABLoopState(APending);
+}
+
+// 统一状态变更出口：置状态并成对发出状态/坐标信号。
+// QML 侧依赖两信号同批到达刷新提示文案（ApplicationController 中同批取回）。
+void MediaEngine::setABLoopState(int state)
+{
+    m_abLoopState = state;
+    emit abLoopStateChanged(m_abLoopState);
+    emit abLoopChanged();
+}
+
+// 清除循环并复位 A/B 点坐标（新文件加载/关闭/误触清除共用）。
+void MediaEngine::resetABLoop()
+{
+    if (m_abLoopState == NoLoop)
+        return;
+    m_abLoopState = NoLoop;
+    m_abLoopA = m_abLoopB = 0.0;
+    emit abLoopStateChanged(m_abLoopState);
+    emit abLoopChanged();
+}
+
+// --- 逐帧步进 ---
+
+void MediaEngine::stepFrameForward()
+{
+    if (!m_fmtCtx || m_videoStreamIndex < 0 || m_networkManager->isLiveStream())
+        return;
+    if (m_stepOneFrame.load(std::memory_order_acquire) || m_seekInProgress.load())
+        return;
+
+    if (!m_paused)
+        pause();
+
+    // 暂停态下解码并显示恰好一帧后冻结。帧队列里已有解码线程预取的帧时
+    // 直接消费；队列为空才让 demux/视频解码线程各推进一个步进单位补产。
+    m_stepOneFrame.store(true, std::memory_order_release);
+    const bool queueHasFrame = m_videoFrameQueue && m_videoFrameQueue->size() > 0;
+    if (!queueHasFrame) {
+        if (m_demuxThread)
+            m_demuxThread->requestStep();
+        if (m_videoThread)
+            m_videoThread->requestStep();
+    }
+}
+
+// --- 进度条拖动预览 ---
+
+void MediaEngine::seekAndShowFrame(double seconds)
+{
+    if (!m_fmtCtx || m_videoStreamIndex < 0 || m_networkManager->isLiveStream())
+        return;
+
+    if (!m_paused)
+        pause();
+
+    // 完整 seek（重建管线）后置步进标志：seek 内部的 stopDisplayThread
+    // 会清除该标志，必须在其返回后再设置。显示线程重启后处于暂停态，
+    // 检测到步进标志即解码并显示目标位置的一帧后冻结。
+    seek(seconds);
+    m_stepOneFrame.store(true, std::memory_order_release);
 }
 
 bool MediaEngine::isNetworkStream() const
@@ -927,23 +1171,14 @@ void MediaEngine::setSpeed(double speed)
     //    跟随音频实际推进节奏，画面既不冻结也不快进跳变。
     if (m_audioThread)
         m_audioThread->setSpeed(speed);
-    if (m_audioOutput)
-        m_audioOutput->setSpeed(speed);
-    if (m_syncController)
-        m_syncController->setSpeed(speed);
+    m_audioOutput->setSpeed(speed);
+    m_syncController->setSpeed(speed);
 
     // 界面位置：内容在旧缓冲耗尽前仍按旧节奏前进，显示速度先保持旧值，
     // 重锚定到当前听感位置；AudioOutput 检测到旧数据耗尽时切为新速度。
     if (m_startTimeUs != 0) {
-        double contentPos = m_syncController ? m_syncController->audioClock() : 0.0;
-        if (!(contentPos > 0.0))   // 音频时钟不可用（刚开始播放）时退回界面位置
-            contentPos = m_position;
         m_displaySpeed = oldSpeed;
-        m_startTimeUs = av_gettime()
-            - static_cast<qint64>(contentPos * 1000000.0 / qMax(oldSpeed, 0.1));
-        m_pausedDurationUs = 0;
-        if (m_paused)
-            m_pauseStartUs = av_gettime();
+        reanchorToContentPosition(oldSpeed);
     }
 
     emit speedChanged(m_speed);
@@ -957,14 +1192,7 @@ void MediaEngine::onSpeedTransitionFinished()
     m_displaySpeed = m_speed;
 
     // 重新锚定到听感位置（内容已按新速度推进），界面继续以新速度前进。
-    double contentPos = m_syncController ? m_syncController->audioClock() : 0.0;
-    if (!(contentPos > 0.0))
-        contentPos = m_position;
-    m_startTimeUs = av_gettime()
-        - static_cast<qint64>(contentPos * 1000000.0 / qMax(m_speed, 0.1));
-    m_pausedDurationUs = 0;
-    if (m_paused)
-        m_pauseStartUs = av_gettime();
+    reanchorToContentPosition(m_speed);
 }
 
 double MediaEngine::speed() const
@@ -1017,13 +1245,18 @@ void MediaEngine::updatePosition()
         emit positionChanged(m_position);
     }
 
+    // A-B 循环：越过 B 点即跳回 A 点。定时器 250ms 粒度下最多过冲
+    // 0.25s × 2x 变速 ≈ 0.5s，跳回后自然对齐，无需精确截断。
+    if (m_abLoopState == Looping && m_abLoopB > m_abLoopA && pos >= m_abLoopB) {
+        seek(m_abLoopA);
+        return;
+    }
+
     // 字幕/歌词同步：以主时钟（音频时钟）驱动，字幕与听感内容严格一致。
     // 音频时钟为流内原始时间戳，内置字幕条目同基；外挂/歌词条目加载时已按
     // 音频流 start_time 偏移对齐，因此查询侧零换算。
     // 无音频流（或时钟尚未启动）时退回 0 基墙钟位置 m_position。
-    double mainClock = m_syncController->audioClock();
-    if (m_audioStreamIndex == -1 || mainClock <= 0.0)
-        mainClock = pos;
+    double mainClock = mainClockOrPosition(pos);
     updateSubtitle(mainClock);
     updateLyric(mainClock);
 }
@@ -1263,24 +1496,16 @@ void MediaEngine::stopThreads()
         delete m_demuxThread;
         m_demuxThread = nullptr;
     }
-    if (m_videoThread) {
-        m_videoThread->stopDecode();
-        m_videoThread->wait();
-        delete m_videoThread;
-        m_videoThread = nullptr;
-    }
-    if (m_audioThread) {
-        m_audioThread->stopDecode();
-        m_audioThread->wait();
-        delete m_audioThread;
-        m_audioThread = nullptr;
-    }
-    if (m_subtitleThread) {
-        m_subtitleThread->stopDecode();
-        m_subtitleThread->wait();
-        delete m_subtitleThread;
-        m_subtitleThread = nullptr;
-    }
+    auto stopDecodeAndDelete = [](auto *&thread) {
+        if (!thread) return;
+        thread->stopDecode();
+        thread->wait();
+        delete thread;
+        thread = nullptr;
+    };
+    stopDecodeAndDelete(m_videoThread);
+    stopDecodeAndDelete(m_audioThread);
+    stopDecodeAndDelete(m_subtitleThread);
 
     m_audioOutput->pause();
     m_audioOutput->reset();
@@ -1313,6 +1538,9 @@ void MediaEngine::cleanup()
     m_pendingVideoPtsDropBefore = -1.0;
     m_pendingAudioPtsAnchor = -1.0;
     m_pendingAudioPtsDropBefore = -1.0;
+
+    // 关闭/切换文件时清空 A-B 循环状态，避免 UI 残留
+    resetABLoop();
 
     if (m_videoCodecCtx) {
         avcodec_free_context(&m_videoCodecCtx);
@@ -1431,13 +1659,7 @@ void MediaEngine::stopSubtitleThread()
 
     // 队列延迟销毁：demux 线程可能仍有在途 push，先退役，
     // 待 demux 退出（stopThreads/cleanup）后再统一回收。
-    if (m_subtitlePacketQueue) {
-        m_subtitlePacketQueue->requestQuit();
-        m_subtitlePacketQueue->flush();
-        m_subtitlePacketQueue->clear();
-        m_retiredSubtitleQueues.append(m_subtitlePacketQueue);
-        m_subtitlePacketQueue = nullptr;
-    }
+    retireSubtitleQueue();
     if (m_subtitleCodecCtx) {
         avcodec_free_context(&m_subtitleCodecCtx);
         m_subtitleCodecCtx = nullptr;
@@ -1456,9 +1678,7 @@ void MediaEngine::setSubtitleDelayMs(qint64 delayMs)
     m_subtitleDelayMs = delayMs;
     // 立即用新偏移重查当前位置（主时钟 = 音频时钟，同 updatePosition），
     // 无需等下一个位置定时器 tick。
-    double mainClock = m_syncController->audioClock();
-    if (m_audioStreamIndex == -1 || mainClock <= 0.0)
-        mainClock = m_position;
+    double mainClock = mainClockOrPosition(m_position);
     if (m_subtitleThread)
         updateSubtitle(mainClock);
     emit subtitleDelayMsChanged(m_subtitleDelayMs);
@@ -1633,7 +1853,7 @@ void MediaEngine::switchAudioToStream(int newStreamIdx)
 
     // 旧音轨 start_time（秒）：丢弃阈值与 seek 目标换算需要（锚点在旧音轨
     // 原始时间基上，须先换算回容器位置再对齐到新流的时间基）。
-    double oldStartSec = streamStartUs(m_audioStreamIndex) / (double)AV_TIME_BASE;
+    double oldStartSec = streamStartSeconds(m_audioStreamIndex);
 
     // 3) 先停止旧音频解码线程，再释放旧解码器：旧线程仍持有旧 ctx 指针，
     //    反过来会 use-after-free。
@@ -1657,15 +1877,13 @@ void MediaEngine::switchAudioToStream(int newStreamIdx)
     //      seek 落点在视频关键帧前时，新音轨从锚点之前的内容起播，
     //      这些帧须丢弃，否则重基后音频内容整体落后于画面（音画不同步）。
     m_pendingAudioPtsAnchor = anchor;
-    double newStartSec = streamStartUs(newStreamIdx) / (double)AV_TIME_BASE;
-    m_pendingAudioPtsDropBefore = anchor + newStartSec - oldStartSec;
+    m_pendingAudioPtsDropBefore = anchor + streamStartSeconds(newStreamIdx) - oldStartSec;
 
     // 视频同丢弃锚点前的旧画面帧：backward seek 落在 anchor 之前的关键帧，
     // 解码出的整段 GOP 若进显示队列会按正常节奏走完（画面卡旧内容），且视频
     // 队列积压阻塞 demux、饿死音频队列（声音卡住数秒后画面跳变）。
     // 阈值 = 锚点换算到视频流原始时间基。
-    double videoStartSec = streamStartUs(m_videoStreamIndex) / (double)AV_TIME_BASE;
-    m_pendingVideoPtsDropBefore = anchor + videoStartSec - oldStartSec;
+    m_pendingVideoPtsDropBefore = anchor + streamStartSeconds(m_videoStreamIndex) - oldStartSec;
 
     // 6) 直播流不可 seek：原地重建全部线程与队列。
     //    demux 从当前读位继续，新音轨起点与画面存在约一个队列深度的内容偏移，
@@ -1697,7 +1915,9 @@ void MediaEngine::switchAudioToStream(int newStreamIdx)
     // 7) 常规文件：以锚点为目标做一次迷你 seek，重建全部线程与队列，
     //    使 demux 从当前内容位置重读新音轨，新音轨与画面在同一内容点起播。
     //    新音频线程在 startThreads 中按锚点重基 PTS 并丢弃锚点之前的帧。
-    seek(anchor);
+    //    必须走重路径：旧音频线程已在此函数中销毁，轻路径不会重建它，
+    //    且 PTS 重基锚点需要新的音频线程承载。
+    seekHeavy(anchor);
 }
 
 void MediaEngine::detectExternalSubtitles(const QString &videoPath)
@@ -1816,6 +2036,14 @@ void MediaEngine::resetRotation()
 
 // --- 视频显示线程：精确休眠，替代 QTimer 轮询 ---
 
+// Y 平面逐行拷贝（420P 与 NV12 的 Y 平面布局相同）
+static void copyYPlane(YUVFrame &out, AVFrame *frame, int width, int height)
+{
+    out.yPlane.resize(width * height);
+    for (int i = 0; i < height; i++)
+        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
+}
+
 static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
 {
     YUVFrame out;
@@ -1823,9 +2051,7 @@ static YUVFrame extractYUV420P(AVFrame *frame, int width, int height)
     int halfW = (width + 1) / 2;
     int halfH = (height + 1) / 2;
 
-    out.yPlane.resize(width * height);
-    for (int i = 0; i < height; i++)
-        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
+    copyYPlane(out, frame, width, height);
     out.uPlane.resize(halfW * halfH);
     for (int i = 0; i < halfH; i++)
         memcpy(out.uPlane.data() + i * halfW, frame->data[1] + i * frame->linesize[1], halfW);
@@ -1842,9 +2068,7 @@ static YUVFrame extractNV12(AVFrame *frame, int width, int height)
     int halfW = (width + 1) / 2;
     int halfH = (height + 1) / 2;
 
-    out.yPlane.resize(width * height);
-    for (int i = 0; i < height; i++)
-        memcpy(out.yPlane.data() + i * width, frame->data[0] + i * frame->linesize[0], width);
+    copyYPlane(out, frame, width, height);
     out.uPlane.resize(halfW * halfH);
     out.vPlane.resize(halfW * halfH);
     const uint8_t *uv = frame->data[1];
@@ -1891,6 +2115,7 @@ void MediaEngine::startDisplayThread()
 
 void MediaEngine::stopDisplayThread()
 {
+    m_stepOneFrame.store(false, std::memory_order_release);
     m_displayStopRequested.store(true, std::memory_order_release);
     if (m_displayThread) {
         m_displayThread->quit();
@@ -1901,7 +2126,94 @@ void MediaEngine::stopDisplayThread()
 
 void MediaEngine::displayLoop()
 {
+    // YUV 提取/转换：步进分支与普通分支共用（失败时已释放 frame，返回 false）
+    auto extractFrame = [this](AVFrame *frame, YUVFrame &yuv, AVFrame *&convFrame) -> bool {
+        AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
+        if (fmt == AV_PIX_FMT_YUV420P) {
+            yuv = extractYUV420P(frame, frame->width, frame->height);
+        } else if (fmt == AV_PIX_FMT_NV12) {
+            yuv = extractNV12(frame, frame->width, frame->height);
+        } else {
+            convFrame = convertToYUV420P(frame);
+            if (!convFrame) {
+                qWarning("displayLoop: sws_scale conversion failed: %s",
+                         av_get_pix_fmt_name(fmt));
+                av_frame_free(&frame);
+                return false;
+            }
+            yuv = extractYUV420P(convFrame, convFrame->width, convFrame->height);
+        }
+        return true;
+    };
+
     while (!m_displayStopRequested.load(std::memory_order_acquire)) {
+        // 逐帧步进：暂停态下解码并显示恰好一帧后冻结（不 seek、不重排管线）。
+        // 暂停时解码线程已预取若干帧，直接消费队头帧；队列为空则请求
+        // demux/视频解码线程各推进一个步进单位补产，最多等待 1 秒。
+        if (m_stepOneFrame.load(std::memory_order_acquire)) {
+            if (!m_videoFrameQueue || !m_syncController) {
+                QThread::msleep(5);
+                continue;
+            }
+
+            AVFrame *frame = m_videoFrameQueue->peek();
+            if (!frame) {
+                if (m_demuxThread)
+                    m_demuxThread->requestStep();
+                if (m_videoThread)
+                    m_videoThread->requestStep();
+                const qint64 deadlineUs = av_gettime() + 1000000;
+                while (!m_displayStopRequested.load(std::memory_order_acquire)) {
+                    frame = m_videoFrameQueue->peek();
+                    if (frame)
+                        break;
+                    if (av_gettime() > deadlineUs)
+                        break;
+                    QThread::msleep(2);
+                }
+                if (!frame) {
+                    // 超时（文件末尾 / 无法继续解码）：放弃本次步进
+                    m_stepOneFrame.store(false, std::memory_order_release);
+                    if (m_demuxThread)
+                        m_demuxThread->clearStepRequest();
+                    if (m_videoThread)
+                        m_videoThread->clearStepRequest();
+                    continue;
+                }
+            }
+
+            double pts = 0.0;
+            if (frame->pts != AV_NOPTS_VALUE)
+                pts = frame->pts * av_q2d(m_videoTimeBase);
+            frame = m_videoFrameQueue->tryPop(0);
+            if (!frame)
+                continue;
+
+            m_syncController->onFrameDisplayed(pts);
+            m_syncController->setClock(pts);
+            m_lastDisplayedPts = pts;
+
+            // 恢复冻结：解码线程回到暂停等待（主线程位置定时器在暂停态不运行，
+            // 此处写 m_position 无并发读写）
+            if (m_videoThread)
+                m_videoThread->clearStepRequest();
+            if (m_demuxThread)
+                m_demuxThread->clearStepRequest();
+            m_stepOneFrame.store(false, std::memory_order_release);
+            m_position = pts;
+            emit positionChanged(m_position);
+
+            YUVFrame yuv;
+            AVFrame *convFrame = nullptr;
+            if (!extractFrame(frame, yuv, convFrame))
+                continue;
+
+            emit frameReady(yuv);
+            av_frame_free(&frame);
+            av_frame_free(&convFrame);
+            continue;
+        }
+
         if (m_paused.load(std::memory_order_acquire)) {
             QThread::msleep(10);
             continue;
@@ -1988,21 +2300,8 @@ void MediaEngine::displayLoop()
         // 避免视频轨容器级延迟导致字幕提前出现。
         YUVFrame yuv;
         AVFrame *convFrame = nullptr;
-        AVPixelFormat fmt = static_cast<AVPixelFormat>(frame->format);
-        if (fmt == AV_PIX_FMT_YUV420P) {
-            yuv = extractYUV420P(frame, frame->width, frame->height);
-        } else if (fmt == AV_PIX_FMT_NV12) {
-            yuv = extractNV12(frame, frame->width, frame->height);
-        } else {
-            convFrame = convertToYUV420P(frame);
-            if (!convFrame) {
-                qWarning("displayLoop: sws_scale conversion failed for: %s",
-                         av_get_pix_fmt_name(fmt));
-                av_frame_free(&frame);
-                continue;
-            }
-            yuv = extractYUV420P(convFrame, convFrame->width, convFrame->height);
-        }
+        if (!extractFrame(frame, yuv, convFrame))
+            continue;
 
         emit frameReady(yuv);
         av_frame_free(&frame);

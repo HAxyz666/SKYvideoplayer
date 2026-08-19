@@ -1,5 +1,4 @@
 #include "FrameQueue.h"
-#include <QDebug>
 
 FrameQueue::FrameQueue(int maxSize)
     : m_maxSize(maxSize)
@@ -67,12 +66,7 @@ AVFrame *FrameQueue::peek()
 
 void FrameQueue::clear()
 {
-    std::lock_guard lock(m_mutex);
-    while (!m_queue.isEmpty()) {
-        AVFrame *frame = m_queue.dequeue();
-        av_frame_free(&frame);
-    }
-    m_notFull.notify_all();
+    drain(false);
 }
 
 void FrameQueue::setFinished(bool finished)
@@ -83,21 +77,22 @@ void FrameQueue::setFinished(bool finished)
     m_notFull.notify_all();
 }
 
-bool FrameQueue::isFinished() const
+void FrameQueue::flush()
 {
-    std::lock_guard lock(m_mutex);
-    return m_finished;
+    drain(true);
 }
 
-void FrameQueue::flush()
+// 清空队列并释放所有帧。notifyEmpty 用于唤醒等待 tryPop 的线程。
+void FrameQueue::drain(bool notifyEmpty)
 {
     std::lock_guard lock(m_mutex);
     while (!m_queue.isEmpty()) {
         AVFrame *frame = m_queue.dequeue();
         av_frame_free(&frame);
     }
-    m_notEmpty.notify_all();
     m_notFull.notify_all();
+    if (notifyEmpty)
+        m_notEmpty.notify_all();
 }
 
 int FrameQueue::size() const

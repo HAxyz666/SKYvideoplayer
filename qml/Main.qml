@@ -29,10 +29,6 @@ ApplicationWindow {
     onCurrentThemeChanged: applyTheme()
     Component.onCompleted: applyTheme()
 
-    readonly property color windowBtnColor: appController.theme === "dark" ? "#ffffff" : "#555555"
-    readonly property color windowBtnHover:  appController.theme === "dark" ? "#40ffffff" : "#40000000"
-    readonly property color windowBtnCloseHover: "#80e04040"
-
     property bool isFullscreen: false
     property real savedWidth: 1280
     property real savedHeight: 720
@@ -85,6 +81,10 @@ ApplicationWindow {
     Shortcut { sequence: settingsManager.shortcuts["subtitleDelayBackward"] || "["; onActivated: appController.nudgeSubtitleDelay(-100) }
     Shortcut { sequence: settingsManager.shortcuts["subtitleDelayForward"] || "]"; onActivated: appController.nudgeSubtitleDelay(100) }
 
+    // A-B 区间循环（A 设起点 → 再按设终点 → 再按清除）/ 逐帧步进（mpv 风格 .）
+    Shortcut { sequence: settingsManager.shortcuts["abLoop"] || "A"; onActivated: appController.toggleABLoop() }
+    Shortcut { sequence: settingsManager.shortcuts["stepFrame"] || "."; onActivated: appController.stepFrameForward() }
+
     // 画面调节快捷键（mpv 风格）：3/4 亮度、5/6 对比度、7/8 饱和度，Z 循环缩放模式
     Shortcut { sequence: settingsManager.shortcuts["brightnessDown"] || "3"; context: Qt.ApplicationShortcut; onActivated: settingsManager.brightness = Math.max(-100, settingsManager.brightness - 5) }
     Shortcut { sequence: settingsManager.shortcuts["brightnessUp"] || "4";   context: Qt.ApplicationShortcut; onActivated: settingsManager.brightness = Math.min(100, settingsManager.brightness + 5) }
@@ -134,63 +134,4 @@ ApplicationWindow {
             color: "white"
         }
     }
-
-    // 右上角窗口控制按钮（简约风格）— 已禁用
-    // Row {
-    //     anchors.top: parent.top
-    //     anchors.right: parent.right
-    //     anchors.margins: 8
-    //     spacing: 6
-    //     z: 999
-    //     visible: !appLayout.controller.hasMedia || appLayout.showControls
-    //
-    //     Rectangle {
-    //         width: 36; height: 28; radius: 5
-    //         color: minHover.hovered ? windowBtnHover : "transparent"
-    //         Behavior on color { ColorAnimation { duration: 150 } }
-    //         Text {
-    //             anchors.centerIn: parent
-    //             text: "\u2500"
-    //             color: windowBtnColor
-    //             font.pixelSize: 16
-    //         }
-    //         HoverHandler { id: minHover }
-    //         TapHandler { onTapped: window.showMinimized() }
-    //     }
-    //
-    //     Rectangle {
-    //         width: 36; height: 28; radius: 5
-    //         color: maxHover.hovered ? windowBtnHover : "transparent"
-    //         Behavior on color { ColorAnimation { duration: 150 } }
-    //         Text {
-    //             anchors.centerIn: parent
-    //             text: window.visibility === Window.Maximized ? "\u2750" : "\u25A1"
-    //             color: windowBtnColor
-    //             font.pixelSize: 16
-    //         }
-    //         HoverHandler { id: maxHover }
-    //         TapHandler {
-    //             onTapped: {
-    //                 if (window.visibility === Window.Maximized)
-    //                     window.showNormal()
-    //                 else
-    //                     window.showMaximized()
-    //             }
-    //         }
-    //     }
-    //
-    //     Rectangle {
-    //         width: 36; height: 28; radius: 5
-    //         color: closeHover.hovered ? windowBtnCloseHover : "transparent"
-    //         Behavior on color { ColorAnimation { duration: 150 } }
-    //         Text {
-    //             anchors.centerIn: parent
-    //             text: "\u2715"
-    //             color: windowBtnColor
-    //             font.pixelSize: 16
-    //         }
-    //         HoverHandler { id: closeHover }
-    //         TapHandler { onTapped: window.close() }
-    //     }
-    // }
 }

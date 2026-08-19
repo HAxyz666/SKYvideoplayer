@@ -237,5 +237,5 @@ void AVSyncController::reset()
     m_frameLastPts = 0.0;
     m_frameLastDelay = 0.04;
     m_firstFrame = true;
-    m_syncStats = SyncStats{};
+    resetStats();
 }

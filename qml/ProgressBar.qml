@@ -10,19 +10,11 @@ Item {
     property real dragPosition: 0.0
 
     signal seekRequested(real pos)
+    signal scrubStarted()
+    signal scrubPositionChanged(real pos)
+    signal scrubEnded(real pos)
 
     height: 28
-
-    function formatTime(seconds) {
-        if (seconds <= 0) return "00:00"
-        var s = Math.floor(seconds)
-        var h = Math.floor(s / 3600)
-        var m = Math.floor((s % 3600) / 60)
-        var sec = s % 60
-        var pad = function(v) { return v < 10 ? "0" + v : "" + v }
-        if (h > 0) return h + ":" + pad(m) + ":" + pad(sec)
-        return pad(m) + ":" + pad(sec)
-    }
 
     // 时间标签 (左侧)
     Text {
@@ -30,7 +22,7 @@ Item {
         anchors.left: parent.left
         anchors.bottom: track.top
         anchors.bottomMargin: 2
-        text: formatTime(root.dragging ? root.dragPosition : root.position) + " / " + formatTime(root.duration)
+        text: TimeUtils.formatTime(root.dragging ? root.dragPosition : root.position) + " / " + TimeUtils.formatTime(root.duration)
         color: appController.theme === "dark" ? "#cccccc" : "#666666"
         font.pixelSize: 11
     }
@@ -57,22 +49,24 @@ Item {
         }
     }
 
-    // 拖拽进度：仅本地更新显示位置，释放时才发起 seek
+    // 拖拽进度：拖动中先暂停并实时预览目标帧（scrubPositionChanged），
+    // 松开时 scrubEnded 携带最终位置。
     DragHandler {
-        id: dragHandler
         target: null
         cursorShape: Qt.PointingHandCursor
         onActiveChanged: {
             if (active) {
                 root.dragPosition = Math.max(0, centroid.position.x / root.width * root.duration)
                 root.dragging = true
+                root.scrubStarted()
             } else {
                 root.dragging = false
-                root.seekRequested(root.dragPosition)
+                root.scrubEnded(root.dragPosition)
             }
         }
         onTranslationChanged: {
             root.dragPosition = Math.max(0, centroid.position.x / root.width * root.duration)
+            root.scrubPositionChanged(root.dragPosition)
         }
     }
 

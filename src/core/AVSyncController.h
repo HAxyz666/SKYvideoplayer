@@ -64,11 +64,12 @@ public:
 
     // 统计相关
     void recordSyncEvent(SyncAction action, double diff);
-    void resetStats();
 
     void reset();
 
 private:
+    // 重置统计（调用者须已持有 m_mutex 或在锁外单线程调用）
+    void resetStats();
     // 计算自适应阈值
     double computeSyncThreshold(double frameInterval) const;
 

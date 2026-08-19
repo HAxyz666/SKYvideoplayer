@@ -8,7 +8,6 @@ Item {
     id: appLayout
 
     property alias controller: controller
-    readonly property alias showControls: playerView.showControls
 
     PlayerController { id: controller }
 
@@ -16,8 +15,9 @@ Item {
         id: hideTimer
         interval: 3000
         onTriggered: {
-            console.log("hideTimer fired, hiding controlBar")
-            playerView.showControls = false
+            // 子菜单打开期间不隐藏控制条，关闭时由 onClosed 重启计时
+            if (!playerView.anyPopupOpen)
+                playerView.showControls = false
         }
     }
 
@@ -138,6 +138,30 @@ Item {
             anchors.centerIn: parent
             width: parent.width - 40
             text: appController.subtitleDelayToastText
+            font.pixelSize: 13
+            color: "#ffffff"
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
+    }
+
+    // A-B 循环状态提示条（快捷键 A / 控件条按钮触发，2.5s 自动隐藏）
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 135
+        width: Math.min(abLoopLabel.implicitWidth + 40, parent.width * 0.6)
+        height: 36
+        radius: 18
+        color: "#cc333333"
+        visible: appController.abLoopToastVisible
+        z: 100
+
+        Label {
+            id: abLoopLabel
+            anchors.centerIn: parent
+            width: parent.width - 40
+            text: appController.abLoopToastText
             font.pixelSize: 13
             color: "#ffffff"
             horizontalAlignment: Text.AlignHCenter

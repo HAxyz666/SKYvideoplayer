@@ -216,6 +216,18 @@ void AudioDecodeThread::destroySonic()
     }
 }
 
+// 丢弃 sonic 缓冲中的残余样本并复位输出时间戳（变速切换/冲刷后旧数据作废）
+void AudioDecodeThread::discardSonic()
+{
+    if (!m_sonicStream)
+        return;
+    sonicFlushStream(m_sonicStream);
+    short discard[4096];
+    while (sonicSamplesAvailable(m_sonicStream) > 0)
+        sonicReadShortFromStream(m_sonicStream, discard, 2048);
+    m_sonicOutputPts = 0.0;
+}
+
 void AudioDecodeThread::run()
 {
     if (!m_codecCtx || !m_packetQueue || !m_frameQueue)
@@ -254,20 +266,22 @@ void AudioDecodeThread::run()
 
     while (!m_quit) {
         if (m_paused && m_paused->load()) {
-            while (!m_quit && m_paused->load())
-                msleep(10);
-            if (m_quit) break;
-            continue;
+            // 冲刷唤醒（轻量 seek）时放行本轮消费标记；无请求则挂起等待
+            if (!m_flushWake.load(std::memory_order_acquire)) {
+                while (!m_quit && m_paused->load()
+                       && !m_flushWake.load(std::memory_order_acquire))
+                    msleep(10);
+                if (m_quit) break;
+                if (!m_flushWake.load(std::memory_order_acquire))
+                    continue;
+            }
+            m_flushWake.store(false, std::memory_order_release);
         }
 
         double speed = m_currentSpeed.load(std::memory_order_acquire);
         if (!qFuzzyCompare(speed, m_lastSpeed)) {
             if (m_lastSpeed != 1.0) {
-                sonicFlushStream(m_sonicStream);
-                short discard[4096];
-                while (sonicSamplesAvailable(m_sonicStream) > 0)
-                    sonicReadShortFromStream(m_sonicStream, discard, 2048);
-                m_sonicOutputPts = 0.0;
+                discardSonic();
             }
             if (!qFuzzyCompare(speed, 1.0))
                 sonicSetSpeed(m_sonicStream, static_cast<float>(speed));
@@ -277,6 +291,22 @@ void AudioDecodeThread::run()
         AVPacket *pkt = m_packetQueue->pop();
         if (!pkt)
             break;
+
+        // 冲刷标记（轻量 seek）：FIFO 顺序保证标记之前的旧包已全部处理。
+        // 清除解码器内部状态、帧队列与 sonic 变速缓冲；若本线程处于音轨切换
+        // 后的 PTS 重基模式一并复位（新位置内容不得再重基到旧锚点）。
+        // 丢弃阈值不复位：seekLight 在请求前注入本次 seek 的目标阈值，
+        // 冲刷后仍须生效（丢弃目标之前的音频帧），直到下一次 seek 覆盖。
+        if (PacketQueue::isFlushMarker(pkt)) {
+            avcodec_flush_buffers(m_codecCtx);
+            m_frameQueue->flush();
+            discardSonic();
+            m_ptsAnchor.store(-1.0, std::memory_order_release);
+            rebaseActive = false;
+            rebaseInit = false;
+            m_flushWake.store(false, std::memory_order_release);
+            continue;
+        }
 
         int ret = avcodec_send_packet(m_codecCtx, pkt);
         av_packet_free(&pkt);

@@ -65,16 +65,7 @@ static double probeDuration(const QString &filePath)
 // 添加文件到列表末尾，已存在则跳过
 void PlaylistModel::addFile(const QString &filePath)
 {
-    for (const auto &item : m_items) {
-        if (item.filePath == filePath)
-            return;
-    }
-
-    int row = m_items.size();
-    beginInsertRows(QModelIndex(), row, row);
-    m_items.append({ extractTitle(filePath), filePath, probeDuration(filePath) });
-    endInsertRows();
-    emit countChanged();
+    appendItem(extractTitle(filePath), filePath, probeDuration(filePath));
 }
 
 // 添加网络 URL（不探测时长，已存在则跳过）
@@ -84,18 +75,24 @@ void PlaylistModel::addUrl(const QString &url)
     if (filePath.startsWith("file://"))
         filePath = filePath.mid(7);
 
+    QString title = QUrl::fromUserInput(filePath).fileName();
+    if (title.isEmpty())
+        title = filePath;
+
+    appendItem(title, filePath, 0.0);
+}
+
+// 追加条目（已存在则跳过）：addFile/addUrl 共用的插入逻辑
+void PlaylistModel::appendItem(const QString &title, const QString &filePath, double duration)
+{
     for (const auto &item : m_items) {
         if (item.filePath == filePath)
             return;
     }
 
-    QString title = QUrl::fromUserInput(filePath).fileName();
-    if (title.isEmpty())
-        title = filePath;
-
     int row = m_items.size();
     beginInsertRows(QModelIndex(), row, row);
-    m_items.append({ title, filePath, 0.0 });
+    m_items.append({ title, filePath, duration });
     endInsertRows();
     emit countChanged();
 }
@@ -218,7 +215,7 @@ bool PlaylistModel::hasNext() const
         return true;
     case PlaybackMode::Sequential:
     default:
-        return m_currentIndex >= 0 && m_currentIndex < m_items.size() - 1;
+        return m_currentIndex < m_items.size() - 1;
     }
 }
 
@@ -254,7 +251,7 @@ QString PlaylistModel::nextFilePath() const
         return m_items.at(m_currentIndex).filePath;
     case PlaybackMode::Sequential:
     default:
-        if (m_currentIndex >= 0 && m_currentIndex < m_items.size() - 1)
+        if (m_currentIndex < m_items.size() - 1)
             return m_items.at(m_currentIndex + 1).filePath;
         return {};
     }

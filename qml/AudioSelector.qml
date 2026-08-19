@@ -7,8 +7,16 @@ Button {
     text: qsTr("Audio")
     // 仅当存在多条音轨可供切换时才显示（单音轨无可切换内容，隐藏按钮）
     visible: appController.audioStreams.length > 1
-    onClicked: audioPopup.open()
+    onClicked: {
+        if (audioPopup.opened)
+            audioPopup.close()
+        else
+            audioPopup.open()
+    }
     flat: true
+
+    signal popupClosed()
+    property bool isPopupOpen: audioPopup.opened
     contentItem: Text {
         text: root.text
         font: root.font
@@ -27,7 +35,8 @@ Button {
         x: 0
         width: 220
         padding: 0
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnReleaseOutsideParent
+        onClosed: root.popupClosed()
 
         background: Rectangle {
             color: appController.theme === "dark" ? "#3d3d3d" : "#e8e8e8"

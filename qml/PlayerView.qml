@@ -13,6 +13,7 @@ Rectangle {
     signal userInteracted()
 
     property alias showControls: controlBar.showControls
+    property alias anyPopupOpen: controlBar.anyPopupOpen
 
     // 按下时若已处于弹窗上方，该次 tap 不再触发播放控制。
     // 弹窗要到 release 才可能被关闭，因此按下时的判定不受关闭时序影响。
@@ -50,7 +51,6 @@ Rectangle {
     color: "black"
 
     onVisibleChanged: {
-        console.log("playerView.visible =", visible)
         if (visible) {
             controlBar.showControls = true
             playerView.userInteracted()
@@ -59,7 +59,6 @@ Rectangle {
 
     HoverHandler {
         onHoveredChanged: {
-            console.log("playerView hovered =", hovered)
             if (hovered) {
                 controlBar.showControls = true
                 playerView.userInteracted()
@@ -73,7 +72,6 @@ Rectangle {
         onTriggered: {
             if (playerView.isAnyPopupOpen())
                 return
-            console.log("singleTap confirmed")
             controlBar.showControls = true
             playerView.userInteracted()
             controller.togglePlay()
@@ -94,7 +92,6 @@ Rectangle {
                 return
             if (doubleTapTimer.running) {
                 doubleTapTimer.stop()
-                console.log("doubleTap detected")
                 playerView.toggleFullscreen()
             } else {
                 doubleTapTimer.restart()
@@ -245,6 +242,5 @@ Rectangle {
 
     ResumeToast {
         id: resumeToast
-        controller: playerView.controller
     }
 }

@@ -1,5 +1,6 @@
 #include "Applicationcontroller.h"
 #include "MediaEngine.h"
+#include "NetworkStreamManager.h"
 #include "PlaybackHistory.h"
 #include "PlaylistModel.h"
 #include "RecentFilesModel.h"
@@ -7,28 +8,23 @@
 #include "VideoRenderItem.h"
 
 #include <QCoreApplication>
-#include <QDebug>
+#include <QDateTime>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
 #include <QSettings>
 #include <QQmlApplicationEngine>
-#include <QTextStream>
 #include <QTimer>
-#include <QUrl>
 #include <QVariantMap>
 
 ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
     , m_mediaEngine(new MediaEngine(this))
     , m_recentFiles(new RecentFilesModel(this))
-    , m_theme("dark")
 {
     // 默认播放列表（关闭程序时持久化，不再清空）
     m_playlistModel = new PlaylistModel(this);
     m_allPlaylists.append(m_playlistModel);
     m_playlistNames.append(tr("Default List"));
-    m_currentPlaylistIndex = 0;
     QSettings settings;
     m_theme = settings.value("theme", "dark").toString();
 
@@ -54,9 +50,34 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::subtitleDelayMsChanged, this, &ApplicationController::subtitleDelayMsChanged);
     connect(m_mediaEngine, &MediaEngine::audioStreamsChanged, this, &ApplicationController::audioStreamsChanged);
     connect(m_mediaEngine, &MediaEngine::currentAudioStreamChanged, this, &ApplicationController::currentAudioStreamChanged);
+    // 播放偏好按文件记忆：音轨/字幕轨/倍速/旋转/翻转变化即记录
+    connect(m_mediaEngine, &MediaEngine::currentAudioStreamChanged, this, &ApplicationController::saveCurrentPrefs);
+    connect(m_mediaEngine, &MediaEngine::currentSubtitleStreamChanged, this, &ApplicationController::saveCurrentPrefs);
+    connect(m_mediaEngine, &MediaEngine::speedChanged, this, &ApplicationController::saveCurrentPrefs);
+    connect(m_mediaEngine, &MediaEngine::rotationChanged, this, &ApplicationController::saveCurrentPrefs);
+    connect(m_mediaEngine, &MediaEngine::flipVerticalChanged, this, &ApplicationController::saveCurrentPrefs);
     // 转发 MediaEngine 画面旋转 / 翻转信号到 QML 层 (UC-07)
     connect(m_mediaEngine, &MediaEngine::rotationChanged, this, &ApplicationController::rotationChanged);
     connect(m_mediaEngine, &MediaEngine::flipVerticalChanged, this, &ApplicationController::flipVerticalChanged);
+    // A-B 循环：转发状态与 A/B 点，状态变化时刷新 OSD 提示。
+    // 状态与坐标同批取回，避免 stateChanged 先于 abLoopChanged 到达
+    // 导致提示文案使用旧坐标。
+    connect(m_mediaEngine, &MediaEngine::abLoopStateChanged, this, [this](int state) {
+        m_abLoopState = state;
+        m_abLoopA = m_mediaEngine->abLoopA();
+        m_abLoopB = m_mediaEngine->abLoopB();
+        emit abLoopChanged();
+        emit abLoopStateChanged(state);
+        updateAbLoopToast();
+    });
+    connect(m_mediaEngine, &MediaEngine::abLoopChanged, this, [this]() {
+        m_abLoopA = m_mediaEngine->abLoopA();
+        m_abLoopB = m_mediaEngine->abLoopB();
+        emit abLoopChanged();
+        // 循环中重设 B 点（状态不变）也要刷新提示文案
+        if (m_abLoopState == 2)
+            updateAbLoopToast();
+    });
     connect(m_mediaEngine, &MediaEngine::coverArtChanged, this, &ApplicationController::coverArtChanged);
     connect(m_mediaEngine, &MediaEngine::currentLyricChanged, this, &ApplicationController::currentLyricChanged);
 
@@ -80,20 +101,26 @@ ApplicationController::ApplicationController(QObject *parent)
         m_recentFiles->addFile(url);
     });
 
-    // 字幕延迟调整提示（OSD），2.5 秒后自动隐藏
-    m_subtitleDelayToastTimer = new QTimer(this);
-    m_subtitleDelayToastTimer->setSingleShot(true);
-    m_subtitleDelayToastTimer->setInterval(2500);
-    connect(m_subtitleDelayToastTimer, &QTimer::timeout, this, [this]() {
-        m_subtitleDelayToastVisible = false;
-        emit subtitleDelayToastVisibleChanged();
-    });
+    // 隐藏类 OSD 提示：2.5 秒后自动隐藏（字幕延迟 / A-B 循环共用）
+    auto makeToastTimer = [this](bool *visible, void (ApplicationController::*changed)()) {
+        auto *timer = new QTimer(this);
+        timer->setSingleShot(true);
+        timer->setInterval(2500);
+        connect(timer, &QTimer::timeout, this, [this, visible, changed]() {
+            *visible = false;
+            (this->*changed)();
+        });
+        return timer;
+    };
+    m_subtitleDelayToastTimer =
+        makeToastTimer(&m_subtitleDelayToastVisible, &ApplicationController::subtitleDelayToastVisibleChanged);
+    m_abLoopToastTimer =
+        makeToastTimer(&m_abLoopToastVisible, &ApplicationController::abLoopToastVisibleChanged);
 }
 
-bool ApplicationController::openFile()
+void ApplicationController::openFile()
 {
     emit requestOpenFile();
-    return true;
 }
 
 static QStringList mediaFileFilters()
@@ -101,6 +128,12 @@ static QStringList mediaFileFilters()
     return { "*.mp4", "*.mkv", "*.avi", "*.mov", "*.flv", "*.wmv",
              "*.mp3", "*.flac", "*.wav", "*.aac", "*.ogg", "*.opus",
              "*.m4a", "*.wma" };
+}
+
+// 去掉 file:// 前缀，兼容拖拽/文件对话框传入的 URL
+static QString stripFileScheme(const QString &path)
+{
+    return path.startsWith("file://") ? path.mid(7) : path;
 }
 
 static void scanDirectoryFiles(PlaylistModel *model, const QString &dirPath)
@@ -115,12 +148,8 @@ static void scanDirectoryFiles(PlaylistModel *model, const QString &dirPath)
 // 将所选文件追加到当前播放列表（不清空原有内容）
 void ApplicationController::addFiles(const QStringList &paths)
 {
-    for (const QString &raw : paths) {
-        QString filePath = raw;
-        if (filePath.startsWith("file://"))
-            filePath = filePath.mid(7);
-        m_playlistModel->addFile(filePath);
-    }
+    for (const QString &raw : paths)
+        m_playlistModel->addFile(stripFileScheme(raw));
     savePlaylists();
 }
 
@@ -136,16 +165,10 @@ void ApplicationController::addUrl(const QString &url)
 
 bool ApplicationController::loadFile(const QString &path)
 {
-    QString filePath = path;
-    if (filePath.startsWith("file://"))
-        filePath = filePath.mid(7);
+    QString filePath = stripFileScheme(path);
 
     // 网络流：异步初始化，避免阻塞主线程
-    if (filePath.startsWith("http://") || filePath.startsWith("https://") ||
-        filePath.startsWith("rtmp://") || filePath.startsWith("rtmps://") ||
-        filePath.startsWith("rtsp://") || filePath.startsWith("rtsps://") ||
-        filePath.startsWith("mms://") || filePath.startsWith("mmsh://") ||
-        filePath.startsWith("udp://") || filePath.startsWith("tcp://")) {
+    if (NetworkStreamManager::isNetworkUrl(filePath)) {
         m_playlistModel->clear();
         bool ok = m_mediaEngine->open(filePath);
         emit playbackStateChanged(ok);
@@ -175,6 +198,66 @@ void ApplicationController::togglePlayback()
 void ApplicationController::seekTo(double seconds)
 {
     m_mediaEngine->seek(seconds);
+}
+
+// --- 进度条拖动实时预览（scrub） ---
+// 拖动时先暂停并逐帧跟进目标画面；松开后落在最终位置并恢复播放。
+// 网络流/直播流保持原行为：拖动不暂停，松开时一次性 seek。
+
+void ApplicationController::scrubStart()
+{
+    if (m_mediaEngine->isNetworkStream() || m_mediaEngine->isLiveStream())
+        return;
+    m_scrubWasPlaying = !m_mediaEngine->isPaused();
+    m_scrubPendingPos = -1.0;
+    m_scrubLastPos = -1.0;
+    m_scrubLastSeekMs = 0;
+    if (!m_mediaEngine->isPaused())
+        m_mediaEngine->pause();
+}
+
+void ApplicationController::scrubTo(double seconds)
+{
+    if (m_mediaEngine->isNetworkStream() || m_mediaEngine->isLiveStream())
+        return;
+
+    const double target = qBound(0.0, seconds, m_mediaEngine->duration());
+    // 节流：距上次预览 seek 不足 100ms 时只暂存最新位置（拖动事件远密于
+    // seek 代价），由后续事件或 scrubEnd 兜底消费。
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - m_scrubLastSeekMs < 100) {
+        m_scrubPendingPos = target;
+        return;
+    }
+    m_scrubPendingPos = -1.0;
+    m_scrubLastSeekMs = now;
+    m_scrubLastPos = target;
+    m_mediaEngine->seekAndShowFrame(target);
+}
+
+void ApplicationController::scrubEnd(double seconds)
+{
+    if (m_mediaEngine->isNetworkStream() || m_mediaEngine->isLiveStream()) {
+        m_mediaEngine->seek(qBound(0.0, seconds, m_mediaEngine->duration()));
+        return;
+    }
+
+    // 取拖动期间暂存的最新位置（节流事件不会丢目标）
+    double finalPos = (m_scrubPendingPos >= 0.0) ? m_scrubPendingPos
+                                                 : qBound(0.0, seconds, m_mediaEngine->duration());
+    m_scrubPendingPos = -1.0;
+
+    // 与最后预览位置不一致才补一次 seek，避免松开瞬间重复重建管线。
+    // m_scrubLastPos == -1 表示拖动期间从未产生预览 seek（按下即松开），
+    // 位置未变，无需 seek，直接恢复播放状态即可。
+    if (m_scrubLastPos >= 0.0 && qAbs(finalPos - m_scrubLastPos) > 0.05) {
+        m_scrubLastPos = finalPos;
+        m_mediaEngine->seekAndShowFrame(finalPos);
+    }
+
+    // 恢复拖动前的播放状态
+    if (m_scrubWasPlaying)
+        m_mediaEngine->resume();
 }
 
 double ApplicationController::position() const
@@ -226,9 +309,7 @@ void ApplicationController::createPlaylist(const QString &name)
         finalName = tr("List %1").arg(m_allPlaylists.size());
     m_playlistNames.append(finalName);
     m_currentPlaylistIndex = m_allPlaylists.size() - 1;
-    m_playlistModel = pl;
-    emit playlistModelChanged();
-    emit playlistsChanged();
+    activatePlaylist(pl);
     savePlaylists();
 }
 
@@ -238,7 +319,13 @@ void ApplicationController::switchPlaylist(int index)
     if (index < 0 || index >= m_allPlaylists.size() || index == m_currentPlaylistIndex)
         return;
     m_currentPlaylistIndex = index;
-    m_playlistModel = m_allPlaylists.at(index);
+    activatePlaylist(m_allPlaylists.at(index));
+}
+
+// 切换当前列表并通知界面（createPlaylist/switchPlaylist 共用）
+void ApplicationController::activatePlaylist(PlaylistModel *pl)
+{
+    m_playlistModel = pl;
     emit playlistModelChanged();
     emit playlistsChanged();
 }
@@ -318,11 +405,7 @@ void ApplicationController::playItem(int index)
 {
     if (index < 0 || index >= m_playlistModel->count())
         return;
-    m_playlistModel->setCurrentIndex(index);
-    QString filePath = m_playlistModel->itemAt(index).filePath;
-    m_recentFiles->addFile(filePath);
-    bool ok = openAndResume(filePath);
-    emit playbackStateChanged(ok);
+    playByPath(m_playlistModel->itemAt(index).filePath, index);
 }
 
 void ApplicationController::playNext()
@@ -330,13 +413,7 @@ void ApplicationController::playNext()
     QString nextPath = m_playlistModel->nextFilePath();
     if (nextPath.isEmpty())
         return;
-    int nextIdx = m_playlistModel->indexOf(nextPath);
-    if (nextIdx >= 0) {
-        m_playlistModel->setCurrentIndex(nextIdx);
-        m_recentFiles->addFile(nextPath);
-        bool ok = openAndResume(nextPath);
-        emit playbackStateChanged(ok);
-    }
+    playByPath(nextPath, m_playlistModel->indexOf(nextPath));
 }
 
 void ApplicationController::playPrev()
@@ -344,13 +421,17 @@ void ApplicationController::playPrev()
     QString prevPath = m_playlistModel->prevFilePath();
     if (prevPath.isEmpty())
         return;
-    int prevIdx = m_playlistModel->indexOf(prevPath);
-    if (prevIdx >= 0) {
-        m_playlistModel->setCurrentIndex(prevIdx);
-        m_recentFiles->addFile(prevPath);
-        bool ok = openAndResume(prevPath);
-        emit playbackStateChanged(ok);
-    }
+    playByPath(prevPath, m_playlistModel->indexOf(prevPath));
+}
+
+// 播放指定路径：高亮列表项（index >= 0 时）+ 记录最近播放 + 打开并恢复进度
+void ApplicationController::playByPath(const QString &filePath, int index)
+{
+    if (index >= 0)
+        m_playlistModel->setCurrentIndex(index);
+    m_recentFiles->addFile(filePath);
+    bool ok = openAndResume(filePath);
+    emit playbackStateChanged(ok);
 }
 
 // --- 音量控制，代理到 MediaEngine ---
@@ -387,26 +468,29 @@ double ApplicationController::speed() const
 
 void ApplicationController::stepForward()
 {
-    double pos = m_mediaEngine->position();
-    m_mediaEngine->seek(qMin(pos + 5, m_mediaEngine->duration()));
+    stepBy(5.0);
 }
 
 void ApplicationController::stepBackward()
 {
-    double pos = m_mediaEngine->position();
-    m_mediaEngine->seek(qMax(pos - 5, 0.0));
+    stepBy(-5.0);
 }
 
 void ApplicationController::stepForwardLarge()
 {
-    double pos = m_mediaEngine->position();
-    m_mediaEngine->seek(qMin(pos + 30, m_mediaEngine->duration()));
+    stepBy(30.0);
 }
 
 void ApplicationController::stepBackwardLarge()
 {
+    stepBy(-30.0);
+}
+
+// 快进/快退（delta 为负时后退），钳制到合法区间
+void ApplicationController::stepBy(double delta)
+{
     double pos = m_mediaEngine->position();
-    m_mediaEngine->seek(qMax(pos - 30, 0.0));
+    m_mediaEngine->seek(qBound(0.0, pos + delta, m_mediaEngine->duration()));
 }
 
 QString ApplicationController::theme() const
@@ -473,10 +557,8 @@ void ApplicationController::nudgeSubtitleDelay(qint64 deltaMs)
     else
         m_subtitleDelayToastText = tr("Subtitle delay %1s").arg(sec, 0, 'f', 1);
     emit subtitleDelayToastTextChanged();
-
-    m_subtitleDelayToastVisible = true;
-    emit subtitleDelayToastVisibleChanged();
-    m_subtitleDelayToastTimer->start();
+    showToast(m_subtitleDelayToastVisible, &ApplicationController::subtitleDelayToastVisibleChanged,
+              m_subtitleDelayToastTimer);
 }
 
 bool ApplicationController::subtitleDelayToastVisible() const
@@ -551,6 +633,75 @@ void ApplicationController::resetRotation()
     m_mediaEngine->resetRotation();
 }
 
+// --- A-B 区间循环 / 逐帧步进 ---
+
+void ApplicationController::toggleABLoop()
+{
+    m_mediaEngine->toggleABLoop();
+}
+
+void ApplicationController::stepFrameForward()
+{
+    m_mediaEngine->stepFrameForward();
+}
+
+int ApplicationController::abLoopState() const
+{
+    return m_abLoopState;
+}
+
+double ApplicationController::abLoopA() const
+{
+    return m_abLoopA;
+}
+
+double ApplicationController::abLoopB() const
+{
+    return m_abLoopB;
+}
+
+bool ApplicationController::abLoopToastVisible() const
+{
+    return m_abLoopToastVisible;
+}
+
+QString ApplicationController::abLoopToastText() const
+{
+    return m_abLoopToastText;
+}
+
+void ApplicationController::updateAbLoopToast()
+{
+    auto fmt = [](double sec) {
+        int total = static_cast<int>(sec);
+        return QStringLiteral("%1:%2").arg(total / 60).arg(total % 60, 2, 10, QLatin1Char('0'));
+    };
+    switch (m_abLoopState) {
+    case 1:
+        m_abLoopToastText = tr("Loop start A: %1, press again to set B").arg(fmt(m_abLoopA));
+        break;
+    case 2:
+        m_abLoopToastText = tr("A-B loop: %1 → %2").arg(fmt(m_abLoopA), fmt(m_abLoopB));
+        break;
+    default:
+        m_abLoopToastText = tr("A-B loop cleared");
+        break;
+    }
+    emit abLoopToastTextChanged();
+    showToast(m_abLoopToastVisible, &ApplicationController::abLoopToastVisibleChanged,
+              m_abLoopToastTimer);
+}
+
+// 显示 OSD 提示并启动 2.5s 自动隐藏（字幕延迟/A-B 循环共用）
+void ApplicationController::showToast(bool &visible,
+                                      void (ApplicationController::*visibleChanged)(),
+                                      QTimer *timer)
+{
+    visible = true;
+    (this->*visibleChanged)();
+    timer->start();
+}
+
 // --- 播放进度记忆 (UC-AF-05) ---
 
 bool ApplicationController::openAndResume(const QString &filePath)
@@ -574,11 +725,28 @@ bool ApplicationController::openAndResume(const QString &filePath)
         // 恢复该文件记忆的字幕延迟（按文件记忆）
         setSubtitleDelayMs(PlaybackHistory::instance().getSubtitleDelay(filePath));
 
-        if (initialSeekPos > 0.0) {
-            emit resumePositionFound(filePath, savedPos);
-        } else {
-            emit resumePositionFound(filePath, 0.0);
+        // 恢复该文件记忆的播放偏好：音轨/字幕轨/倍速/旋转/翻转。
+        // 音轨先于字幕恢复：switchAudioToStream 会重建全部线程，
+        // 字幕索引在其后设置可避免重建被打断。
+        const QVariantMap prefs = PlaybackHistory::instance().prefs(filePath);
+        if (prefs.contains("audioStream")) {
+            const int idx = prefs.value("audioStream").toInt();
+            if (idx >= 0 && idx < m_mediaEngine->audioStreams().size())
+                m_mediaEngine->setCurrentAudioStream(idx);
         }
+        if (prefs.contains("subtitleStream")) {
+            const int idx = prefs.value("subtitleStream").toInt();
+            if (idx < m_mediaEngine->subtitleStreams().size()) // -1 = 关闭字幕
+                m_mediaEngine->setCurrentSubtitleStream(idx);
+        }
+        if (prefs.contains("speed"))
+            m_mediaEngine->setSpeed(prefs.value("speed").toDouble());
+        if (prefs.contains("rotation"))
+            m_mediaEngine->setRotation(prefs.value("rotation").toInt());
+        if (prefs.contains("flipVertical"))
+            m_mediaEngine->setFlipVertical(prefs.value("flipVertical").toBool());
+
+        emit resumePositionFound(filePath, initialSeekPos > 0.0 ? savedPos : 0.0);
 
         m_saveTimer->start();
     } else {
@@ -603,6 +771,20 @@ void ApplicationController::saveCurrentProgress()
     }
 
     PlaybackHistory::instance().savePosition(m_currentFilePath, m_lastPosition, dur);
+}
+
+void ApplicationController::saveCurrentPrefs()
+{
+    if (m_currentFilePath.isEmpty())
+        return;
+
+    QVariantMap p;
+    p[QStringLiteral("audioStream")] = m_mediaEngine->currentAudioStream();
+    p[QStringLiteral("subtitleStream")] = m_mediaEngine->currentSubtitleStream();
+    p[QStringLiteral("speed")] = m_mediaEngine->speed();
+    p[QStringLiteral("rotation")] = m_mediaEngine->rotation();
+    p[QStringLiteral("flipVertical")] = m_mediaEngine->flipVertical();
+    PlaybackHistory::instance().savePrefs(m_currentFilePath, p);
 }
 
 void ApplicationController::resumeFromBeginning()
@@ -669,30 +851,28 @@ void ApplicationController::setEngine(QQmlApplicationEngine *engine)
 {
     m_qmlEngine = engine;
 
-    // 初始化当前语言翻译
-    QString lang = SettingsManager::instance().language();
+    // 初始化当前语言翻译（翻译器就绪前构造函数中的 tr() 尚未生效）
+    applyLanguage(SettingsManager::instance().language());
+
+    // 语言切换时即时生效
+    connect(&SettingsManager::instance(), &SettingsManager::languageChanged, this, [this](const QString &lang) {
+        applyLanguage(lang);
+        if (m_qmlEngine)
+            m_qmlEngine->retranslate();
+    });
+}
+
+// 加载/卸载翻译器并刷新静态文本（setEngine 初始化与语言切换共用）
+void ApplicationController::applyLanguage(const QString &lang)
+{
+    QCoreApplication::removeTranslator(&m_translator);
     if (lang != "en" && m_translator.load(":/i18n/" + lang + ".qm"))
         QCoreApplication::installTranslator(&m_translator);
-
-    // 翻译器已就绪，刷新默认列表名称（构造函数中 tr() 此时尚未生效）
+    // 刷新默认列表名称以匹配当前语言
     if (!m_playlistNames.isEmpty()) {
         m_playlistNames[0] = tr("Default List");
         emit playlistsChanged();
     }
-
-    // 语言切换时即时生效
-    connect(&SettingsManager::instance(), &SettingsManager::languageChanged, this, [this](const QString &lang) {
-        QCoreApplication::removeTranslator(&m_translator);
-        if (lang != "en" && m_translator.load(":/i18n/" + lang + ".qm"))
-            QCoreApplication::installTranslator(&m_translator);
-        // 刷新默认列表名称以匹配新语言
-        if (!m_playlistNames.isEmpty()) {
-            m_playlistNames[0] = tr("Default List");
-            emit playlistsChanged();
-        }
-        if (m_qmlEngine)
-            m_qmlEngine->retranslate();
-    });
 }
 
 QString ApplicationController::currentFilePath() const

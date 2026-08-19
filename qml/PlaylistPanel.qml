@@ -34,17 +34,6 @@ Drawer {
         rebuildModel()
     }
 
-    function formatDuration(sec) {
-        if (isNaN(sec) || sec <= 0) return "0:00"
-        var t = Math.floor(sec)
-        var h = Math.floor(t / 3600)
-        var m = Math.floor((t % 3600) / 60)
-        var s = t % 60
-        if (h > 0)
-            return h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
-        return m + ":" + (s < 10 ? "0" : "") + s
-    }
-
     function rebuildModel() {
         sortedModel.clear()
         var src = appController.playlistModel
@@ -140,11 +129,9 @@ Drawer {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 54
-            Layout.fillHeight: false
             color: "transparent"
 
             RowLayout {
-                id: listRow
                 anchors.fill: parent
                 anchors.leftMargin: 10
                 anchors.rightMargin: 10
@@ -251,7 +238,6 @@ Drawer {
                     Item { Layout.preferredWidth: 8 }
 
                     Label {
-                        id: playlistTitleLabel
                         text: model.title
                         font.pixelSize: 13
                         color: appController.theme === "dark" ? "#ffffff" : "#333333"
@@ -263,7 +249,7 @@ Drawer {
                     }
 
                     Label {
-                        text: formatDuration(model.duration)
+                        text: TimeUtils.formatTime(model.duration)
                         font.pixelSize: 11
                         color: appController.theme === "dark" ? "#888888" : "#999999"
                         Layout.preferredWidth: 50
@@ -319,7 +305,6 @@ Drawer {
             }
 
             Row {
-                id: modeGroup
                 spacing: 2
 
                 ToolButton {

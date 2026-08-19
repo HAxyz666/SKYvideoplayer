@@ -49,6 +49,8 @@ void SettingsManager::load()
             { QStringLiteral("exitFullscreen"), QStringLiteral("Escape") },
             { QStringLiteral("subtitleDelayBackward"), QStringLiteral("[") },
             { QStringLiteral("subtitleDelayForward"), QStringLiteral("]") },
+            { QStringLiteral("abLoop"), QStringLiteral("A") },
+            { QStringLiteral("stepFrame"), QStringLiteral(".") },
             { QStringLiteral("brightnessDown"), QStringLiteral("3") },
             { QStringLiteral("brightnessUp"), QStringLiteral("4") },
             { QStringLiteral("contrastDown"), QStringLiteral("5") },
@@ -69,6 +71,33 @@ void SettingsManager::load()
     m_settings.endGroup();
 }
 
+// 通用 setter：值未变化则跳过；写入设置并发出对应信号
+template <typename T, typename Signal>
+void SettingsManager::setSetting(T &member, const T &value, const char *key, Signal changed)
+{
+    if (member == value)
+        return;
+    member = value;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue(key, member);
+    m_settings.endGroup();
+    (this->*changed)(member);
+}
+
+// 钳制到 [min,max] 的 int 设置：值未变化则跳过；写入设置并发出对应信号
+void SettingsManager::setClampedInt(int &member, int value, int min, int max, const char *key,
+                                    void (SettingsManager::*changed)(int))
+{
+    int v = qBound(min, value, max);
+    if (member == v)
+        return;
+    member = v;
+    m_settings.beginGroup("SettingsManager");
+    m_settings.setValue(key, member);
+    m_settings.endGroup();
+    (this->*changed)(member);
+}
+
 QVariantMap SettingsManager::subtitleStyle() const
 {
     return m_subtitleStyle;
@@ -76,16 +105,7 @@ QVariantMap SettingsManager::subtitleStyle() const
 
 void SettingsManager::setSubtitleStyle(const QVariantMap &style)
 {
-    if (m_subtitleStyle == style)
-        return;
-
-    m_subtitleStyle = style;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("subtitleStyle", m_subtitleStyle);
-    m_settings.endGroup();
-
-    emit subtitleStyleChanged(m_subtitleStyle);
-    emit settingsChanged();
+    setSetting(m_subtitleStyle, style, "subtitleStyle", &SettingsManager::subtitleStyleChanged);
 }
 
 QString SettingsManager::screenshotPath() const
@@ -95,16 +115,7 @@ QString SettingsManager::screenshotPath() const
 
 void SettingsManager::setScreenshotPath(const QString &path)
 {
-    if (m_screenshotPath == path)
-        return;
-
-    m_screenshotPath = path;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("screenshotPath", m_screenshotPath);
-    m_settings.endGroup();
-
-    emit screenshotPathChanged(m_screenshotPath);
-    emit settingsChanged();
+    setSetting(m_screenshotPath, path, "screenshotPath", &SettingsManager::screenshotPathChanged);
 }
 
 QVariantMap SettingsManager::shortcuts() const
@@ -114,16 +125,7 @@ QVariantMap SettingsManager::shortcuts() const
 
 void SettingsManager::setShortcuts(const QVariantMap &shortcuts)
 {
-    if (m_shortcuts == shortcuts)
-        return;
-
-    m_shortcuts = shortcuts;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("shortcuts", m_shortcuts);
-    m_settings.endGroup();
-
-    emit shortcutsChanged(m_shortcuts);
-    emit settingsChanged();
+    setSetting(m_shortcuts, shortcuts, "shortcuts", &SettingsManager::shortcutsChanged);
 }
 
 QString SettingsManager::language() const
@@ -133,16 +135,7 @@ QString SettingsManager::language() const
 
 void SettingsManager::setLanguage(const QString &lang)
 {
-    if (m_language == lang)
-        return;
-
-    m_language = lang;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("language", m_language);
-    m_settings.endGroup();
-
-    emit languageChanged(m_language);
-    emit settingsChanged();
+    setSetting(m_language, lang, "language", &SettingsManager::languageChanged);
 }
 
 int SettingsManager::brightness() const { return m_brightness; }
@@ -152,48 +145,20 @@ int SettingsManager::scaleMode() const { return m_scaleMode; }
 
 void SettingsManager::setBrightness(int value)
 {
-    int v = qBound(-100, value, 100);
-    if (m_brightness == v) return;
-    m_brightness = v;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("brightness", m_brightness);
-    m_settings.endGroup();
-    emit brightnessChanged(m_brightness);
-    emit settingsChanged();
+    setClampedInt(m_brightness, value, -100, 100, "brightness", &SettingsManager::brightnessChanged);
 }
 
 void SettingsManager::setContrast(int value)
 {
-    int v = qBound(-100, value, 100);
-    if (m_contrast == v) return;
-    m_contrast = v;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("contrast", m_contrast);
-    m_settings.endGroup();
-    emit contrastChanged(m_contrast);
-    emit settingsChanged();
+    setClampedInt(m_contrast, value, -100, 100, "contrast", &SettingsManager::contrastChanged);
 }
 
 void SettingsManager::setSaturation(int value)
 {
-    int v = qBound(-100, value, 100);
-    if (m_saturation == v) return;
-    m_saturation = v;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("saturation", m_saturation);
-    m_settings.endGroup();
-    emit saturationChanged(m_saturation);
-    emit settingsChanged();
+    setClampedInt(m_saturation, value, -100, 100, "saturation", &SettingsManager::saturationChanged);
 }
 
 void SettingsManager::setScaleMode(int mode)
 {
-    int m = qBound(0, mode, 2);
-    if (m_scaleMode == m) return;
-    m_scaleMode = m;
-    m_settings.beginGroup("SettingsManager");
-    m_settings.setValue("scaleMode", m_scaleMode);
-    m_settings.endGroup();
-    emit scaleModeChanged(m_scaleMode);
-    emit settingsChanged();
+    setClampedInt(m_scaleMode, mode, 0, 2, "scaleMode", &SettingsManager::scaleModeChanged);
 }

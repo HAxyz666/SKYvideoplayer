@@ -63,6 +63,8 @@ signals:
     void playbackModeChanged();  // 播放模式变化
 
 private:
+    // 追加条目（已存在则跳过）：addFile/addUrl 共用
+    void appendItem(const QString &title, const QString &filePath, double duration);
     static QString extractTitle(const QString &filePath);  // 从路径提取文件名作为标题
 
     QList<PlaylistItem> m_items;
