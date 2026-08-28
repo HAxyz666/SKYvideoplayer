@@ -7,7 +7,7 @@ Popup {
 
     x: parent ? parent.width / 2 - width / 2 : 0
     y: parent ? -height - 4 : 0
-    width: 210
+    width: 224
     padding: 4
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnReleaseOutsideParent
 
@@ -19,6 +19,8 @@ Popup {
 
     contentItem: Column {
         spacing: 0
+        // 不裁剪：行内控件被不同 QQC2 样式撑高时裁掉内容会导致数值显示残缺
+        clip: false
 
         // === 画面调节：亮度/对比度/饱和度 ===
         Label {
@@ -55,11 +57,15 @@ Popup {
                     font.pixelSize: 11
                     color: appController.theme === "dark" ? "#dddddd" : "#333333"
                     Layout.preferredWidth: 62
+                    Layout.fillHeight: true
+                    verticalAlignment: Text.AlignVCenter
                 }
 
                 Slider {
                     id: slide
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 40
                     from: -100
                     to: 100
                     stepSize: 1
@@ -75,7 +81,6 @@ Popup {
                     background: Rectangle {
                         x: slide.leftPadding
                         y: slide.topPadding + slide.availableHeight / 2 - height / 2
-                        implicitWidth: 80
                         implicitHeight: 3
                         width: slide.availableWidth
                         height: 3
@@ -110,8 +115,72 @@ Popup {
                     from: -100
                     to: 100
                     stepSize: 1
+                    // 固定紧凑宽度：自定义 + / - 按钮并限制总宽度，
+                    // 避免不同 QQC2 样式（Fusion/GTK 等）让 SpinBox 变宽导致与滑块重叠
                     implicitWidth: 58
                     implicitHeight: 24
+                    Layout.preferredWidth: 58
+                    Layout.maximumWidth: 58
+                    Layout.fillHeight: true
+                    // 归零内边距并撑满行高，避免样式的 padding/字号把文本挤出可视区
+                    padding: 0
+                    leftPadding: 2
+                    rightPadding: 18
+
+                    // 自定义紧凑的 + / - 精细调节按钮（保留 ±1 步进，不再依赖样式自带按钮）
+                    up.indicator: Rectangle {
+                        x: parent.width - width
+                        y: 0
+                        width: 18
+                        height: parent.height / 2
+                        color: "transparent"
+                        Text {
+                            anchors.centerIn: parent
+                            text: "+"
+                            font.pixelSize: 14
+                            color: appController.theme === "dark" ? "#dddddd" : "#333333"
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: spin.value += spin.stepSize
+                        }
+                    }
+                    down.indicator: Rectangle {
+                        x: parent.width - width
+                        y: parent.height / 2
+                        width: 18
+                        height: parent.height / 2
+                        color: "transparent"
+                        Text {
+                            anchors.centerIn: parent
+                            text: "−"
+                            font.pixelSize: 14
+                            color: appController.theme === "dark" ? "#dddddd" : "#333333"
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: spin.value -= spin.stepSize
+                        }
+                    }
+
+                    contentItem: TextField {
+                        anchors.fill: parent
+                        anchors.leftMargin: 2
+                        anchors.rightMargin: 18
+                        text: spin.textFromValue(spin.value, spin.locale)
+                        font.pixelSize: 11
+                        color: appController.theme === "dark" ? "#dddddd" : "#333333"
+                        // 样式自带的上下 padding 会把数字挤出输入框可视范围，这里清零
+                        padding: 0
+                        horizontalAlignment: Qt.AlignHCenter
+                        verticalAlignment: Qt.AlignVCenter
+                        background: null
+                        readOnly: !spin.editable
+                        selectByMouse: true
+                        validator: spin.validator
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        onAccepted: spin.value = spin.valueFromText(text, spin.locale)
+                    }
 
                     // 用 Binding 而非 value: 绑定——SpinBox 内部提交编辑时会
                     // 覆盖 QML 绑定，Binding 对象可在设置值变化后重新同步

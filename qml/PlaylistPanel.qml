@@ -113,6 +113,8 @@ Drawer {
 
                 ToolButton {
                     icon.name: "edit-delete"
+                    // 系统主题图标不会被样式上色，按面板背景显式染色
+                    icon.color: appController.theme === "dark" ? "#dddddd" : "#333333"
                     text: qsTr("Clear")
                     display: AbstractButton.TextBesideIcon
                     font.pixelSize: 11
@@ -121,6 +123,7 @@ Drawer {
 
                 ToolButton {
                     icon.name: "window-close"
+                    icon.color: appController.theme === "dark" ? "#dddddd" : "#333333"
                     onClicked: playlistDrawer.close()
                 }
             }
@@ -159,6 +162,7 @@ Drawer {
 
                 ToolButton {
                     icon.name: "document-open"
+                    icon.color: appController.theme === "dark" ? "#dddddd" : "#333333"
                     text: qsTr("Add")
                     display: AbstractButton.TextBesideIcon
                     font.pixelSize: 13

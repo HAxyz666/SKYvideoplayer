@@ -209,6 +209,8 @@ Item {
         MenuItem {
             text: qsTr("Delete")
             icon.name: "edit-delete"
+            // 菜单背景由样式调色板决定，图标色跟随文字色
+            icon.color: palette.text
             onTriggered: {
                 if (contextMenu.targetIndex >= 0)
                     listView.model.removeFile(contextMenu.targetIndex)

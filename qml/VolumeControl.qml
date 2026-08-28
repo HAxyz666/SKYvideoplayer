@@ -22,6 +22,10 @@ Item {
                                                  : "audio-volume-low"))
             icon.width: 20
             icon.height: 20
+            // 用系统主题图标（icon.name）时，样式不会自动上色：Breeze 风格会按调色板
+            // 染成白色，Basic 风格直接透传原图标的深灰色。控制条背景恒为深色，
+            // 这里显式染成白色，和旁边的自定义 SVG 图标保持一致
+            icon.color: "#ffffff"
             flat: true
             background: Rectangle {
                 radius: 4

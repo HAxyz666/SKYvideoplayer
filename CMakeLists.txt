@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui Concurrent Qml Svg ShaderTools LinguistTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick QuickControls2 Gui Concurrent Qml Svg ShaderTools LinguistTools)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -202,6 +202,7 @@ endforeach()
 target_link_libraries(SKYvideoplayer PRIVATE
     Qt6::Core
     Qt6::Quick
+    Qt6::QuickControls2
     Qt6::Gui
     Qt6::Concurrent
     Qt6::Svg
@@ -221,3 +222,16 @@ if(UNIX AND NOT APPLE AND LIBVA_FOUND AND LIBDRM_FOUND)
     )
     target_compile_definitions(SKYvideoplayer PRIVATE ENABLE_HWACCEL)
 endif()
+
+# === 安装规则（供 pacman / makepkg 使用） ===
+include(GNUInstallDirs)
+
+install(TARGETS SKYvideoplayer RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(FILES resources/logos/LogoD.png
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+        RENAME SKYvideoplayer.png)
+
+install(FILES SKYvideoplayer.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+
