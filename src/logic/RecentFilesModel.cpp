@@ -26,6 +26,7 @@ QVariant RecentFilesModel::data(const QModelIndex &index, int role) const
     case FileNameRole:     return item.title;
     case FilePathRole:     return item.filePath;
     case LastPlayedRole:   return item.lastPlayed;
+    case ModeRole:         return item.mode;
     case Qt::DisplayRole:  return item.title;
     default:               return {};
     }
@@ -36,11 +37,12 @@ QHash<int, QByteArray> RecentFilesModel::roleNames() const
     return {
         { FileNameRole,    "fileName" },
         { FilePathRole,    "filePath" },
-        { LastPlayedRole,  "lastPlayed" }
+        { LastPlayedRole,  "lastPlayed" },
+        { ModeRole,        "mode" }
     };
 }
 
-void RecentFilesModel::addFile(const QString &filePath)
+void RecentFilesModel::addFile(const QString &filePath, const QString &title, int mode)
 {
     int existingIndex = -1;
     for (int i = 0; i < m_items.size(); ++i) {
@@ -55,17 +57,26 @@ void RecentFilesModel::addFile(const QString &filePath)
             beginMoveRows(QModelIndex(), existingIndex, existingIndex, QModelIndex(), 0);
             auto entry = m_items.takeAt(existingIndex);
             entry.lastPlayed = QDateTime::currentDateTime();
+            if (!title.isEmpty())
+                entry.title = title;
+            if (mode != 0)
+                entry.mode = mode;
             m_items.prepend(entry);
             endMoveRows();
         } else {
             m_items[0].lastPlayed = QDateTime::currentDateTime();
+            if (!title.isEmpty())
+                m_items[0].title = title;
+            if (mode != 0)
+                m_items[0].mode = mode;
         }
     } else {
         beginInsertRows(QModelIndex(), 0, 0);
         RecentFileEntry entry;
-        entry.title = QFileInfo(filePath).fileName();
+        entry.title = title.isEmpty() ? QFileInfo(filePath).fileName() : title;
         entry.filePath = filePath;
         entry.lastPlayed = QDateTime::currentDateTime();
+        entry.mode = mode;
         m_items.prepend(entry);
         endInsertRows();
 
@@ -102,6 +113,7 @@ void RecentFilesModel::saveToSettings()
         settings.setValue(prefix + "title", m_items.at(i).title);
         settings.setValue(prefix + "path", m_items.at(i).filePath);
         settings.setValue(prefix + "time", m_items.at(i).lastPlayed);
+        settings.setValue(prefix + "mode", m_items.at(i).mode);
     }
     settings.endGroup();
 }
@@ -126,6 +138,7 @@ void RecentFilesModel::loadFromSettings()
         entry.title = settings.value(prefix + "title").toString();
         entry.filePath = path;
         entry.lastPlayed = settings.value(prefix + "time").toDateTime();
+        entry.mode = settings.value(prefix + "mode", 0).toInt();
         items.append(entry);
     }
     settings.endGroup();

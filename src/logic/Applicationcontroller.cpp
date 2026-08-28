@@ -5,20 +5,24 @@
 #include "PlaylistModel.h"
 #include "RecentFilesModel.h"
 #include "SettingsManager.h"
+#include "StreamResolverManager.h"
 #include "VideoRenderItem.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QLibraryInfo>
 #include <QSettings>
 #include <QQmlApplicationEngine>
 #include <QTimer>
+#include <QTranslator>
 #include <QVariantMap>
 
 ApplicationController::ApplicationController(QObject *parent)
     : QObject(parent)
     , m_mediaEngine(new MediaEngine(this))
+    , m_streamResolver(new StreamResolverManager(this))
     , m_recentFiles(new RecentFilesModel(this))
 {
     // 默认播放列表（关闭程序时持久化，不再清空）
@@ -94,11 +98,71 @@ ApplicationController::ApplicationController(QObject *parent)
     connect(m_mediaEngine, &MediaEngine::isLoadingChanged, this, &ApplicationController::isLoadingChanged);
     connect(m_mediaEngine, &MediaEngine::loadingTextChanged, this, &ApplicationController::loadingTextChanged);
     connect(m_mediaEngine, &MediaEngine::errorOccurred, this, &ApplicationController::errorOccurred);
+    // 致命错误（引擎已自行停管线）：清理当前文件/标题状态，再转发给 UI 回主菜单
+    connect(m_mediaEngine, &MediaEngine::fatalErrorOccurred, this, [this](const QString &msg, bool isNet) {
+        m_currentFilePath.clear();
+        m_currentTitle.clear();
+        m_resolverRecentAdded = false;
+        emit currentFilePathChanged();
+        emit currentTitleChanged();
+        emit errorOccurred(msg, isNet);
+    });
     connect(m_mediaEngine, &MediaEngine::bufferStateChanged, this, &ApplicationController::bufferStateChanged);
     connect(m_mediaEngine, &MediaEngine::networkStreamReady, this, [this](const QString &url) {
         m_currentFilePath = url;
         emit currentFilePathChanged();
+        // 解析模式：最近记录（含真实标题）已在解析成功后写入，此处不重复添加；
+        // 原生模式：标题从 URL 末尾派生。已有真实标题（解析模式/reopen 后）
+        // 时不再覆盖，避免直播 reopen 把标题重新污染成直链。
+        if (m_resolverRecentAdded) {
+            m_resolverRecentAdded = false;
+            return;
+        }
+        if (m_currentTitle.isEmpty()) {
+            m_currentTitle = QFileInfo(url).fileName();
+            emit currentTitleChanged();
+        }
         m_recentFiles->addFile(url);
+    });
+
+    // 网络流解析完成：按结果形态交给引擎（单 URL / DASH 分离流）
+    connect(m_streamResolver, &StreamResolverManager::resolveFinished,
+            this, [this](const ResolveResult &r, const QString &sourceUrl, int mode) {
+        m_mediaEngine->setLoadingState(false);
+        if (!r.ok) {
+            emit errorOccurred(tr("解析失败：%1").arg(r.error), true);
+            return;
+        }
+        bool ok = false;
+        if (!r.videoUrl.isEmpty() && !r.audioUrl.isEmpty()) {
+            ok = m_mediaEngine->openSplit(r.videoUrl, r.audioUrl,
+                                          r.videoHeaders, r.audioHeaders);
+        } else if (!r.directUrl.isEmpty()) {
+            ok = m_mediaEngine->openWithHeaders(r.directUrl, r.headers);
+        } else {
+            emit errorOccurred(tr("解析结果为空"), true);
+            return;
+        }
+        emit playbackStateChanged(ok);
+
+        // 用 yt-dlp 返回的真实标题作为显示标题与最近记录标题（避免直链污染）。
+        // 最近记录存原始输入 URL + 用户选择的模式，点击时按模式重新解析。
+        m_currentTitle = r.title.isEmpty() ? QFileInfo(sourceUrl).fileName() : r.title;
+        emit currentTitleChanged();
+        m_resolverRecentAdded = true;
+        m_recentFiles->addFile(sourceUrl, m_currentTitle, mode);
+
+        // 播放列表展示正在播放的网络流（真实标题 + 当前项高亮）
+        m_playlistModel->addUrl(sourceUrl, m_currentTitle, mode);
+        m_playlistModel->setCurrentIndex(m_playlistModel->indexOf(sourceUrl));
+        Q_UNUSED(ok);
+    });
+    // 解析进行中：借用引擎加载态展示遮罩
+    connect(m_streamResolver, &StreamResolverManager::resolvingChanged,
+            this, [this](bool resolving) {
+        if (resolving)
+            m_mediaEngine->setLoadingState(true, tr("解析中..."));
+        // 结束时由 resolveFinished 统一清除（含失败路径）
     });
 
     // 隐藏类 OSD 提示：2.5 秒后自动隐藏（字幕延迟 / A-B 循环共用）
@@ -166,10 +230,13 @@ void ApplicationController::addUrl(const QString &url)
 bool ApplicationController::loadFile(const QString &path)
 {
     QString filePath = stripFileScheme(path);
+    m_resolverRecentAdded = false;
 
     // 网络流：异步初始化，避免阻塞主线程
     if (NetworkStreamManager::isNetworkUrl(filePath)) {
         m_playlistModel->clear();
+        m_playlistModel->addUrl(filePath);
+        m_playlistModel->setCurrentIndex(m_playlistModel->indexOf(filePath));
         bool ok = m_mediaEngine->open(filePath);
         emit playbackStateChanged(ok);
         return ok;
@@ -188,6 +255,63 @@ bool ApplicationController::loadFile(const QString &path)
     bool ok = openAndResume(filePath);
     emit playbackStateChanged(ok);
     return ok;
+}
+
+// 打开网络流：mode 见 StreamResolverManager::Mode
+// （原生=直接交给引擎；直播/点播=经 yt-dlp 解析出直链后交给引擎）
+void ApplicationController::openNetworkStream(const QString &url, int mode)
+{
+    QString u = url.trimmed();
+    if (u.isEmpty())
+        return;
+
+    m_resolverRecentAdded = false;
+
+    // 原生模式：沿用现有网络流路径
+    if (mode == StreamResolverManager::Native) {
+        loadFile(u);
+        return;
+    }
+
+    // 直播/点播模式：先检查解析工具可用性
+    if (!StreamResolverManager::toolAvailable(mode)) {
+        emit errorOccurred(
+            mode == StreamResolverManager::Live
+                ? tr("未检测到 streamlink，请先安装（pip install streamlink），或改用原生模式")
+                : tr("未检测到 yt-dlp，请先安装（pip install yt-dlp），或改用原生模式"),
+            true);
+        return;
+    }
+
+    m_playlistModel->clear();
+    resolveNetworkUrl(u, mode);
+}
+
+// 网络流解析条目按模式走解析管线（不清空播放列表，供播放列表点击/切换复用）
+void ApplicationController::resolveNetworkUrl(const QString &url, int mode)
+{
+    m_streamResolver->resolve(url, mode);
+}
+
+// 取消在途解析：用户取消/关闭网络对话框、或退出播放（返回列表）时调用。
+// 成功打开（accept）不触发，避免误杀刚启动的解析；reject/返回路径生效，
+// 可取消此前仍在进行中的解析。解析结果在 m_cancelRequested 置位后被丢弃，
+// 不会进入播放；此处同步清掉加载遮罩（被丢弃的结果不会再触发 setLoadingState(false)）。
+void ApplicationController::cancelNetworkResolve()
+{
+    if (m_streamResolver)
+        m_streamResolver->cancel();
+    m_mediaEngine->setLoadingState(false);
+}
+
+// 从最近记录打开：网络流解析条目按保存的模式重新解析（拿新鲜直链与真实标题）
+void ApplicationController::openRecentFile(const QString &filePath, int mode)
+{
+    if (mode == StreamResolverManager::Native) {
+        loadFile(filePath);
+        return;
+    }
+    openNetworkStream(filePath, mode);
 }
 
 void ApplicationController::togglePlayback()
@@ -276,7 +400,10 @@ void ApplicationController::stop()
     m_saveTimer->stop();
     m_mediaEngine->stop();
     m_currentFilePath.clear();
+    m_currentTitle.clear();
+    m_resolverRecentAdded = false;
     emit currentFilePathChanged();
+    emit currentTitleChanged();
 }
 
 MediaEngine *ApplicationController::mediaEngine() const
@@ -337,14 +464,29 @@ void ApplicationController::persistPlaylists()
 }
 
 // 持久化所有列表（含索引 0 的默认列表）
+// 网络流条目存 {path,title,mode} 映射以保留真实标题与播放模式；本地文件存路径字符串。
 void ApplicationController::savePlaylists()
 {
     QSettings settings;
+    auto serialize = [](const PlaylistModel *pl) {
+        QVariantList out;
+        for (int r = 0; r < pl->count(); ++r) {
+            const PlaylistItem &it = pl->itemAt(r);
+            if (NetworkStreamManager::isNetworkUrl(it.filePath)) {
+                QVariantMap m;
+                m["path"] = it.filePath;
+                m["title"] = it.title;
+                m["mode"] = it.mode;
+                out.append(m);
+            } else {
+                out.append(it.filePath);
+            }
+        }
+        return out;
+    };
+
     // 默认列表（索引 0）单独保存
-    QVariantList defaultFiles;
-    PlaylistModel *def = m_allPlaylists.first();
-    for (int r = 0; r < def->count(); ++r)
-        defaultFiles.append(def->itemAt(r).filePath);
+    QVariantList defaultFiles = serialize(m_allPlaylists.first());
     settings.setValue("defaultPlaylist", defaultFiles);
 
     // 用户创建的列表（索引 1 起）
@@ -352,37 +494,48 @@ void ApplicationController::savePlaylists()
     for (int i = 1; i < m_allPlaylists.size(); ++i) {
         QVariantMap entry;
         entry["name"] = m_playlistNames.at(i);
-        QVariantList files;
-        PlaylistModel *pl = m_allPlaylists.at(i);
-        for (int r = 0; r < pl->count(); ++r)
-            files.append(pl->itemAt(r).filePath);
-        entry["files"] = files;
+        entry["files"] = serialize(m_allPlaylists.at(i));
         saved.append(entry);
     }
     settings.setValue("playlists", saved);
 }
 
 // 启动时载入已保存的列表（含默认列表）
+// 网络 URL 用 addUrl（不探测时长，避免启动时阻塞在 avformat_open_input）；
+// 兼容旧格式（纯路径字符串）与新格式（{path,title,mode} 映射）。
 void ApplicationController::loadPlaylists()
 {
     QSettings settings;
+    auto addEntry = [this](PlaylistModel *pl, const QVariant &v) {
+        if (v.canConvert<QVariantMap>()) {
+            const QVariantMap m = v.toMap();
+            const QString path = m.value("path").toString();
+            if (!path.isEmpty())
+                pl->addUrl(path, m.value("title").toString(), m.value("mode", 0).toInt());
+        } else {
+            const QString fp = v.toString();
+            if (NetworkStreamManager::isNetworkUrl(fp))
+                pl->addUrl(fp);
+            else
+                pl->addFile(fp);
+        }
+    };
+
     // 载入默认列表
     QVariantList defaultFiles = settings.value("defaultPlaylist").toList();
     for (const QVariant &f : defaultFiles)
-        m_playlistModel->addFile(f.toString());
+        addEntry(m_playlistModel, f);
 
     // 载入用户列表
     QVariantList saved = settings.value("playlists").toList();
     for (const QVariant &v : saved) {
         QVariantMap entry = v.toMap();
         QString name = entry.value("name").toString();
-        QStringList files;
-        for (const QVariant &f : entry.value("files").toList())
-            files.append(f.toString());
+        QVariantList files = entry.value("files").toList();
 
         auto *pl = new PlaylistModel(this);
-        for (const QString &fp : files)
-            pl->addFile(fp);
+        for (const QVariant &f : files)
+            addEntry(pl, f);
         m_allPlaylists.append(pl);
         m_playlistNames.append(name.isEmpty() ? tr("List %1").arg(m_allPlaylists.size()) : name);
     }
@@ -430,6 +583,16 @@ void ApplicationController::playByPath(const QString &filePath, int index)
     if (index >= 0)
         m_playlistModel->setCurrentIndex(index);
     m_recentFiles->addFile(filePath);
+
+    // 网络流解析条目（直播/点播）：按条目保存的模式重新解析，
+    // 避免原生打开页面 URL 失败；解析完成后由 resolveFinished 更新标题。
+    if (index >= 0 && NetworkStreamManager::isNetworkUrl(filePath)
+        && m_playlistModel->itemAt(index).mode != StreamResolverManager::Native) {
+        resolveNetworkUrl(filePath, m_playlistModel->itemAt(index).mode);
+        emit playbackStateChanged(true);   // 提前切播放视图，失败经 errorOccurred 回退
+        return;
+    }
+
     bool ok = openAndResume(filePath);
     emit playbackStateChanged(ok);
 }
@@ -719,8 +882,10 @@ bool ApplicationController::openAndResume(const QString &filePath)
     bool ok = m_mediaEngine->open(filePath, initialSeekPos);
     if (ok) {
         m_currentFilePath = filePath;
+        m_currentTitle = QFileInfo(filePath).fileName();
         m_lastPosition = 0.0;
         emit currentFilePathChanged();
+        emit currentTitleChanged();
 
         // 恢复该文件记忆的字幕延迟（按文件记忆）
         setSubtitleDelayMs(PlaybackHistory::instance().getSubtitleDelay(filePath));
@@ -751,6 +916,9 @@ bool ApplicationController::openAndResume(const QString &filePath)
         m_saveTimer->start();
     } else {
         m_currentFilePath.clear();
+        m_currentTitle.clear();
+        emit currentFilePathChanged();
+        emit currentTitleChanged();
         m_saveTimer->stop();
     }
     return ok;
@@ -866,8 +1034,23 @@ void ApplicationController::setEngine(QQmlApplicationEngine *engine)
 void ApplicationController::applyLanguage(const QString &lang)
 {
     QCoreApplication::removeTranslator(&m_translator);
-    if (lang != "en" && m_translator.load(":/i18n/" + lang + ".qm"))
-        QCoreApplication::installTranslator(&m_translator);
+    QCoreApplication::removeTranslator(&m_qtBaseTranslator);
+    QCoreApplication::removeTranslator(&m_qtDeclarativeTranslator);
+
+    // QML/源码字符串为英文，zh_CN.qm 把 qsTr 解析为中文；仅当选择中文时才安装翻译器，
+    // 否则 qsTr 回退到英文源串，从而实现中英文真正切换。Qt 内置翻译（QLineEdit/TextField
+    // 右键菜单等标准控件文案）同样按语言门控：英文模式下本就应保持英文。
+    if (lang == "zh_CN") {
+        if (m_translator.load(":/i18n/zh_CN.qm"))
+            QCoreApplication::installTranslator(&m_translator);
+
+        const QString baseDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+        if (m_qtBaseTranslator.load("qtbase_zh_CN", baseDir))
+            QCoreApplication::installTranslator(&m_qtBaseTranslator);
+        if (m_qtDeclarativeTranslator.load("qtdeclarative_zh_CN", baseDir))
+            QCoreApplication::installTranslator(&m_qtDeclarativeTranslator);
+    }
+
     // 刷新默认列表名称以匹配当前语言
     if (!m_playlistNames.isEmpty()) {
         m_playlistNames[0] = tr("Default List");
@@ -878,6 +1061,11 @@ void ApplicationController::applyLanguage(const QString &lang)
 QString ApplicationController::currentFilePath() const
 {
     return m_currentFilePath;
+}
+
+QString ApplicationController::currentTitle() const
+{
+    return m_currentTitle;
 }
 
 bool ApplicationController::isNetworkStream() const
@@ -903,13 +1091,4 @@ QString ApplicationController::loadingText() const
 int ApplicationController::bufferState() const
 {
     return m_mediaEngine->bufferState();
-}
-
-bool ApplicationController::isNetworkUrl(const QString &url) const
-{
-    return url.startsWith("http://") || url.startsWith("https://") ||
-           url.startsWith("rtmp://") || url.startsWith("rtmps://") ||
-           url.startsWith("rtsp://") || url.startsWith("rtsps://") ||
-           url.startsWith("mms://") || url.startsWith("mmsh://") ||
-           url.startsWith("udp://") || url.startsWith("tcp://");
 }

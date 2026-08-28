@@ -48,7 +48,9 @@ protected:
 
 signals:
     void eofReached();
-    void errorOccurred(const QString &message);
+    // 致命错误（连续读取失败过多，线程即将退出）：上层须停止整个管线。
+    // 瞬时读取错误不上报（demux 内部重试，避免 UI 误判为播放结束）。
+    void fatalErrorOccurred(const QString &message);
 
 private:
     // 拆卸单个队列：请求退出 + 清空 + 置完成（stopRead 用）

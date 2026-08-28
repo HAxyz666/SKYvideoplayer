@@ -90,7 +90,7 @@ void DemuxThread::run()
 
     AVPacket *pkt = av_packet_alloc();
     if (!pkt) {
-        emit errorOccurred("Failed to allocate AVPacket");
+        emit fatalErrorOccurred("Failed to allocate AVPacket");
         return;
     }
 
@@ -172,12 +172,14 @@ void DemuxThread::run()
             m_consecutiveErrors++;
             if (m_consecutiveErrors > 50) {
                 qWarning() << "DemuxThread: too many consecutive errors, stopping";
-                emit errorOccurred("Too many consecutive read errors");
+                emit fatalErrorOccurred("Too many consecutive read errors");
                 break;
             }
             char errbuf[128] = {0};
             av_strerror(ret, errbuf, sizeof(errbuf));
-            emit errorOccurred(QString("av_read_frame error: %1").arg(errbuf));
+            // 瞬时读取错误：只记日志并重试，不上报 UI（避免把正常重连误判为
+            // 播放结束/失败，导致 UI 回主菜单但引擎仍在播放）。
+            qWarning() << "DemuxThread: av_read_frame error:" << errbuf;
             msleep(10);
             continue;
         }

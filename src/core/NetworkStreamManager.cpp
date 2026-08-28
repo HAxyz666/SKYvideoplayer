@@ -21,6 +21,11 @@ bool NetworkStreamManager::isNetworkUrl(const QString &url)
 
 void NetworkStreamManager::buildOpenOptions(AVDictionary **opts, const QString &url) const
 {
+    buildOpenOptions(opts, url, {});
+}
+
+void NetworkStreamManager::buildOpenOptions(AVDictionary **opts, const QString &url, const QVariantMap &headers) const
+{
     // 通用网络 I/O 超时（微秒）
     av_dict_set(opts, "timeout", "5000000", 0);
 
@@ -34,6 +39,21 @@ void NetworkStreamManager::buildOpenOptions(AVDictionary **opts, const QString &
         av_dict_set(opts, "reconnect_streamed", "1", 0);
         av_dict_set(opts, "reconnect_delay_max", "5", 0);
         av_dict_set(opts, "multiple_requests", "1", 0);
+
+        // 自定义 HTTP 头：防盗链（UA/Referer/Cookie/签名）透传。
+        // yt-dlp 解析出的 http_headers 即此格式；键必须含冒号，值含冒号
+        // 也可（"Key: value" 拆分在第一个冒号处，其余保留）。
+        if (!headers.isEmpty()) {
+            QStringList lines;
+            for (auto it = headers.constBegin(); it != headers.constEnd(); ++it) {
+                const QString key = it.key().trimmed();
+                if (key.isEmpty())
+                    continue;
+                lines << key + u": " + it.value().toString();
+            }
+            if (!lines.isEmpty())
+                av_dict_set(opts, "headers", lines.join("\r\n").toUtf8().constData(), 0);
+        }
     }
 
     if (url.startsWith("rtmp://")  || url.startsWith("rtmps://") ||

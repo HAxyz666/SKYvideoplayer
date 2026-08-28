@@ -74,8 +74,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     model: appController.recentFilesModel
-                    onFileDoubleClicked: function(filePath) {
-                        controller.openFile(filePath)
+                    onFileDoubleClicked: function(filePath, mode) {
+                        controller.openRecentFile(filePath, mode)
                     }
                 }
             }

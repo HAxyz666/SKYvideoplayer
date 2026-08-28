@@ -163,33 +163,33 @@ int MediaEngine::interruptCallback(void *ctx)
     return 0;
 }
 
-// 设置中断回调
-void MediaEngine::setupInterruptCallback()
+// 设置中断回调（split 模式须对视频/音频两个 context 分别设置）
+void MediaEngine::setupInterruptCallback(AVFormatContext *ctx)
 {
-    if (m_fmtCtx && m_interruptCtx) {
+    if (ctx && m_interruptCtx) {
         m_interruptCtx->interrupted.store(false);
         m_interruptCtx->lastReadTime.start();
-        m_fmtCtx->interrupt_callback.callback = interruptCallback;
-        m_fmtCtx->interrupt_callback.opaque = m_interruptCtx;
+        ctx->interrupt_callback.callback = interruptCallback;
+        ctx->interrupt_callback.opaque = m_interruptCtx;
     }
 }
 
-// 取指定流的 start_time 偏移（微秒）。仅取正值且不超过 1 小时（滤掉直播流/异常值）。
-qint64 MediaEngine::streamStartUs(int streamIdx) const
+// 取指定 context 中流的 start_time 偏移（微秒）。仅取正值且不超过 1 小时（滤掉直播流/异常值）。
+qint64 MediaEngine::streamStartUs(AVFormatContext *ctx, int streamIdx) const
 {
-    if (streamIdx < 0 || !m_fmtCtx)
+    if (streamIdx < 0 || !ctx)
         return 0;
-    AVStream *st = m_fmtCtx->streams[streamIdx];
+    AVStream *st = ctx->streams[streamIdx];
     if (!st || st->start_time == AV_NOPTS_VALUE || st->start_time <= 0)
         return 0;
     qint64 startUs = av_rescale_q(st->start_time, st->time_base, AV_TIME_BASE_Q);
     return (startUs > 0 && startUs < 3600LL * AV_TIME_BASE) ? startUs : 0;
 }
 
-// 取指定流的 start_time 偏移（秒），同 streamStartUs 的过滤规则。
-double MediaEngine::streamStartSeconds(int streamIdx) const
+// 取指定 context 中流的 start_time 偏移（秒），同 streamStartUs 的过滤规则。
+double MediaEngine::streamStartSeconds(AVFormatContext *ctx, int streamIdx) const
 {
-    return streamStartUs(streamIdx) / (double)AV_TIME_BASE;
+    return streamStartUs(ctx, streamIdx) / (double)AV_TIME_BASE;
 }
 
 // 取流的语言/标题元数据（缺失时为空串）
@@ -201,7 +201,7 @@ static std::pair<QString, QString> streamLangTitle(AVStream *st)
             title ? QString::fromUtf8(title->value) : QString()};
 }
 
-bool MediaEngine::initFFmpeg(const QString &filename)
+bool MediaEngine::initFFmpeg(const MediaSource &src)
 {
     m_videoStreamIndex = -1;
     m_audioStreamIndex = -1;
@@ -216,36 +216,68 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     resetABLoop();
 
     m_networkManager->reset();
+    m_splitMode = src.isSplit();
+    m_splitEofCount = 0;
 
+    const QString filename = src.url;
+    const bool isNetwork = NetworkStreamManager::isNetworkUrl(filename)
+        || (!src.audioUrl.isEmpty() && NetworkStreamManager::isNetworkUrl(src.audioUrl));
+
+    // ---- 打开主（视频/合并）context ----
     AVDictionary *options = nullptr;
-    if (NetworkStreamManager::isNetworkUrl(filename)) {
-        m_networkManager->buildOpenOptions(&options, filename);
-    }
-
+    if (NetworkStreamManager::isNetworkUrl(filename))
+        m_networkManager->buildOpenOptions(&options, filename, src.headers);
     int ret = avformat_open_input(&m_fmtCtx, filename.toUtf8().constData(), nullptr, &options);
     av_dict_free(&options);
     if (ret != 0) {
         char errbuf[128] = {0};
         av_strerror(ret, errbuf, sizeof(errbuf));
         qCritical() << "Could not open input:" << filename << errbuf;
-        emit errorOccurred(QString("无法打开输入: %1").arg(errbuf), NetworkStreamManager::isNetworkUrl(filename));
+        emit errorOccurred(QString("无法打开输入: %1").arg(errbuf), isNetwork);
         return false;
     }
 
     // 为网络流设置中断回调
     if (NetworkStreamManager::isNetworkUrl(filename)) {
-        setupInterruptCallback();
+        setupInterruptCallback(m_fmtCtx);
         m_fmtCtx->max_analyze_duration = 5 * AV_TIME_BASE;
     }
 
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
         qCritical() << "Could not find stream info";
         avformat_close_input(&m_fmtCtx);
+        m_fmtCtx = nullptr;
         return false;
     }
 
-    if (NetworkStreamManager::isNetworkUrl(filename)) {
+    if (NetworkStreamManager::isNetworkUrl(filename))
         m_networkManager->detectLiveStream(m_fmtCtx);
+
+    // ---- split 模式：打开音频独立 context ----
+    if (m_splitMode) {
+        AVDictionary *aopts = nullptr;
+        m_networkManager->buildOpenOptions(&aopts, src.audioUrl, src.audioHeaders);
+        ret = avformat_open_input(&m_audioFmtCtx, src.audioUrl.toUtf8().constData(), nullptr, &aopts);
+        av_dict_free(&aopts);
+        if (ret != 0) {
+            char errbuf[128] = {0};
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            qCritical() << "Could not open audio input:" << src.audioUrl << errbuf;
+            avformat_close_input(&m_fmtCtx);
+            m_fmtCtx = nullptr;
+            emit errorOccurred(QString("无法打开音频流: %1").arg(errbuf), true);
+            return false;
+        }
+        setupInterruptCallback(m_audioFmtCtx);
+        m_audioFmtCtx->max_analyze_duration = 5 * AV_TIME_BASE;
+        if (avformat_find_stream_info(m_audioFmtCtx, nullptr) < 0) {
+            qCritical() << "Could not find audio stream info";
+            avformat_close_input(&m_fmtCtx);
+            m_fmtCtx = nullptr;
+            avformat_close_input(&m_audioFmtCtx);
+            m_audioFmtCtx = nullptr;
+            return false;
+        }
     }
 
     for (unsigned int i = 0; i < m_fmtCtx->nb_streams; i++) {
@@ -268,14 +300,17 @@ bool MediaEngine::initFFmpeg(const QString &filename)
         if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && m_videoStreamIndex == -1) {
             m_videoStreamIndex = i;
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-            const auto [lang, title] = streamLangTitle(st);
-            m_audioStreamsInfo.append({
-                static_cast<int>(i),
-                lang,
-                title,
-                st->codecpar->ch_layout.nb_channels,
-                st->codecpar->sample_rate
-            });
+            // split 模式下音频取自独立 context，主 context 的音频流忽略
+            if (!m_splitMode) {
+                const auto [lang, title] = streamLangTitle(st);
+                m_audioStreamsInfo.append({
+                    static_cast<int>(i),
+                    lang,
+                    title,
+                    st->codecpar->ch_layout.nb_channels,
+                    st->codecpar->sample_rate
+                });
+            }
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
             const auto [lang, title] = streamLangTitle(st);
             m_subtitleStreamsInfo.append({
@@ -286,13 +321,32 @@ bool MediaEngine::initFFmpeg(const QString &filename)
         }
     }
 
+    // split 模式：音频流从独立音频 context 枚举
+    if (m_splitMode) {
+        AVFormatContext *actx = audioFmtCtx();
+        for (unsigned int i = 0; i < actx->nb_streams; i++) {
+            AVStream *st = actx->streams[i];
+            if (st->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
+                continue;
+            const auto [lang, title] = streamLangTitle(st);
+            m_audioStreamsInfo.append({
+                static_cast<int>(i),
+                lang,
+                title,
+                st->codecpar->ch_layout.nb_channels,
+                st->codecpar->sample_rate
+            });
+        }
+    }
+
     // 选择默认音轨：优先带 DEFAULT 标志的，否则取第一条。
     m_currentAudioStreamIndex = -1;
     m_audioStreamIndex = -1;
 
     if (!m_audioStreamsInfo.isEmpty()) {
+        AVFormatContext *actx = audioFmtCtx();
         for (int i = 0; i < m_audioStreamsInfo.size(); ++i) {
-            if (m_fmtCtx->streams[m_audioStreamsInfo[i].streamIndex]->disposition & AV_DISPOSITION_DEFAULT) {
+            if (actx->streams[m_audioStreamsInfo[i].streamIndex]->disposition & AV_DISPOSITION_DEFAULT) {
                 m_currentAudioStreamIndex = i;
                 break;
             }
@@ -309,7 +363,7 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     // 外挂字幕/歌词条目加载时加上该偏移对齐（与内置字幕条目同基），
     // 查询侧零换算。仅取正值且不超过 1 小时（滤掉直播流/异常值）。
     // 须在 detectExternalSubtitles/detectLyrics 之前计算。
-    m_audioStartUs = streamStartUs(m_audioStreamIndex);
+    m_audioStartUs = streamStartUs(audioFmtCtx(), m_audioStreamIndex);
 #ifdef QT_DEBUG
     if (m_audioStartUs > 0)
         qDebug().noquote() << "[sub] audio stream start offset (raw pts base):" << m_audioStartUs << "us";
@@ -387,10 +441,11 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     if (!m_audioCodecCtx)
         m_currentAudioStreamIndex = -1;
 
-    // 初始化字幕解码器（选择默认或第一个字幕流）
+    // 初始化字幕解码器（选择默认或第一个字幕流）。
+    // split 模式（DASH 分离流）v1 不支持内嵌字幕解码，保持关闭。
     m_currentSubtitleStreamIndex = -1;
     m_subtitleStreamIndex = -1;
-    if (!m_subtitleStreamsInfo.isEmpty()) {
+    if (!m_splitMode && !m_subtitleStreamsInfo.isEmpty()) {
         m_currentSubtitleStreamIndex = 0;
         if (m_subtitleStreamsInfo[0].isExternal) {
             // 无内嵌字幕，仅有外挂：仅预载条目（含音频流偏移对齐），
@@ -433,9 +488,9 @@ bool MediaEngine::initFFmpeg(const QString &filename)
     return true;
 }
 
-void MediaEngine::start()
+void MediaEngine::start(const MediaSource &src)
 {
-    if (!initFFmpeg(m_filename))
+    if (!initFFmpeg(src))
         return;
     startPlayback();
 }
@@ -520,6 +575,8 @@ void MediaEngine::stop()
     m_bufferCheckTimer->stop();
     m_bufferState = BufferPlaying;
     m_bufferSuppressed = false;
+    m_liveStalling = false;
+    m_liveReopenPending = false;
 
     // 取消进行中的网络初始化
     if (m_networkInitWatcher) {
@@ -551,16 +608,48 @@ void MediaEngine::stop()
         emit pausedChanged(true);
 }
 
+void MediaEngine::setLoadingState(bool loading, const QString &text)
+{
+    if (m_isLoading == loading && m_loadingText == text)
+        return;
+    m_isLoading = loading;
+    m_loadingText = text;
+    emit isLoadingChanged(m_isLoading);
+    emit loadingTextChanged(m_loadingText);
+}
+
 bool MediaEngine::open(const QString &url, double initialSeekPos)
 {
+    return openSource({url, {}, {}, {}}, initialSeekPos);
+}
+
+bool MediaEngine::openWithHeaders(const QString &url, const QVariantMap &headers,
+                                  double initialSeekPos)
+{
+    return openSource({url, headers, {}, {}}, initialSeekPos);
+}
+
+bool MediaEngine::openSplit(const QString &videoUrl, const QString &audioUrl,
+                            const QVariantMap &videoHeaders, const QVariantMap &audioHeaders,
+                            double initialSeekPos)
+{
+    return openSource({videoUrl, videoHeaders, audioUrl, audioHeaders}, initialSeekPos);
+}
+
+bool MediaEngine::openSource(const MediaSource &src, double initialSeekPos)
+{
     stop();
-    QString path = url;
+    m_activeSource = src;
+    QString path = src.url;
     if (path.startsWith("file://"))
         path = path.mid(7);
     m_filename = path;
 
+    const bool isNetwork = NetworkStreamManager::isNetworkUrl(path)
+        || (!src.audioUrl.isEmpty() && NetworkStreamManager::isNetworkUrl(src.audioUrl));
+
     // 网络流：异步初始化，避免阻塞主线程
-    if (NetworkStreamManager::isNetworkUrl(path)) {
+    if (isNetwork) {
         m_isLoading = true;
         m_loadingText = QStringLiteral("加载中...");
         emit isLoadingChanged(true);
@@ -570,7 +659,7 @@ bool MediaEngine::open(const QString &url, double initialSeekPos)
         connect(m_networkInitWatcher, &QFutureWatcher<bool>::finished,
                 this, &MediaEngine::onNetworkInitFinished);
         m_networkInitWatcher->setFuture(
-            QtConcurrent::run([this, path]() { return initFFmpeg(path); }));
+            QtConcurrent::run([this, src]() { return initFFmpeg(src); }));
 
         return true;
     }
@@ -579,7 +668,7 @@ bool MediaEngine::open(const QString &url, double initialSeekPos)
     // 若有初始 seek 位置，在 startPlayback() 之前完成 seek + flush，
     // 避免先从 position 0 播放再 seek 导致的音画不同步。
     if (initialSeekPos > 0.0) {
-        if (!initFFmpeg(m_filename))
+        if (!initFFmpeg(src))
             return m_fmtCtx != nullptr;
 
         // 有效范围检查：距离头尾太近则跳过 seek
@@ -615,8 +704,17 @@ bool MediaEngine::open(const QString &url, double initialSeekPos)
         return true;
     }
 
-    start();
+    start(src);
     return m_fmtCtx != nullptr;
+}
+
+// 致命错误统一出口：先停整个管线（音频/线程），再发 fatalErrorOccurred，
+// 避免 UI 已回主菜单但音频设备/解码线程仍在运行（直播断流后残留播放）。
+void MediaEngine::handleFatalError(const QString &message)
+{
+    if (m_fmtCtx || m_demuxThread || m_audioThread || m_videoThread)
+        stop();
+    emit fatalErrorOccurred(message, true);
 }
 
 void MediaEngine::onNetworkInitFinished()
@@ -634,10 +732,12 @@ void MediaEngine::onNetworkInitFinished()
     emit loadingTextChanged(m_loadingText);
 
     if (!success) {
-        emit errorOccurred("无法打开网络流", true);
+        m_liveReopenPending = false;
+        handleFatalError("无法打开网络流");
         return;
     }
 
+    m_liveReopenPending = false;
     emit networkStreamReady(m_filename);
     startPlayback();
 }
@@ -655,10 +755,17 @@ void MediaEngine::resume()
 {
     if (!m_paused.exchange(false))
         return;
+    const qint64 pauseDurationUs = av_gettime() - m_pauseStartUs;
     m_audioOutput->resume();
-    m_pausedDurationUs += av_gettime() - m_pauseStartUs;
+    m_pausedDurationUs += pauseDurationUs;
     m_pauseStartUs = 0;
     emit pausedChanged(false);
+
+    // 直播暂停恢复：暂停期间直播持续推进，从旧位置续播会永久滞后。
+    // 暂停超过阈值则跳到直播边缘（reopen 新连接从直播边缘拉流）。
+    // 短暂停（< 阈值）仍从当前点续播，残留延迟可忽略。
+    if (m_networkManager->isLiveStream() && pauseDurationUs > kLivePauseReopenUs)
+        reopenLiveStream();
 }
 
 void MediaEngine::togglePause()
@@ -709,6 +816,10 @@ void MediaEngine::seek(double seconds)
                 m_demuxThread->stopRead();
                 m_demuxThread->wait(3000);
             }
+            if (m_audioDemuxThread) {
+                m_audioDemuxThread->stopRead();
+                m_audioDemuxThread->wait(3000);
+            }
             if (m_videoThread) {
                 m_videoThread->stopDecode();
                 m_videoThread->wait(1000);
@@ -751,6 +862,7 @@ void MediaEngine::seek(double seconds)
 
                 // 清理线程指针
                 delete m_demuxThread; m_demuxThread = nullptr;
+                delete m_audioDemuxThread; m_audioDemuxThread = nullptr;
                 delete m_videoThread; m_videoThread = nullptr;
                 delete m_audioThread; m_audioThread = nullptr;
                 if (m_subtitleThread) {
@@ -943,7 +1055,8 @@ void MediaEngine::prepareSeekDropBefore(double seconds)
         m_pendingVideoPtsDropBefore = -1.0;
     } else {
         m_videoPtsDropBefore = seconds
-            + streamStartSeconds(m_videoStreamIndex) - streamStartSeconds(m_audioStreamIndex);
+            + streamStartSeconds(m_fmtCtx, m_videoStreamIndex)
+            - streamStartSeconds(audioFmtCtx(), m_audioStreamIndex);
     }
 }
 
@@ -983,6 +1096,7 @@ void MediaEngine::restartAfterSeek()
 }
 
 // 容器 seek + 三个解码器冲刷（open 初始 seek/网络回调/重路径共用）。
+// split 模式（DASH 分离流）须对视频/音频两个 context 分别 seek。
 // 调用方保证此时无解码线程在运行（初始 seek 无线程；网络回调与重路径已停线程）。
 void MediaEngine::performSeekAndFlush(int64_t targetUs)
 {
@@ -991,6 +1105,14 @@ void MediaEngine::performSeekAndFlush(int64_t targetUs)
                                  AVSEEK_FLAG_BACKWARD);
     if (ret < 0)
         qWarning() << "Seek failed:" << ret;
+
+    if (m_audioFmtCtx) {
+        ret = avformat_seek_file(m_audioFmtCtx, -1,
+                                 INT64_MIN, targetUs, targetUs,
+                                 AVSEEK_FLAG_BACKWARD);
+        if (ret < 0)
+            qWarning() << "Audio seek failed:" << ret;
+    }
 
     if (m_videoCodecCtx)
         avcodec_flush_buffers(m_videoCodecCtx);
@@ -1287,6 +1409,39 @@ void MediaEngine::checkBufferState()
             emit bufferStateChanged(static_cast<int>(m_bufferState));
         }
     }
+
+    // 直播卡顿看门狗：持续缓冲超过阈值判定为"真卡死"（网络波动/连接断），
+    // 自动 reopen 直播源——新连接从直播边缘重新拉流，既打破卡死，
+    // 也消除"一次卡顿永久滞后"。冷却期防止网络差时频繁重连。
+    if (m_networkManager->isLiveStream()) {
+        if (low) {
+            if (!m_liveStalling) {
+                m_liveStalling = true;
+                m_liveStallTimer.restart();
+            } else if (!m_liveReopenPending
+                       && m_liveStallTimer.elapsed() > kLiveReopenStallMs
+                       && av_gettime() >= m_liveReopenCooldownUntilUs) {
+                qWarning() << "[live] buffering too long, reopening to catch live edge";
+                reopenLiveStream();
+            }
+        } else {
+            m_liveStalling = false;
+        }
+    }
+}
+
+// 直播卡顿恢复：重建管线并重新连接直播源。
+// 新连接从直播边缘拉流（FLV 新连接=直播边缘；HLS 重读 manifest=直播边缘），
+// 位置/时钟回到直播边缘，累积延迟清零。复用 openSource 的异步初始化路径。
+void MediaEngine::reopenLiveStream()
+{
+    if (m_liveReopenPending || !m_networkManager->isLiveStream() || m_activeSource.isSplit())
+        return;
+
+    m_liveReopenPending = true;
+    m_liveStalling = false;
+    m_liveReopenCooldownUntilUs = av_gettime() + kLiveReopenCooldownUs;
+    openSource(m_activeSource, -1.0);
 }
 
 void MediaEngine::updateSubtitle(double clockSeconds)
@@ -1407,19 +1562,47 @@ void MediaEngine::startThreads()
         m_subtitleThread->setPausedRef(m_paused);
     }
 
+    // ---- demux 线程 ----
+    // split 模式：视频/音频各一个 demux 线程，分别读取两个 context；
+    // 普通模式：单个 demux 线程分路全部流。
     m_demuxThread = new DemuxThread(this);
-    m_demuxThread->setFormatContext(m_fmtCtx);
-    m_demuxThread->setStreamIndices(m_videoStreamIndex, m_audioStreamIndex, m_subtitleStreamIndex);
-    m_demuxThread->setPacketQueues(m_videoPacketQueue, m_audioPacketQueue, m_subtitlePacketQueue);
-    m_demuxThread->setPausedRef(m_paused);
-    connect(m_demuxThread, &DemuxThread::eofReached, this, [this]() {
+    const int expectedEof = m_splitMode ? 2 : 1;
+    m_splitEofCount = 0;
+    auto onDemuxEof = [this, expectedEof]() {
+        // split 模式需两个 demux 都 EOF 才进入排空门控（避免视频/音频
+        // 时长差异导致一先 EOF 就提前结束播放）
+        if (expectedEof > 1 && ++m_splitEofCount < expectedEof)
+            return;
         // 等帧队列/FIFO 排空后再发 playbackFinished（见 m_eofDrainTimer 注释）
         m_eofDrainTimer->start();
-    });
-    connect(m_demuxThread, &DemuxThread::errorOccurred, this, [this](const QString &msg) {
-        qWarning() << "Demux error:" << msg;
-        emit errorOccurred(msg, true);
-    });
+    };
+    auto onDemuxFatalError = [this](const QString &msg) {
+        qWarning() << "Demux fatal error:" << msg;
+        handleFatalError(msg);
+    };
+
+    if (m_splitMode) {
+        m_demuxThread->setFormatContext(m_fmtCtx);
+        m_demuxThread->setStreamIndices(m_videoStreamIndex, -1, -1);
+        m_demuxThread->setPacketQueues(m_videoPacketQueue, nullptr, nullptr);
+
+        m_audioDemuxThread = new DemuxThread(this);
+        m_audioDemuxThread->setFormatContext(m_audioFmtCtx);
+        m_audioDemuxThread->setStreamIndices(-1, m_audioStreamIndex, -1);
+        m_audioDemuxThread->setPacketQueues(nullptr, m_audioPacketQueue, nullptr);
+        m_audioDemuxThread->setPausedRef(m_paused);
+    } else {
+        m_demuxThread->setFormatContext(m_fmtCtx);
+        m_demuxThread->setStreamIndices(m_videoStreamIndex, m_audioStreamIndex, m_subtitleStreamIndex);
+        m_demuxThread->setPacketQueues(m_videoPacketQueue, m_audioPacketQueue, m_subtitlePacketQueue);
+    }
+    m_demuxThread->setPausedRef(m_paused);
+    connect(m_demuxThread, &DemuxThread::eofReached, this, onDemuxEof);
+    if (m_audioDemuxThread)
+        connect(m_audioDemuxThread, &DemuxThread::eofReached, this, onDemuxEof);
+    connect(m_demuxThread, &DemuxThread::fatalErrorOccurred, this, onDemuxFatalError);
+    if (m_audioDemuxThread)
+        connect(m_audioDemuxThread, &DemuxThread::fatalErrorOccurred, this, onDemuxFatalError);
 
     // 重置中断标志
     if (m_interruptCtx) {
@@ -1450,7 +1633,7 @@ void MediaEngine::startThreads()
         m_audioThread->setPacketQueue(m_audioPacketQueue);
         m_audioThread->setFrameQueue(m_audioFrameQueue);
         m_audioThread->setPausedRef(m_paused);
-        m_audioThread->setTimeBase(m_fmtCtx->streams[m_audioStreamIndex]->time_base);
+        m_audioThread->setTimeBase(audioFmtCtx()->streams[m_audioStreamIndex]->time_base);
         m_audioThread->setOutputSampleRate(44100);
         // 音轨切换：新音轨首帧 PTS 重基到锚点，并丢弃锚点之前的帧
         // （一次性消费，见 m_pendingAudioPtsAnchor / m_pendingAudioPtsDropBefore）
@@ -1465,6 +1648,8 @@ void MediaEngine::startThreads()
     }
 
     m_demuxThread->start();
+    if (m_audioDemuxThread)
+        m_audioDemuxThread->start();
     if (m_videoThread)
         m_videoThread->start();
     if (m_audioThread)
@@ -1495,6 +1680,16 @@ void MediaEngine::stopThreads()
         }
         delete m_demuxThread;
         m_demuxThread = nullptr;
+    }
+    if (m_audioDemuxThread) {
+        if (m_interruptCtx)
+            m_interruptCtx->interrupted.store(true);
+        m_audioDemuxThread->stopRead();
+        if (!m_audioDemuxThread->wait(5000)) {
+            qWarning() << "AudioDemuxThread did not exit in time after interrupt";
+        }
+        delete m_audioDemuxThread;
+        m_audioDemuxThread = nullptr;
     }
     auto stopDecodeAndDelete = [](auto *&thread) {
         if (!thread) return;
@@ -1558,6 +1753,12 @@ void MediaEngine::cleanup()
         avformat_close_input(&m_fmtCtx);
         m_fmtCtx = nullptr;
     }
+    if (m_audioFmtCtx) {
+        avformat_close_input(&m_audioFmtCtx);
+        m_audioFmtCtx = nullptr;
+    }
+    m_splitMode = false;
+    m_splitEofCount = 0;
 
 #ifdef ENABLE_HWACCEL
     if (m_hwDeviceCtx) {
@@ -1762,10 +1963,10 @@ void MediaEngine::setCurrentSubtitleStream(int index)
 
 AVCodecContext *MediaEngine::openAudioCodecForStream(int streamIdx)
 {
-    if (streamIdx < 0 || !m_fmtCtx)
+    if (streamIdx < 0 || !audioFmtCtx())
         return nullptr;
 
-    AVCodecParameters *audioPar = m_fmtCtx->streams[streamIdx]->codecpar;
+    AVCodecParameters *audioPar = audioFmtCtx()->streams[streamIdx]->codecpar;
     const AVCodec *audioCodec = avcodec_find_decoder(audioPar->codec_id);
     qDebug() << "[audio] codec_id:" << audioPar->codec_id << "codec found:" << !!audioCodec
              << "channels:" << audioPar->ch_layout.nb_channels
@@ -1834,6 +2035,11 @@ void MediaEngine::setCurrentAudioStream(int index)
 
 void MediaEngine::switchAudioToStream(int newStreamIdx)
 {
+    // split 模式（DASH 分离流）音频为单一独立 URL，不支持播放中切轨
+    if (m_splitMode) {
+        qWarning() << "[audio] track switch unsupported in split (DASH) mode";
+        return;
+    }
     if (newStreamIdx < 0 || !m_fmtCtx || newStreamIdx == m_audioStreamIndex)
         return;
 
@@ -1853,7 +2059,7 @@ void MediaEngine::switchAudioToStream(int newStreamIdx)
 
     // 旧音轨 start_time（秒）：丢弃阈值与 seek 目标换算需要（锚点在旧音轨
     // 原始时间基上，须先换算回容器位置再对齐到新流的时间基）。
-    double oldStartSec = streamStartSeconds(m_audioStreamIndex);
+    double oldStartSec = streamStartSeconds(audioFmtCtx(), m_audioStreamIndex);
 
     // 3) 先停止旧音频解码线程，再释放旧解码器：旧线程仍持有旧 ctx 指针，
     //    反过来会 use-after-free。
@@ -1877,13 +2083,13 @@ void MediaEngine::switchAudioToStream(int newStreamIdx)
     //      seek 落点在视频关键帧前时，新音轨从锚点之前的内容起播，
     //      这些帧须丢弃，否则重基后音频内容整体落后于画面（音画不同步）。
     m_pendingAudioPtsAnchor = anchor;
-    m_pendingAudioPtsDropBefore = anchor + streamStartSeconds(newStreamIdx) - oldStartSec;
+    m_pendingAudioPtsDropBefore = anchor + streamStartSeconds(audioFmtCtx(), newStreamIdx) - oldStartSec;
 
     // 视频同丢弃锚点前的旧画面帧：backward seek 落在 anchor 之前的关键帧，
     // 解码出的整段 GOP 若进显示队列会按正常节奏走完（画面卡旧内容），且视频
     // 队列积压阻塞 demux、饿死音频队列（声音卡住数秒后画面跳变）。
     // 阈值 = 锚点换算到视频流原始时间基。
-    m_pendingVideoPtsDropBefore = anchor + streamStartSeconds(m_videoStreamIndex) - oldStartSec;
+    m_pendingVideoPtsDropBefore = anchor + streamStartSeconds(m_fmtCtx, m_videoStreamIndex) - oldStartSec;
 
     // 6) 直播流不可 seek：原地重建全部线程与队列。
     //    demux 从当前读位继续，新音轨起点与画面存在约一个队列深度的内容偏移，

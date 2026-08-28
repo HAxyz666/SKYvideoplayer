@@ -14,7 +14,7 @@ extern "C" {
 
 // --- 字幕文本清洗工具 ---
 
-// 剥离 {...} 和 <...> 标签，处理 ASS 换行/空格转义。
+// 剥离 {...} 和 <...> 标签，处理 ASS 换行/空格转义，过滤不可显示字符。
 // 供内嵌字幕（FFmpeg 解码后）和外挂字幕（文件解析）共用。
 static QString cleanSubtitleText(const QString &raw)
 {
@@ -31,7 +31,23 @@ static QString cleanSubtitleText(const QString &raw)
     result.replace(QStringLiteral("\\N"), QStringLiteral("\n"));
     result.replace(QStringLiteral("\\n"), QStringLiteral("\n"));
     result.replace(QStringLiteral("\\h"), QStringLiteral(" "));
-    return result.trimmed();
+
+    // 过滤不可显示字符：控制符、零宽字符、替换字符（U+FFFD）等——
+    // 直播流/异常流的字幕包常混入这类字符，Qt 会渲染成白色豆腐块 □
+    // （表现为画面中下部一个字符大小的白框）。过滤后若只剩空白则返回空串，
+    // 上层据此丢弃该条目。
+    QString filtered;
+    filtered.reserve(result.size());
+    for (QChar ch : result) {
+        const ushort u = ch.unicode();
+        if (ch.category() == QChar::Other_Control)
+            continue;
+        if (u == 0x200B || u == 0x200C || u == 0x200D || u == 0x200E || u == 0x200F
+            || u == 0xFEFF || u == 0xFFFD)
+            continue;
+        filtered += ch;
+    }
+    return filtered.trimmed();
 }
 
 // 内嵌 ASS rect->ass 文本提取：文本在最后一个逗号之后。

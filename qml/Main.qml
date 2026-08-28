@@ -9,7 +9,9 @@ ApplicationWindow {
     height: 720
     visible: true
     title: appController.currentFilePath !== ""
-           ? appController.currentFilePath.split("/").pop().split("\\").pop()
+           ? (appController.currentTitle !== ""
+              ? appController.currentTitle
+              : appController.currentFilePath.split("/").pop().split("\\").pop())
            : "Video Audio Sync Player"
     //flags: Qt.Window | Qt.FramelessWindowHint
 

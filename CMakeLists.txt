@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui Concurrent Qml Svg ShaderTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick Gui Concurrent Qml Svg ShaderTools LinguistTools)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -53,6 +53,23 @@ set(CORE_HEADERS
     src/core/NetworkStreamManager.h
 )
 
+# 网络流解析层（yt-dlp/streamlink 工具集成，平台无关；ToolProvider 为进程隔离点）
+set(NETWORK_SOURCES
+    src/network/ToolProvider.cpp
+    src/network/YtDlpResolver.cpp
+    src/network/StreamlinkResolver.cpp
+    src/network/StreamResolverManager.cpp
+)
+
+set(NETWORK_HEADERS
+    src/network/ResolveResult.h
+    src/network/StreamResolver.h
+    src/network/ToolProvider.h
+    src/network/YtDlpResolver.h
+    src/network/StreamlinkResolver.h
+    src/network/StreamResolverManager.h
+)
+
 set(LOGIC_SOURCES
     src/logic/Applicationcontroller.cpp
     src/logic/PlaybackHistory.cpp
@@ -75,6 +92,8 @@ qt6_add_executable(SKYvideoplayer
     main.cpp
     ${CORE_SOURCES}
     ${CORE_HEADERS}
+    ${NETWORK_SOURCES}
+    ${NETWORK_HEADERS}
     ${LOGIC_SOURCES}
     ${LOGIC_HEADERS}
 )
@@ -83,12 +102,11 @@ set_target_properties(SKYvideoplayer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
-# 翻译：.ts → .qm 自动编译
-find_program(LRELEASE_EXECUTABLE lrelease)
-if(LRELEASE_EXECUTABLE)
+# 翻译：.ts → .qm 自动编译（用 Qt6::lrelease 目标，避免依赖 PATH 上的 lrelease）
+if(TARGET Qt6::lrelease)
     add_custom_command(
         OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.qm"
-        COMMAND ${LRELEASE_EXECUTABLE}
+        COMMAND Qt6::lrelease
             "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.ts"
             -qm "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.qm"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.ts"
@@ -166,6 +184,7 @@ qt6_add_shaders(SKYvideoplayer "shaders"
 target_include_directories(SKYvideoplayer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
     ${CMAKE_CURRENT_SOURCE_DIR}/src/logic
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/network
     ${LIBSONIC_INCLUDE_DIRS}
 )
 

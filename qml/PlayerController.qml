@@ -51,9 +51,26 @@ Item {
         isPlaying = ok
     }
 
+    // 打开网络流：mode 0=原生 1=直播 2=点播（结果异步，失败经 errorOccurred 回退）
+    function openNetworkStream(url, mode) {
+        appController.openNetworkStream(url, mode)
+        hasMedia = true
+        isPlaying = true
+    }
+
+    // 从最近记录打开：mode 为条目保存的播放模式（网络流解析条目按模式重新解析）
+    function openRecentFile(filePath, mode) {
+        appController.openRecentFile(filePath, mode)
+        hasMedia = true
+        isPlaying = true
+    }
+
     function closeFile() {
         hasMedia = false
         isPlaying = false
+        // 取消在途的网络流解析：否则返回列表后解析完成仍会打开引擎，
+        // 造成“隐藏播放视图下仍在出声、标题残留”的异常。
+        appController.cancelNetworkResolve()
         appController.stop()
     }
 

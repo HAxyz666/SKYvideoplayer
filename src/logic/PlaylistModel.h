@@ -32,7 +32,8 @@ public:
 
     // --- 列表操作 ---
     Q_INVOKABLE void addFile(const QString &filePath);       // 添加文件（已存在则跳过）
-    Q_INVOKABLE void addUrl(const QString &url);            // 添加 URL（网络流，不探测时长）
+    // 添加 URL（网络流，不探测时长）；title/mode 供网络流解析条目传入真实标题与模式
+    Q_INVOKABLE void addUrl(const QString &url, const QString &title = {}, int mode = 0);
     Q_INVOKABLE void removeItem(int index);                  // 移除指定项
     Q_INVOKABLE void clear();                                // 清空全部
     Q_INVOKABLE QVariantMap getItem(int row) const;          // 获取指定行的全部数据（供 QML 排序用）
@@ -64,7 +65,7 @@ signals:
 
 private:
     // 追加条目（已存在则跳过）：addFile/addUrl 共用
-    void appendItem(const QString &title, const QString &filePath, double duration);
+    void appendItem(const QString &title, const QString &filePath, double duration, int mode = 0);
     static QString extractTitle(const QString &filePath);  // 从路径提取文件名作为标题
 
     QList<PlaylistItem> m_items;

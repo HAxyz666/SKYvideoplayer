@@ -68,22 +68,44 @@ void PlaylistModel::addFile(const QString &filePath)
     appendItem(extractTitle(filePath), filePath, probeDuration(filePath));
 }
 
-// 添加网络 URL（不探测时长，已存在则跳过）
-void PlaylistModel::addUrl(const QString &url)
+// 添加网络 URL（不探测时长，已存在则跳过）。
+// title 为空时从 URL 派生文件名；网络流解析条目传入真实标题与播放模式。
+void PlaylistModel::addUrl(const QString &url, const QString &title, int mode)
 {
     QString filePath = url;
     if (filePath.startsWith("file://"))
         filePath = filePath.mid(7);
 
-    QString title = QUrl::fromUserInput(filePath).fileName();
-    if (title.isEmpty())
-        title = filePath;
+    QString t = title;
+    if (t.isEmpty()) {
+        t = QUrl::fromUserInput(filePath).fileName();
+        if (t.isEmpty())
+            t = filePath;
+    }
 
-    appendItem(title, filePath, 0.0);
+    // 已存在：更新标题/模式（网络流真实标题可能晚于条目首建到达）
+    for (int i = 0; i < m_items.size(); ++i) {
+        if (m_items.at(i).filePath == filePath) {
+            bool changed = false;
+            if (!title.isEmpty() && m_items[i].title != title) {
+                m_items[i].title = title;
+                changed = true;
+            }
+            if (mode != 0 && m_items[i].mode != mode) {
+                m_items[i].mode = mode;
+                changed = true;
+            }
+            if (changed)
+                emit dataChanged(createIndex(i, 0), createIndex(i, 0), { TitleRole });
+            return;
+        }
+    }
+
+    appendItem(t, filePath, 0.0, mode);
 }
 
 // 追加条目（已存在则跳过）：addFile/addUrl 共用的插入逻辑
-void PlaylistModel::appendItem(const QString &title, const QString &filePath, double duration)
+void PlaylistModel::appendItem(const QString &title, const QString &filePath, double duration, int mode)
 {
     for (const auto &item : m_items) {
         if (item.filePath == filePath)
@@ -92,7 +114,7 @@ void PlaylistModel::appendItem(const QString &title, const QString &filePath, do
 
     int row = m_items.size();
     beginInsertRows(QModelIndex(), row, row);
-    m_items.append({ title, filePath, duration });
+    m_items.append({ title, filePath, duration, mode });
     endInsertRows();
     emit countChanged();
 }

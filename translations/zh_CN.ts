@@ -14,22 +14,22 @@
         <translation>点击左侧「打开文件」选择视频开始播放</translation>
     </message>
     <message>
-        <location filename="../qml/AppLayout.qml" line="155"/>
+        <location filename="../qml/AppLayout.qml" line="179"/>
         <source>Select media file</source>
         <translation>选择媒体文件</translation>
     </message>
     <message>
-        <location filename="../qml/AppLayout.qml" line="157"/>
+        <location filename="../qml/AppLayout.qml" line="181"/>
         <source>all file (*)</source>
         <translation>所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../qml/AppLayout.qml" line="158"/>
+        <location filename="../qml/AppLayout.qml" line="182"/>
         <source>video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)</source>
         <translation>视频文件 (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)</translation>
     </message>
     <message>
-        <location filename="../qml/AppLayout.qml" line="159"/>
+        <location filename="../qml/AppLayout.qml" line="183"/>
         <source>audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)</source>
         <translation>音频文件 (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)</translation>
     </message>
@@ -57,17 +57,17 @@
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../qml/AppSidebar.qml" line="113"/>
+        <location filename="../qml/AppSidebar.qml" line="98"/>
         <source>☀ Light</source>
         <translation>☀ 亮色</translation>
     </message>
     <message>
-        <location filename="../qml/AppSidebar.qml" line="113"/>
+        <location filename="../qml/AppSidebar.qml" line="98"/>
         <source>🌙 Dark</source>
         <translation>🌙 暗色</translation>
     </message>
     <message>
-        <location filename="../qml/AppSidebar.qml" line="154"/>
+        <location filename="../qml/AppSidebar.qml" line="139"/>
         <source>Select screenshot save folder</source>
         <translation>选择截图保存路径</translation>
     </message>
@@ -75,50 +75,74 @@
 <context>
     <name>ApplicationController</name>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="698"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="825"/>
         <source>A-B loop cleared</source>
         <translation>已清除 A-B 循环</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="695"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="822"/>
         <source>A-B loop: %1 → %2</source>
         <translation>A-B 循环：%1 → %2</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="30"/>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="679"/>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="690"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="29"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="1016"/>
         <source>Default List</source>
         <translation>默认列表</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="157"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="119"/>
+        <source>解析失败：%1</source>
+        <translation>解析失败：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="129"/>
+        <source>解析结果为空</source>
+        <translation>解析结果为空</translation>
+    </message>
+    <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="150"/>
+        <source>解析中...</source>
+        <translation>解析中...</translation>
+    </message>
+    <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="233"/>
         <source>无法打开文件：%1</source>
         <translation>无法打开文件：%1</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="226"/>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="300"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="266"/>
+        <source>未检测到 streamlink，请先安装（pip install streamlink），或改用原生模式</source>
+        <translation>未检测到 streamlink，请先安装（pip install streamlink），或改用原生模式</translation>
+    </message>
+    <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="267"/>
+        <source>未检测到 yt-dlp，请先安装（pip install yt-dlp），或改用原生模式</source>
+        <translation>未检测到 yt-dlp，请先安装（pip install yt-dlp），或改用原生模式</translation>
+    </message>
+    <message>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="411"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="515"/>
         <source>List %1</source>
         <translation>列表 %1</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="692"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="819"/>
         <source>Loop start A: %1, press again to set B</source>
         <translation>循环起点 A：%1，再次按下设置终点 B</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="470"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="692"/>
         <source>Subtitle delay reset</source>
         <translation>字幕延迟已重置</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="472"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="694"/>
         <source>Subtitle delay +%1s</source>
         <translation>字幕延迟 +%1s</translation>
     </message>
     <message>
-        <location filename="../src/logic/Applicationcontroller.cpp" line="474"/>
+        <location filename="../src/logic/Applicationcontroller.cpp" line="696"/>
         <source>Subtitle delay %1s</source>
         <translation>字幕延迟 %1s</translation>
     </message>
@@ -134,62 +158,62 @@
 <context>
     <name>ControlBar</name>
     <message>
-        <location filename="../qml/ControlBar.qml" line="227"/>
+        <location filename="../qml/ControlBar.qml" line="239"/>
         <source>A-B loop active, click to clear</source>
         <translation>A-B 循环进行中，点击清除</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="228"/>
+        <location filename="../qml/ControlBar.qml" line="240"/>
         <source>A-B loop: set A, then B</source>
         <translation>A-B 循环：先设 A，再设 B</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="62"/>
+        <location filename="../qml/ControlBar.qml" line="73"/>
         <source>Prev</source>
         <translation>上一个</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="83"/>
+        <location filename="../qml/ControlBar.qml" line="94"/>
         <source>Pause</source>
         <translation>暂停</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="83"/>
+        <location filename="../qml/ControlBar.qml" line="94"/>
         <source>Play</source>
         <translation>播放</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="103"/>
+        <location filename="../qml/ControlBar.qml" line="114"/>
         <source>Next</source>
         <translation>下一个</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="161"/>
+        <location filename="../qml/ControlBar.qml" line="179"/>
         <source>Video</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="191"/>
+        <location filename="../qml/ControlBar.qml" line="210"/>
         <source>Screenshot</source>
         <translation>截图</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="201"/>
+        <location filename="../qml/ControlBar.qml" line="220"/>
         <source>Saved: %1</source>
         <translation>已保存：%1</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="226"/>
+        <location filename="../qml/ControlBar.qml" line="276"/>
         <source>Playlist</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="246"/>
+        <location filename="../qml/ControlBar.qml" line="296"/>
         <source>Exit Fullscreen</source>
         <translation>退出全屏</translation>
     </message>
     <message>
-        <location filename="../qml/ControlBar.qml" line="246"/>
+        <location filename="../qml/ControlBar.qml" line="296"/>
         <source>Fullscreen</source>
         <translation>全屏</translation>
     </message>
@@ -205,7 +229,7 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="131"/>
+        <location filename="../qml/Main.qml" line="133"/>
         <source>Drop to play media file</source>
         <translation>拖放以播放媒体文件</translation>
     </message>
@@ -213,27 +237,56 @@
 <context>
     <name>NetworkDialog</name>
     <message>
-        <location filename="../qml/NetworkDialog.qml" line="32"/>
+        <location filename="../qml/NetworkDialog.qml" line="33"/>
         <source>Open Network Stream</source>
         <translation>打开网络流</translation>
     </message>
     <message>
-        <location filename="../qml/NetworkDialog.qml" line="39"/>
+        <location filename="../qml/NetworkDialog.qml" line="45"/>
+        <source>Native</source>
+        <translation>原生</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="46"/>
+        <source>Live</source>
+        <translation>直播</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="47"/>
+        <source>VOD</source>
+        <translation>点播</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="77"/>
         <source>Enter network URL:</source>
         <translation>输入网络URL：</translation>
     </message>
     <message>
-        <location filename="../qml/NetworkDialog.qml" line="60"/>
-        <source>Supported: HTTP, HTTPS, RTMP, RTSP, UDP, TCP</source>
-        <translation>支持：HTTP, HTTPS, RTMP, RTSP, UDP, TCP</translation>
+        <location filename="../qml/NetworkDialog.qml" line="98"/>
+        <source>Native: HTTP, HTTPS, RTMP, RTSP, UDP, TCP (no extra tool required)</source>
+        <translation>原生：HTTP、HTTPS、RTMP、RTSP、UDP、TCP（无需额外工具）</translation>
     </message>
     <message>
-        <location filename="../qml/NetworkDialog.qml" line="74"/>
+        <location filename="../qml/NetworkDialog.qml" line="100"/>
+        <source>Live: resolved by streamlink — covers Huya, Douyu, Bilibili, Douyin live. Install: pip install streamlink</source>
+        <translation>直播：由 streamlink 解析——覆盖虎牙、斗鱼、B站、抖音直播。安装：pip install streamlink</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="102"/>
+        <source>VOD: resolved by yt-dlp — websites and encrypted streams. Install: pip install yt-dlp</source>
+        <translation>点播：由 yt-dlp 解析——网页与加密流。安装：pip install yt-dlp</translation>
+    </message>
+    <message>
+        <source>Supported: HTTP, HTTPS, RTMP, RTSP, UDP, TCP</source>
+        <translation type="vanished">支持：HTTP, HTTPS, RTMP, RTSP, UDP, TCP</translation>
+    </message>
+    <message>
+        <location filename="../qml/NetworkDialog.qml" line="112"/>
         <source>Open</source>
         <translation>打开</translation>
     </message>
     <message>
-        <location filename="../qml/NetworkDialog.qml" line="94"/>
+        <location filename="../qml/NetworkDialog.qml" line="132"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
@@ -241,12 +294,12 @@
 <context>
     <name>PlayerView</name>
     <message>
-        <location filename="../qml/PlayerView.qml" line="150"/>
+        <location filename="../qml/PlayerView.qml" line="147"/>
         <source>Playing Audio</source>
         <translation>正在播放音频</translation>
     </message>
     <message>
-        <location filename="../qml/PlayerView.qml" line="193"/>
+        <location filename="../qml/PlayerView.qml" line="190"/>
         <source>Back to list</source>
         <translation>返回列表</translation>
     </message>
@@ -254,117 +307,117 @@
 <context>
     <name>PlaylistPanel</name>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="106"/>
+        <location filename="../qml/PlaylistPanel.qml" line="95"/>
         <source>Playlist</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="114"/>
+        <location filename="../qml/PlaylistPanel.qml" line="103"/>
         <source>Name</source>
         <translation>名称</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="120"/>
+        <location filename="../qml/PlaylistPanel.qml" line="109"/>
         <source>Duration</source>
         <translation>时长</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="127"/>
+        <location filename="../qml/PlaylistPanel.qml" line="116"/>
         <source>Clear</source>
         <translation>清空</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="156"/>
+        <location filename="../qml/PlaylistPanel.qml" line="143"/>
         <source>Current List:</source>
         <translation>当前列表：</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="175"/>
+        <location filename="../qml/PlaylistPanel.qml" line="162"/>
         <source>Add</source>
         <translation>添加</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="288"/>
+        <location filename="../qml/PlaylistPanel.qml" line="274"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="304"/>
+        <location filename="../qml/PlaylistPanel.qml" line="290"/>
         <source>No files</source>
         <translation>暂无文件</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="316"/>
+        <location filename="../qml/PlaylistPanel.qml" line="302"/>
         <source>Playback Mode:</source>
         <translation>播放模式：</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="326"/>
+        <location filename="../qml/PlaylistPanel.qml" line="311"/>
         <source>Sequential</source>
         <translation>顺序播放</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="334"/>
+        <location filename="../qml/PlaylistPanel.qml" line="319"/>
         <source>Loop All</source>
         <translation>列表循环</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="342"/>
+        <location filename="../qml/PlaylistPanel.qml" line="327"/>
         <source>Loop One</source>
         <translation>单集循环</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="352"/>
+        <location filename="../qml/PlaylistPanel.qml" line="337"/>
         <source> files</source>
         <translation> 个文件</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="363"/>
+        <location filename="../qml/PlaylistPanel.qml" line="348"/>
         <source>Add Files</source>
         <translation>添加文件</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="366"/>
+        <location filename="../qml/PlaylistPanel.qml" line="351"/>
         <source>all file (*)</source>
         <translation>所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="367"/>
+        <location filename="../qml/PlaylistPanel.qml" line="352"/>
         <source>video file (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)</source>
         <translation>视频文件 (*.mp4 *.mkv *.avi *.mov *.flv *.wmv)</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="368"/>
+        <location filename="../qml/PlaylistPanel.qml" line="353"/>
         <source>audio file (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)</source>
         <translation>音频文件 (*.mp3 *.flac *.wav *.aac *.ogg *.opus *.m4a *.wma)</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="377"/>
+        <location filename="../qml/PlaylistPanel.qml" line="362"/>
         <source>Files</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="381"/>
+        <location filename="../qml/PlaylistPanel.qml" line="366"/>
         <source>URL</source>
         <translation>URL</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="388"/>
+        <location filename="../qml/PlaylistPanel.qml" line="373"/>
         <source>Add URL</source>
         <translation>添加URL</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="395"/>
+        <location filename="../qml/PlaylistPanel.qml" line="380"/>
         <source>Enter media URL</source>
         <translation>输入媒体URL</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="408"/>
+        <location filename="../qml/PlaylistPanel.qml" line="393"/>
         <source>New List</source>
         <translation>新建列表</translation>
     </message>
     <message>
-        <location filename="../qml/PlaylistPanel.qml" line="415"/>
+        <location filename="../qml/PlaylistPanel.qml" line="400"/>
         <source>Enter list name</source>
         <translation>输入列表名称</translation>
     </message>
@@ -397,12 +450,12 @@
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/RecentHistory.qml" line="180"/>
+        <location filename="../qml/RecentHistory.qml" line="200"/>
         <source>No playback history</source>
         <translation>暂无播放记录</translation>
     </message>
     <message>
-        <location filename="../qml/RecentHistory.qml" line="190"/>
+        <location filename="../qml/RecentHistory.qml" line="210"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
@@ -410,12 +463,12 @@
 <context>
     <name>ResumeToast</name>
     <message>
-        <location filename="../qml/ResumeToast.qml" line="26"/>
+        <location filename="../qml/ResumeToast.qml" line="25"/>
         <source>Last played at </source>
         <translation>上次播放到 </translation>
     </message>
     <message>
-        <location filename="../qml/ResumeToast.qml" line="35"/>
+        <location filename="../qml/ResumeToast.qml" line="34"/>
         <source>Play from start</source>
         <translation>从头播放</translation>
     </message>
@@ -474,42 +527,92 @@
         <translation>字幕延迟 +</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="287"/>
+        <location filename="../qml/SettingsDialog.qml" line="289"/>
         <source>Brightness -</source>
         <translation>亮度 -</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="288"/>
+        <location filename="../qml/SettingsDialog.qml" line="290"/>
         <source>Brightness +</source>
         <translation>亮度 +</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="289"/>
+        <location filename="../qml/SettingsDialog.qml" line="291"/>
         <source>Contrast -</source>
         <translation>对比度 -</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="290"/>
+        <location filename="../qml/SettingsDialog.qml" line="292"/>
         <source>Contrast +</source>
         <translation>对比度 +</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="291"/>
+        <location filename="../qml/SettingsDialog.qml" line="293"/>
         <source>Saturation -</source>
         <translation>饱和度 -</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="292"/>
+        <location filename="../qml/SettingsDialog.qml" line="294"/>
         <source>Saturation +</source>
         <translation>饱和度 +</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="293"/>
+        <location filename="../qml/SettingsDialog.qml" line="295"/>
         <source>Cycle Aspect Mode</source>
         <translation>循环切换缩放模式</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="324"/>
+        <location filename="../qml/SettingsDialog.qml" line="275"/>
+        <source>Volume Up</source>
+        <translation>音量加</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="276"/>
+        <source>Volume Down</source>
+        <translation>音量减</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="277"/>
+        <source>Toggle Mute</source>
+        <translation>切换静音</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="278"/>
+        <source>Play / Pause</source>
+        <translation>播放 / 暂停</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="279"/>
+        <source>Step Backward</source>
+        <translation>后退</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="280"/>
+        <source>Step Forward</source>
+        <translation>前进</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="281"/>
+        <source>Large Backward</source>
+        <translation>大幅后退</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="282"/>
+        <source>Large Forward</source>
+        <translation>大幅前进</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="283"/>
+        <source>Toggle Fullscreen</source>
+        <translation>切换全屏</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="284"/>
+        <source>Exit Fullscreen</source>
+        <translation>退出全屏</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingsDialog.qml" line="322"/>
         <source>Press new key...</source>
         <translation>按下新按键...</translation>
     </message>
@@ -551,9 +654,43 @@ with hardware acceleration</source>
         <translation>使用 Qt 6.11 和 FFmpeg 构建</translation>
     </message>
     <message>
-        <location filename="../qml/SettingsDialog.qml" line="529"/>
+        <location filename="../qml/SettingsDialog.qml" line="531"/>
         <source>Close</source>
         <translation>关闭</translation>
+    </message>
+</context>
+<context>
+    <name>StreamlinkResolver</name>
+    <message>
+        <location filename="../src/network/StreamlinkResolver.cpp" line="64"/>
+        <source>未检测到 streamlink，请先安装：pip install streamlink</source>
+        <translation>未检测到 streamlink，请先安装：pip install streamlink</translation>
+    </message>
+    <message>
+        <location filename="../src/network/StreamlinkResolver.cpp" line="88"/>
+        <source>解析已取消</source>
+        <translation>解析已取消</translation>
+    </message>
+    <message>
+        <location filename="../src/network/StreamlinkResolver.cpp" line="96"/>
+        <source>解析失败（streamlink 退出码 %1）</source>
+        <translation>解析失败（streamlink 退出码 %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/network/StreamlinkResolver.cpp" line="105"/>
+        <source>解析工具输出无效</source>
+        <translation>解析工具输出无效</translation>
+    </message>
+    <message>
+        <location filename="../src/network/StreamlinkResolver.cpp" line="112"/>
+        <location filename="../src/network/StreamlinkResolver.cpp" line="142"/>
+        <source>未找到可播放的直播流</source>
+        <translation>未找到可播放的直播流</translation>
+    </message>
+    <message>
+        <location filename="../src/network/StreamlinkResolver.cpp" line="151"/>
+        <source>直播流地址为空</source>
+        <translation>直播流地址为空</translation>
     </message>
 </context>
 <context>
@@ -564,19 +701,19 @@ with hardware acceleration</source>
         <translation>字幕</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="139"/>
+        <location filename="../qml/SubtitleSelector.qml" line="147"/>
         <source>Delay Adjust</source>
         <translation>延迟微调</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="200"/>
+        <location filename="../qml/SubtitleSelector.qml" line="208"/>
         <source>Subtitle delay: + means subtitles appear later
 Hold - / + to adjust continuously (0.1s steps)</source>
         <translation>字幕延迟：+ 表示字幕推迟出现
 按住 - / + 可连续调节（每次 0.1s）</translation>
     </message>
     <message>
-        <location filename="../qml/SubtitleSelector.qml" line="275"/>
+        <location filename="../qml/SubtitleSelector.qml" line="283"/>
         <source>Subtitle Style…</source>
         <translation>字幕样式...</translation>
     </message>
@@ -652,64 +789,142 @@ Hold - / + to adjust continuously (0.1s steps)</source>
 <context>
     <name>VideoAdjustPopup</name>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="28"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="29"/>
         <source>Picture Adjust</source>
         <translation>画面调节</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="36"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="37"/>
         <source>Brightness</source>
         <translation>亮度</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="37"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="38"/>
         <source>Contrast</source>
         <translation>对比度</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="38"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="39"/>
         <source>Saturation</source>
         <translation>饱和度</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="158"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="159"/>
         <source>Aspect Mode</source>
         <translation>缩放模式</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="173"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="174"/>
         <source>Fit</source>
         <translation>适合窗口</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="174"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="175"/>
         <source>Fill</source>
         <translation>铺满裁剪</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="175"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="176"/>
         <source>Stretch</source>
         <translation>拉伸变形</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="223"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="224"/>
         <source>Rotate Left 90°</source>
         <translation>左旋90°</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="224"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="225"/>
         <source>Rotate Right 90°</source>
         <translation>右旋90°</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="225"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="226"/>
         <source>Flip Vertical</source>
         <translation>垂直翻转</translation>
     </message>
     <message>
-        <location filename="../qml/VideoAdjustPopup.qml" line="269"/>
+        <location filename="../qml/VideoAdjustPopup.qml" line="270"/>
         <source>Reset</source>
         <translation>重置</translation>
+    </message>
+</context>
+<context>
+    <name>YtDlpResolver</name>
+    <message>
+        <location filename="../src/network/YtDlpResolver.cpp" line="131"/>
+        <source>未检测到 yt-dlp，请先安装：pip install yt-dlp</source>
+        <translation>未检测到 yt-dlp，请先安装：pip install yt-dlp</translation>
+    </message>
+    <message>
+        <location filename="../src/network/YtDlpResolver.cpp" line="156"/>
+        <source>解析已取消</source>
+        <translation>解析已取消</translation>
+    </message>
+    <message>
+        <location filename="../src/network/YtDlpResolver.cpp" line="164"/>
+        <source>解析失败（yt-dlp 退出码 %1）</source>
+        <translation>解析失败（yt-dlp 退出码 %1）</translation>
+    </message>
+    <message>
+        <location filename="../src/network/YtDlpResolver.cpp" line="174"/>
+        <source>解析工具输出无效</source>
+        <translation>解析工具输出无效</translation>
+    </message>
+    <message>
+        <location filename="../src/network/YtDlpResolver.cpp" line="181"/>
+        <location filename="../src/network/YtDlpResolver.cpp" line="253"/>
+        <source>未找到可播放的格式</source>
+        <translation>未找到可播放的格式</translation>
+    </message>
+</context>
+<context>
+    <name>CopyAction</name>
+    <message>
+        <source>Copy</source>
+        <translation>复制</translation>
+    </message>
+</context>
+<context>
+    <name>CutAction</name>
+    <message>
+        <source>Cut</source>
+        <translation>剪切</translation>
+    </message>
+</context>
+<context>
+    <name>DeleteAction</name>
+    <message>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+</context>
+<context>
+    <name>PasteAction</name>
+    <message>
+        <source>Paste</source>
+        <translation>粘贴</translation>
+    </message>
+</context>
+<context>
+    <name>RedoAction</name>
+    <message>
+        <source>Redo</source>
+        <translation>重做</translation>
+    </message>
+</context>
+<context>
+    <name>SelectAllAction</name>
+    <message>
+        <source>Select All</source>
+        <translation>全选</translation>
+    </message>
+</context>
+<context>
+    <name>UndoAction</name>
+    <message>
+        <source>Undo</source>
+        <translation>撤销</translation>
     </message>
 </context>
 </TS>

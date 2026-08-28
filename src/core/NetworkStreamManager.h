@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -19,8 +20,11 @@ public:
     // 判断 URL 是否为网络流
     static bool isNetworkUrl(const QString &url);
 
-    // 在 avformat_open_input 之前调用，向字典写入协议层参数
+    // 在 avformat_open_input 之前调用，向字典写入协议层参数。
+    // headers 非空时写入 "headers" 键（UA/Referer/Cookie 透传，防盗链核心），
+    // 键格式 "Key: value\r\n..."（FFmpeg http/https 协议支持）。
     void buildOpenOptions(AVDictionary **opts, const QString &url) const;
+    void buildOpenOptions(AVDictionary **opts, const QString &url, const QVariantMap &headers) const;
 
     // 在 avformat_find_stream_info 之后调用，检测是否为直播流
     void detectLiveStream(AVFormatContext *ctx);

@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QList>
 #include <QFutureWatcher>
+#include <QVariantMap>
 #include <atomic>
 
 extern "C" {
@@ -28,6 +29,16 @@ class FrameQueue;
 class AVSyncController;
 class AudioOutput;
 class NetworkStreamManager;
+
+// 媒体源描述：单个 URL（普通模式）或 视频/音频分离 URL（DASH 分离流，split 模式）。
+// headers 为每 URL 的自定义 HTTP 头（UA/Referer/Cookie，防盗链透传）。
+struct MediaSource {
+    QString url;             // 主输入（单 URL 模式即唯一输入；split 模式为视频流）
+    QVariantMap headers;     // 主输入 HTTP 头
+    QString audioUrl;        // 非空 = split 模式（音频独立 URL）
+    QVariantMap audioHeaders;
+    bool isSplit() const { return !audioUrl.isEmpty(); }
+};
 
 class MediaEngine : public QObject
 {
@@ -61,10 +72,19 @@ public:
     explicit MediaEngine(QObject *parent = nullptr);
     ~MediaEngine();
 
-    void start();
+    void start(const MediaSource &src);
     void startPlayback();   // 启动播放线程（initFFmpeg 之后调用）
     Q_INVOKABLE void stop();
+    // 外部（如网络流解析阶段）设置加载态文案；loading=false 时清除。
+    void setLoadingState(bool loading, const QString &text = {});
     Q_INVOKABLE bool open(const QString &url, double initialSeekPos = -1.0);
+    // 带自定义 HTTP 头的单 URL 打开（yt-dlp 解析出的防盗链直链）
+    bool openWithHeaders(const QString &url, const QVariantMap &headers,
+                         double initialSeekPos = -1.0);
+    // DASH 分离流：视频/音频各一个 URL，各自携带 HTTP 头（split 模式）
+    bool openSplit(const QString &videoUrl, const QString &audioUrl,
+                   const QVariantMap &videoHeaders = {}, const QVariantMap &audioHeaders = {},
+                   double initialSeekPos = -1.0);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
@@ -175,17 +195,35 @@ signals:
     void isLiveStreamChanged(bool isLive);
     void isLoadingChanged(bool loading);
     void loadingTextChanged(QString text);
+    // 打开的网络流/文件失败或解码器不可用等非致命问题（UI 可继续停留）。
     void errorOccurred(QString message, bool isNetworkRelated);  // 错误信号
+    // 致命错误：引擎已自行停止管线（音频/线程已停），上层应回主菜单并清理状态
+    void fatalErrorOccurred(QString message, bool isNetworkRelated);
     void networkStreamReady(const QString &url);  // 网络流连接成功
     void bufferStateChanged(int state);
 
 private:
     static constexpr int kAudioFrameQueueSize = 16;
+    // 直播卡顿看门狗：持续缓冲超过该时长判定为"真卡死"，自动 reopen 回到直播边缘
+    static constexpr int kLiveReopenStallMs = 8000;
+    // 直播暂停后恢复：暂停超过该时长则跳到直播边缘（避免从旧位置续播永久滞后）
+    static constexpr qint64 kLivePauseReopenUs = 5LL * 1000000;
+    // reopen 冷却：至少间隔这么久才允许再次 reopen，避免网络差时频繁重连
+    static constexpr qint64 kLiveReopenCooldownUs = 20LL * 1000000;
 
-    bool initFFmpeg(const QString &filename);
+    bool initFFmpeg(const MediaSource &src);
+    // open()/openWithHeaders()/openSplit() 统一入口：网络流走异步初始化
+    bool openSource(const MediaSource &src, double initialSeekPos);
+    // 直播卡顿恢复：重建管线并重新连接直播源（新连接从直播边缘拉流）
+    void reopenLiveStream();
     void cleanup();
     void startThreads();
     void stopThreads();
+    // 音频流所在 context（split 模式为 m_audioFmtCtx，否则为 m_fmtCtx）
+    AVFormatContext *audioFmtCtx() const { return m_audioFmtCtx ? m_audioFmtCtx : m_fmtCtx; }
+    // 取指定 context 中流的 start_time 偏移（微秒/秒）
+    qint64 streamStartUs(AVFormatContext *ctx, int streamIdx) const;
+    double streamStartSeconds(AVFormatContext *ctx, int streamIdx) const;
     // 本地文件 seek 重路径：拆卸全部线程与队列，主线程执行
     // avformat_seek_file + 编解码器冲刷，再整体重建（音轨切换专用/回退用）。
     void seekHeavy(double seconds);
@@ -215,10 +253,6 @@ private:
 
     void updateSubtitle(double clockSeconds);
     void updateLyric(double clockSeconds);
-    // 取指定流的 start_time 偏移（微秒）。主时钟（音频时钟）为流内原始时间戳，
-    // 外挂字幕/歌词条目加载时加上该偏移对齐，查询侧无需任何换算。
-    qint64 streamStartUs(int streamIdx) const;
-    double streamStartSeconds(int streamIdx) const;
     // 加载外挂字幕文件并偏移对齐到音频流时间轴（与内置字幕条目同基）
     QList<SubtitleEntry> loadExternalSubtitleFile(const QString &path) const;
 
@@ -238,9 +272,13 @@ private:
     // 网络流异步初始化完成回调
     void onNetworkInitFinished();
 
+    // 致命错误统一出口：先停整个管线（音频/线程），再发 fatalErrorOccurred，
+    // 避免 UI 已回主菜单但音频设备/解码线程仍在运行。
+    void handleFatalError(const QString &message);
+
     // 中断回调相关
     static int interruptCallback(void *ctx);
-    void setupInterruptCallback();
+    void setupInterruptCallback(AVFormatContext *ctx);
 
     // 缓冲检测
     void checkBufferState();
@@ -253,8 +291,14 @@ private:
     void onSpeedTransitionFinished();
 
     QString m_filename;
+    // 当前打开的媒体源（reopen 直播时复用 URL + headers）
+    MediaSource m_activeSource;
 
     AVFormatContext *m_fmtCtx;
+    // split 模式（DASH 分离流）的音频独立 context；普通模式为 nullptr
+    AVFormatContext *m_audioFmtCtx{nullptr};
+    bool m_splitMode{false};        // 是否处于视频/音频分离输入模式
+    int m_splitEofCount{0};         // split 模式双 demux EOF 计数
     int m_videoStreamIndex;
     int m_audioStreamIndex;
     int m_subtitleStreamIndex;
@@ -264,6 +308,8 @@ private:
     AVCodecContext *m_subtitleCodecCtx;
 
     DemuxThread *m_demuxThread;
+    // split 模式的音频 demux 线程（读取 m_audioFmtCtx，推入音频包队列）
+    DemuxThread *m_audioDemuxThread{nullptr};
     VideoDecodeThread *m_videoThread;
     AudioDecodeThread *m_audioThread;
     SubtitleDecodeThread *m_subtitleThread;
@@ -380,6 +426,11 @@ private:
     BufferState m_bufferState{BufferPlaying};
     QTimer *m_bufferCheckTimer{nullptr};
     bool m_bufferSuppressed{false}; // seek 后临时抑制缓冲检测
+    // 直播卡顿看门狗状态
+    bool m_liveStalling{false};
+    QElapsedTimer m_liveStallTimer;
+    bool m_liveReopenPending{false};
+    qint64 m_liveReopenCooldownUntilUs{0};
     // EOF 排空门控定时器（50ms）：demux 报 EOF 后轮询帧队列/FIFO，
     // 全部播完才发 playbackFinished（短视频不丢尾）。
     QTimer *m_eofDrainTimer{nullptr};

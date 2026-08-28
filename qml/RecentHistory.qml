@@ -5,7 +5,7 @@ import QtQuick.Layouts
 Item {
     id: root
 
-    signal fileDoubleClicked(string filePath)
+    signal fileDoubleClicked(string filePath, int mode)
     property alias model: listView.model
 
     property bool editing: false
@@ -123,7 +123,7 @@ Item {
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
                     cursorShape: Qt.PointingHandCursor
-                    onDoubleTapped: root.fileDoubleClicked(model.filePath)
+                    onDoubleTapped: root.fileDoubleClicked(model.filePath, model.mode)
                 }
 
                 TapHandler {

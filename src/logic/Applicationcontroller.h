@@ -9,6 +9,7 @@
 
 class MediaEngine;
 class VideoRenderItem;
+class StreamResolverManager;
 class QTimer;
 class QQmlApplicationEngine;
 
@@ -41,6 +42,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString coverArtUrl READ coverArtUrl NOTIFY coverArtChanged)
     Q_PROPERTY(QString currentLyric READ currentLyric NOTIFY currentLyricChanged)
     Q_PROPERTY(QString currentFilePath READ currentFilePath NOTIFY currentFilePathChanged)
+    Q_PROPERTY(QString currentTitle READ currentTitle NOTIFY currentTitleChanged)
     Q_PROPERTY(bool isNetworkStream READ isNetworkStream NOTIFY isNetworkStreamChanged)
     Q_PROPERTY(bool isLiveStream READ isLiveStream NOTIFY isLiveStreamChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
@@ -58,6 +60,13 @@ public:
 
     Q_INVOKABLE void openFile();
     Q_INVOKABLE bool loadFile(const QString &path);
+    // 打开网络流：mode = StreamResolverManager::Mode
+    // （0=原生 直接打开；1=直播/2=点播 经 yt-dlp 解析后播放）
+    Q_INVOKABLE void openNetworkStream(const QString &url, int mode);
+    // 从最近记录打开：mode 为条目保存的播放模式，网络流解析条目按模式重新解析
+    Q_INVOKABLE void openRecentFile(const QString &filePath, int mode);
+    // 取消在途的网络流解析（用户关闭/取消对话框时调用；成功打开不触发）
+    Q_INVOKABLE void cancelNetworkResolve();
     Q_INVOKABLE void addFiles(const QStringList &paths);
     Q_INVOKABLE void addUrl(const QString &url);
     Q_INVOKABLE void createPlaylist(const QString &name);
@@ -127,7 +136,6 @@ public:
     QVariantList audioStreams() const;
     int currentAudioStream() const;
     Q_INVOKABLE void setCurrentAudioStream(int index);
-    Q_INVOKABLE bool isNetworkUrl(const QString &url) const;
     int rotation() const;                   // 当前画面旋转角度
     bool flipVertical() const;              // 当前垂直翻转状态
     int abLoopState() const;                // A-B 循环状态：0=未激活 1=已设A 2=循环中
@@ -138,6 +146,9 @@ public:
     QString coverArtUrl() const;
     QString currentLyric() const;
     QString currentFilePath() const;
+    // 当前文件的显示标题（网络流解析模式为 yt-dlp 返回的真实标题，
+    // 本地文件为文件名）；空则 UI 退回从 currentFilePath 派生
+    QString currentTitle() const;
     bool isNetworkStream() const;
     bool isLiveStream() const;
     bool isLoading() const;
@@ -171,6 +182,7 @@ signals:
     void currentLyricChanged(QString lyric);
     void resumePositionFound(const QString &filePath, double position);
     void currentFilePathChanged();
+    void currentTitleChanged();
     void isNetworkStreamChanged(bool isNetwork);
     void isLiveStreamChanged(bool isLive);
     void isLoadingChanged(bool loading);
@@ -187,14 +199,22 @@ signals:
 
 private:
     MediaEngine *m_mediaEngine;
+    StreamResolverManager *m_streamResolver{nullptr};
     VideoRenderItem *m_videoRenderItem{nullptr};
     QQmlApplicationEngine *m_qmlEngine{nullptr};
     QTranslator m_translator;
+    // Qt 内置翻译（让 TextField 右键菜单 Cut/Copy/Paste 等随 app 语言切换）
+    QTranslator m_qtBaseTranslator;
+    QTranslator m_qtDeclarativeTranslator;
     PlaylistModel *m_playlistModel;
     RecentFilesModel *m_recentFiles;
     QString m_theme;
     int m_modalCount = 0;
     QString m_currentFilePath;
+    QString m_currentTitle;
+    // 解析模式已把最近记录与标题写入（含真实标题），networkStreamReady 到达时
+    // 不再用直链覆盖/重复添加最近记录。仅在解析成功→引擎打开的窗口期置位。
+    bool m_resolverRecentAdded{false};
     double m_lastPosition{0.0};
     QTimer *m_saveTimer{nullptr};
     qint64 m_subtitleDelayMs{0};        // 当前文件字幕延迟（ms）
@@ -222,6 +242,8 @@ private:
     bool openAndResume(const QString &filePath);
     // 播放指定路径：高亮列表项（index >= 0 时）+ 记录最近播放 + 打开并恢复
     void playByPath(const QString &filePath, int index);
+    // 网络流解析条目按模式走解析管线（不清空播放列表）
+    void resolveNetworkUrl(const QString &url, int mode);
     // 快进/快退（delta 为负时后退），钳制到合法区间
     void stepBy(double delta);
     void saveCurrentProgress();
